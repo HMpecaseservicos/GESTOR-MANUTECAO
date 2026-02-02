@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+
+{% block title %}Detalhes do Veículo{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-6">{{ veiculo[2] }} {{ veiculo[3] }}</h1>
+        <p class="text-muted">Placa: <strong>{{ veiculo[4] }}</strong></p>
+    </div>
+    <div class="col-md-4 text-end">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaManutencaoModal">
+            <i class="fas fa-wrench"></i> Agendar Manutenção
+        </button>
+        <a href="{{ url_for('veiculos') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Voltar
+        </a>
+    </div>
+</div>
+
+<!-- Informações do Veículo -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> Informações Gerais</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Tipo:</strong></div>
+                    <div class="col-6">{{ veiculo[1] }}</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Marca:</strong></div>
+                    <div class="col-6">{{ veiculo[2] }}</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Modelo:</strong></div>
+                    <div class="col-6">{{ veiculo[3] }}</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Ano:</strong></div>
+                    <div class="col-6">{{ veiculo[5] }}</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Quilometragem:</strong></div>
+                    <div class="col-6">{{ "{:,}".format(veiculo[6]) }} km</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><strong>Status:</strong></div>
+                    <div class="col-6">
+                        <span class="badge bg-success">{{ veiculo[8] }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> Próxima Manutenção</h5>
+            </div>
+            <div class="card-body text-center">
+                {% if proxima_manutencao %}
+                    <h3 class="text-warning">{{ proxima_manutencao }}</h3>
+                    <p class="text-muted">Data agendada</p>
+                {% else %}
+                    <h3 class="text-muted">Não agendada</h3>
+                    <p class="text-muted">Clique em "Agendar Manutenção" para criar um agendamento</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Histórico de Manutenções -->
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="fas fa-history"></i> Histórico de Manutenções</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if manutencoes %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Data</th>
+                        <th>Tipo</th>
+                        <th>Descrição</th>
+                        <th>Custo</th>
+                        <th>Status</th>
+                        <th>Técnico</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for manutencao in manutencoes %}
+                    <tr>
+                        <td>{{ manutencao[4] }}</td>
+                        <td>
+                            <span class="badge bg-info">{{ manutencao[2] }}</span>
+                        </td>
+                        <td>{{ manutencao[3] or 'Não informada' }}</td>
+                        <td>
+                            {% if manutencao[6] %}
+                                R$ {{ "%.2f"|format(manutencao[6]) }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-warning">{{ manutencao[7] }}</span>
+                        </td>
+                        <td>{{ manutencao[8] or 'Não definido' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="fas fa-tools fa-3x text-muted mb-3"></i>
+            <p class="text-muted">Nenhuma manutenção registrada para este veículo.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Peças Utilizadas -->
+<div class="card">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0"><i class="fas fa-cogs"></i> Peças Utilizadas</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if pecas_compativeis %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Código</th>
+                        <th>Nome</th>
+                        <th>Preço</th>
+                        <th>Estoque</th>
+                        <th>Fornecedor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for peca in pecas_compativeis %}
+                    <tr>
+                        <td><strong>{{ peca[2] }}</strong></td>
+                        <td>{{ peca[1] }}</td>
+                        <td>R$ {{ "%.2f"|format(peca[4]) }}</td>
+                        <td>
+                            <span class="badge bg-success">{{ peca[6] }}</span>
+                        </td>
+                        <td>{{ peca[7] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="fas fa-cog fa-3x text-muted mb-3"></i>
+            <p class="text-muted">Nenhuma peça utilizada neste veículo.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal Nova Manutenção -->
+<div class="modal fade" id="novaManutencaoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Agendar Manutenção</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novaManutencaoForm">
+                    <input type="hidden" name="veiculo_id" value="{{ veiculo[0] }}">
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-truck"></i> <strong>Veículo:</strong> {{ veiculo[2] }} {{ veiculo[3] }} - {{ veiculo[4] }}
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo de Manutenção *</label>
+                            <select class="form-select" name="tipo" required>
+                                <option value="">Selecione o tipo</option>
+                                <option value="Preventiva">Preventiva</option>
+                                <option value="Corretiva">Corretiva</option>
+                                <option value="Emergencial">Emergencial</option>
+                                <option value="Revisão">Revisão</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Agendada *</label>
+                            <input type="date" class="form-control" name="data_agendada" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea class="form-control" name="descricao" rows="3" 
+                                  placeholder="Descreva os serviços a serem realizados..."></textarea>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Responsável pela Manutenção *</label>
+                            <select class="form-select" name="tecnico" required>
+                                <option value="">Selecione o responsável</option>
+                                
+                                <!-- Técnicos Internos -->
+                                <optgroup label="👨‍🔧 Técnicos Internos">
+                                    {% for tecnico in tecnicos %}
+                                    <option value="{{ tecnico[1] }}">{{ tecnico[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                
+                                <!-- Fornecedores de Serviços -->
+                                {% if fornecedores_servicos %}
+                                <optgroup label="🏢 Empresas Terceirizadas">
+                                    {% for fornecedor in fornecedores_servicos %}
+                                    <option value="{{ fornecedor[1] }}">{{ fornecedor[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                
+                                <!-- Outros -->
+                                <optgroup label="📋 Outros">
+                                    <option value="Externo">Serviço Externo (Não Cadastrado)</option>
+                                </optgroup>
+                            </select>
+                            <small class="text-muted">Selecione um técnico interno ou empresa terceirizada</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Prioridade</label>
+                            <select class="form-select" name="prioridade">
+                                <option value="Baixa">Baixa</option>
+                                <option value="Média" selected>Média</option>
+                                <option value="Alta">Alta</option>
+                                <option value="Urgente">Urgente</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Custo Estimado</label>
+                            <input type="number" class="form-control" name="custo_estimado" 
+                                   step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">KM Atual do Veículo</label>
+                            <input type="number" class="form-control" name="km_veiculo" 
+                                   value="{{ veiculo[6] }}" placeholder="Quilometragem">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="agendarManutencao()">
+                    <i class="fas fa-save"></i> Agendar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function agendarManutencao() {
+    const form = document.getElementById('novaManutencaoForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    
+    // Validação básica
+    if (!data.veiculo_id || !data.tipo || !data.data_agendada || !data.tecnico) {
+        alert('Por favor, preencha todos os campos obrigatórios!');
+        return;
+    }
+    
+    // Envia para a API
+    fetch('/api/manutencao', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({
+            veiculo_id: parseInt(data.veiculo_id),
+            tipo: data.tipo,
+            descricao: data.descricao || '',
+            data_agendada: data.data_agendada,
+            tecnico: data.tecnico,
+            custo: parseFloat(data.custo_estimado) || 0,
+            km_veiculo: parseInt(data.km_veiculo) || 0,
+            status: 'Agendada'
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.error) {
+            alert('Erro: ' + result.error);
+        } else {
+            alert('Manutenção agendada com sucesso!');
+            bootstrap.Modal.getInstance(document.getElementById('novaManutencaoModal')).hide();
+            form.reset();
+            location.reload(); // Recarrega a página para mostrar a nova manutenção
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao agendar manutenção!');
+    });
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,1153 @@
+{% extends "base.html" %}
+
+{% block title %}Gestão Financeira{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="fas fa-chart-line text-success"></i> Gestão Financeira</h2>
+            <p class="text-muted">Controle completo de entradas e despesas da frota</p>
+        </div>
+    </div>
+
+    <!-- Cards de Resumo -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Total Entradas</h6>
+                            <h4 id="totalEntradas">R$ 0,00</h4>
+                        </div>
+                        <i class="fas fa-arrow-up fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Total Despesas</h6>
+                            <h4 id="totalDespesas">R$ 0,00</h4>
+                        </div>
+                        <i class="fas fa-arrow-down fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Saldo</h6>
+                            <h4 id="saldoTotal">R$ 0,00</h4>
+                        </div>
+                        <i class="fas fa-balance-scale fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6 class="card-title">Este Mês</h6>
+                            <h4 id="saldoMes">R$ 0,00</h4>
+                        </div>
+                        <i class="fas fa-calendar fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Abas de Navegação -->
+    <ul class="nav nav-tabs" id="financasTab" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="entradas-tab" data-bs-toggle="tab" data-bs-target="#entradas" type="button" role="tab">
+                <i class="fas fa-plus-circle text-success"></i> Entradas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="despesas-tab" data-bs-toggle="tab" data-bs-target="#despesas" type="button" role="tab">
+                <i class="fas fa-minus-circle text-danger"></i> Despesas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="relatorios-tab" data-bs-toggle="tab" data-bs-target="#relatorios" type="button" role="tab">
+                <i class="fas fa-chart-bar text-info"></i> Relatórios
+            </button>
+        </li>
+    </ul>
+
+    <!-- Conteúdo das Abas -->
+    <div class="tab-content" id="financasTabContent">
+        
+        <!-- ABA ENTRADAS -->
+        <div class="tab-pane fade show active" id="entradas" role="tabpanel" aria-labelledby="entradas-tab">
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-plus-circle text-success"></i> Entradas (Receitas)</h5>
+                    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#novaEntradaModal">
+                        <i class="fas fa-plus"></i> Nova Entrada
+                    </button>
+                </div>
+                <div class="card-body">
+                    <!-- Filtros -->
+                    <div class="row mb-3">
+                        <div class="col-md-2">
+                            <label class="form-label">Período Inicial</label>
+                            <input type="date" class="form-control" id="filtroDataInicialEntrada">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Período Final</label>
+                            <input type="date" class="form-control" id="filtroDataFinalEntrada">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Categoria</label>
+                            <select class="form-select" id="filtroCategoriaEntrada">
+                                <option value="">Todas as categorias</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Veículo</label>
+                            <select class="form-select" id="filtroVeiculoEntrada">
+                                <option value="">Todos os veículos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button type="button" class="btn btn-outline-secondary w-100" onclick="limparFiltrosEntrada()">
+                                <i class="fas fa-times"></i> Limpar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Tabela de Entradas -->
+                    <div class="table-responsive">
+                        <table class="table table-hover table-light" id="tabelaEntradas">
+                            <thead class="table-success">
+                                <tr>
+                                    <th class="text-dark">Data</th>
+                                    <th class="text-dark">Descrição</th>
+                                    <th class="text-dark">Categoria</th>
+                                    <th class="text-dark">Veículo</th>
+                                    <th class="text-dark">Valor</th>
+                                    <th class="text-dark">Tipo</th>
+                                    <th class="text-dark">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white">
+                                <!-- Entradas serão carregadas aqui -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ABA DESPESAS -->
+        <div class="tab-pane fade" id="despesas" role="tabpanel" aria-labelledby="despesas-tab">
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-minus-circle text-danger"></i> Despesas (Gastos)</h5>
+                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#novaDespesaModal">
+                        <i class="fas fa-plus"></i> Nova Despesa
+                    </button>
+                </div>
+                <div class="card-body">
+                    <!-- Filtros -->
+                    <div class="row mb-3">
+                        <div class="col-md-2">
+                            <label class="form-label">Período Inicial</label>
+                            <input type="date" class="form-control" id="filtroDataInicialDespesa">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Período Final</label>
+                            <input type="date" class="form-control" id="filtroDataFinalDespesa">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Categoria</label>
+                            <select class="form-select" id="filtroCategoriaDespesa">
+                                <option value="">Todas as categorias</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Veículo</label>
+                            <select class="form-select" id="filtroVeiculoDespesa">
+                                <option value="">Todos os veículos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button type="button" class="btn btn-outline-secondary w-100" onclick="limparFiltrosDespesa()">
+                                <i class="fas fa-times"></i> Limpar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Tabela de Despesas -->
+                    <div class="table-responsive">
+                        <table class="table table-hover table-light" id="tabelaDespesas">
+                            <thead class="table-danger">
+                                <tr>
+                                    <th class="text-dark">Data</th>
+                                    <th class="text-dark">Descrição</th>
+                                    <th class="text-dark">Categoria</th>
+                                    <th class="text-dark">Veículo</th>
+                                    <th class="text-dark">Valor</th>
+                                    <th class="text-dark">Tipo</th>
+                                    <th class="text-dark">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white">
+                                <!-- Despesas serão carregadas aqui -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ABA RELATÓRIOS -->
+        <div class="tab-pane fade" id="relatorios" role="tabpanel" aria-labelledby="relatorios-tab">
+            <div class="row mt-3">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-chart-line"></i> Fluxo de Caixa</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="graficoFluxoCaixa" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-car"></i> Lucro por Veículo</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="graficoLucroPorVeiculo" width="300" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-tags"></i> Entradas por Categoria</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="graficoEntradasCategoria" width="300" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-tags"></i> Despesas por Categoria</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="graficoDespesasCategoria" width="300" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Entrada -->
+<div class="modal fade" id="novaEntradaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Nova Entrada</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novaEntradaForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data da Entrada</label>
+                            <input type="date" class="form-control" name="data_entrada" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Valor (R$)</label>
+                            <input type="number" class="form-control" name="valor" step="0.01" min="0" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Categoria</label>
+                            <select class="form-select" name="categoria_id" required>
+                                <option value="">Selecione a categoria</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Veículo (opcional)</label>
+                            <select class="form-select" name="veiculo_id">
+                                <option value="">Selecione o veículo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <input type="text" class="form-control" name="descricao" required placeholder="Descreva a origem da receita">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Observações</label>
+                        <textarea class="form-control" name="observacoes" rows="3" placeholder="Informações adicionais (opcional)"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="salvarEntrada()">
+                    <i class="fas fa-save"></i> Salvar Entrada
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Despesa -->
+<div class="modal fade" id="novaDespesaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-minus-circle"></i> Nova Despesa</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novaDespesaForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data da Despesa</label>
+                            <input type="date" class="form-control" name="data_despesa" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Valor (R$)</label>
+                            <input type="number" class="form-control" name="valor" step="0.01" min="0" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Categoria</label>
+                            <select class="form-select" name="categoria_id" required>
+                                <option value="">Selecione a categoria</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Veículo (opcional)</label>
+                            <select class="form-select" name="veiculo_id">
+                                <option value="">Selecione o veículo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <input type="text" class="form-control" name="descricao" required placeholder="Descreva o gasto">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Observações</label>
+                        <textarea class="form-control" name="observacoes" rows="3" placeholder="Informações adicionais (opcional)"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" onclick="salvarDespesa()">
+                    <i class="fas fa-save"></i> Salvar Despesa
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Variáveis globais
+let entradas = [];
+let despesas = [];
+let categorias_entrada = [];
+let categorias_despesa = [];
+let veiculos = [];
+
+// Inicialização da página
+document.addEventListener('DOMContentLoaded', function() {
+    carregarDadosIniciais();
+    configurarFiltros();
+    
+    // Definir data padrão como hoje
+    const hoje = new Date().toISOString().split('T')[0];
+    document.querySelector('input[name="data_entrada"]').value = hoje;
+    document.querySelector('input[name="data_despesa"]').value = hoje;
+});
+
+// Carregar dados iniciais
+function carregarDadosIniciais() {
+    Promise.all([
+        fetch('/api/financeiro/categorias-entrada').then(r => r.json()),
+        fetch('/api/financeiro/categorias-despesa').then(r => r.json()),
+        fetch('/api/veiculos').then(r => r.json()),
+        fetch('/api/financeiro/entradas').then(r => r.json()),
+        fetch('/api/financeiro/despesas').then(r => r.json())
+    ])
+    .then(([catEntrada, catDespesa, veics, ents, desps]) => {
+        console.log('Dados carregados:', { catEntrada, catDespesa, veics, ents, desps });
+        categorias_entrada = catEntrada;
+        categorias_despesa = catDespesa;
+        veiculos = veics;
+        entradas = ents;
+        despesas = desps;
+        
+        popularSelects();
+        atualizarResumo();
+        carregarEntradas();
+        carregarDespesas();
+        
+        // Gerar gráficos dos relatórios
+        console.log('Dados carregados, gerando gráficos...');
+        gerarGraficos();
+    })
+    .catch(error => {
+        console.error('Erro ao carregar dados:', error);
+        alert('Erro ao carregar dados financeiros');
+    });
+}
+
+// Popular selects com categorias e veículos
+function popularSelects() {
+    // Selects de categoria de entrada
+    const selectsCatEntrada = document.querySelectorAll('select[name="categoria_id"], #filtroCategoriaEntrada');
+    selectsCatEntrada.forEach(select => {
+        if (select.name === 'categoria_id' && select.closest('#novaEntradaModal')) {
+            select.innerHTML = '<option value="">Selecione a categoria</option>';
+            categorias_entrada.forEach(cat => {
+                select.innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+            });
+        }
+    });
+    
+    // Selects de categoria de despesa
+    const selectsCatDespesa = document.querySelectorAll('#novaDespesaModal select[name="categoria_id"], #filtroCategoriaDespesa');
+    selectsCatDespesa.forEach(select => {
+        if (select.closest('#novaDespesaModal')) {
+            select.innerHTML = '<option value="">Selecione a categoria</option>';
+            categorias_despesa.forEach(cat => {
+                select.innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+            });
+        }
+    });
+    
+    // Selects de veículos
+    const selectsVeiculo = document.querySelectorAll('select[name="veiculo_id"], #filtroVeiculoEntrada, #filtroVeiculoDespesa');
+    selectsVeiculo.forEach(select => {
+        const opcaoTodos = select.id.includes('filtro') ? '<option value="">Todos os veículos</option>' : '<option value="">Selecione o veículo</option>';
+        select.innerHTML = opcaoTodos;
+        veiculos.forEach(veiculo => {
+            select.innerHTML += `<option value="${veiculo.id}">${veiculo.placa} - ${veiculo.modelo}</option>`;
+        });
+    });
+    
+    // Filtros de categoria
+    document.getElementById('filtroCategoriaEntrada').innerHTML = '<option value="">Todas as categorias</option>';
+    categorias_entrada.forEach(cat => {
+        document.getElementById('filtroCategoriaEntrada').innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+    });
+    
+    document.getElementById('filtroCategoriaDespesa').innerHTML = '<option value="">Todas as categorias</option>';
+    categorias_despesa.forEach(cat => {
+        document.getElementById('filtroCategoriaDespesa').innerHTML += `<option value="${cat.id}">${cat.nome}</option>`;
+    });
+}
+
+// Atualizar cards de resumo
+function atualizarResumo() {
+    const totalEntradas = entradas.reduce((sum, e) => sum + parseFloat(limparValor(e.valor) || 0), 0);
+    const totalDespesas = despesas.reduce((sum, d) => sum + parseFloat(limparValor(d.valor) || 0), 0);
+    const saldo = totalEntradas - totalDespesas;
+    
+    // Entradas e despesas do mês atual
+    const mesAtual = new Date().toISOString().substring(0, 7); // YYYY-MM
+    const entradasMes = entradas.filter(e => e.data_entrada.startsWith(mesAtual));
+    const despesasMes = despesas.filter(d => d.data_despesa.startsWith(mesAtual));
+    const saldoMes = entradasMes.reduce((sum, e) => sum + parseFloat(e.valor || 0), 0) - 
+                     despesasMes.reduce((sum, d) => sum + parseFloat(d.valor || 0), 0);
+    
+    document.getElementById('totalEntradas').textContent = formatarMoeda(totalEntradas);
+    document.getElementById('totalDespesas').textContent = formatarMoeda(totalDespesas);
+    document.getElementById('saldoTotal').textContent = formatarMoeda(saldo);
+    document.getElementById('saldoMes').textContent = formatarMoeda(saldoMes);
+    
+    // Alterar cor do saldo baseado no valor
+    const cardSaldo = document.getElementById('saldoTotal').closest('.card');
+    cardSaldo.className = saldo >= 0 ? 'card text-white bg-info' : 'card text-white bg-warning';
+}
+
+// Carregar tabela de entradas
+function carregarEntradas() {
+    const tbody = document.querySelector('#tabelaEntradas tbody');
+    tbody.innerHTML = '';
+    
+    // Obter valores dos filtros
+    const filtroDataInicial = document.getElementById('filtroDataInicialEntrada')?.value || '';
+    const filtroDataFinal = document.getElementById('filtroDataFinalEntrada')?.value || '';
+    const filtroCategoria = document.getElementById('filtroCategoriaEntrada')?.value || '';
+    const filtroVeiculo = document.getElementById('filtroVeiculoEntrada')?.value || '';
+    
+    console.log('=== CARREGANDO ENTRADAS ===');
+    console.log('Total de entradas disponíveis:', entradas?.length || 0);
+    console.log('Filtros aplicados:', { filtroDataInicial, filtroDataFinal, filtroCategoria, filtroVeiculo });
+    
+    if (!entradas || entradas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-dark bg-light p-3"><strong>Nenhuma entrada encontrada</strong></td></tr>';
+        return;
+    }
+    
+    // Filtrar entradas
+    let entradasFiltradas = entradas.filter(entrada => {
+        // Filtro por data inicial
+        if (filtroDataInicial && entrada.data_entrada < filtroDataInicial) {
+            return false;
+        }
+        
+        // Filtro por data final
+        if (filtroDataFinal && entrada.data_entrada > filtroDataFinal) {
+            return false;
+        }
+        
+        // Filtro por categoria
+        if (filtroCategoria && entrada.categoria_id != filtroCategoria) {
+            return false;
+        }
+        
+        // Filtro por veículo (considerando que pode ser null/undefined)
+        if (filtroVeiculo) {
+            // Se filtro de veículo está definido, entrada deve ter esse veículo
+            if (entrada.veiculo_id != filtroVeiculo) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    console.log(`Entradas após filtros: ${entradasFiltradas.length} de ${entradas.length}`);
+    
+    if (entradasFiltradas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-dark bg-light p-3"><strong>Nenhuma entrada encontrada com os filtros aplicados</strong></td></tr>';
+        return;
+    }
+    
+    entradasFiltradas.forEach((entrada, index) => {
+        try {
+            console.log(`Renderizando entrada ${index + 1}:`, entrada);
+            
+            const categoria = categorias_entrada.find(c => c.id == entrada.categoria_id);
+            const veiculo = veiculos.find(v => v.id == entrada.veiculo_id);
+            
+            const dataFormatada = formatarData(entrada.data_entrada) || 'Data inválida';
+            const descricao = entrada.descricao || 'Sem descrição';
+            const categoriaNome = categoria ? categoria.nome : 'Categoria não encontrada';
+            const veiculoInfo = veiculo ? `${veiculo.placa} - ${veiculo.modelo}` : (entrada.veiculo_id ? 'Veículo não encontrado' : 'Sem veículo');
+            const valor = formatarMoeda(entrada.valor) || 'R$ 0,00';
+            const tipo = entrada.tipo || 'Manual';
+            
+            tbody.innerHTML += `
+                <tr class="text-dark">
+                    <td class="text-dark">${dataFormatada}</td>
+                    <td class="text-dark">${descricao}</td>
+                    <td><span class="badge bg-success text-white">${categoriaNome}</span></td>
+                    <td class="text-dark">${veiculoInfo}</td>
+                    <td class="text-success fw-bold">${valor}</td>
+                    <td><span class="badge bg-primary text-white">${tipo}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-warning" onclick="editarEntrada(${entrada.id})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="excluirEntrada(${entrada.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        } catch (error) {
+            console.error(`Erro ao processar entrada ${index}:`, error, entrada);
+        }
+    });
+    
+    console.log('=== FIM CARREGAMENTO ENTRADAS ===');
+}
+
+// Carregar tabela de despesas
+function carregarDespesas() {
+    const tbody = document.querySelector('#tabelaDespesas tbody');
+    tbody.innerHTML = '';
+    
+    // Obter valores dos filtros
+    const filtroDataInicial = document.getElementById('filtroDataInicialDespesa')?.value || '';
+    const filtroDataFinal = document.getElementById('filtroDataFinalDespesa')?.value || '';
+    const filtroCategoria = document.getElementById('filtroCategoriaDespesa')?.value || '';
+    const filtroVeiculo = document.getElementById('filtroVeiculoDespesa')?.value || '';
+    
+    console.log('=== CARREGANDO DESPESAS ===');
+    console.log('Total de despesas disponíveis:', despesas?.length || 0);
+    console.log('Filtros aplicados:', { filtroDataInicial, filtroDataFinal, filtroCategoria, filtroVeiculo });
+    
+    if (!despesas || despesas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-dark bg-light p-3"><strong>Nenhuma despesa encontrada</strong></td></tr>';
+        return;
+    }
+    
+    // Filtrar despesas
+    let despesasFiltradas = despesas.filter(despesa => {
+        // Filtro por data inicial
+        if (filtroDataInicial && despesa.data_despesa < filtroDataInicial) {
+            return false;
+        }
+        
+        // Filtro por data final
+        if (filtroDataFinal && despesa.data_despesa > filtroDataFinal) {
+            return false;
+        }
+        
+        // Filtro por categoria
+        if (filtroCategoria && despesa.categoria_id != filtroCategoria) {
+            return false;
+        }
+        
+        // Filtro por veículo (considerando que pode ser null/undefined)
+        if (filtroVeiculo) {
+            // Se filtro de veículo está definido, despesa deve ter esse veículo
+            if (despesa.veiculo_id != filtroVeiculo) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    console.log(`Despesas após filtros: ${despesasFiltradas.length} de ${despesas.length}`);
+    
+    if (despesasFiltradas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-dark bg-light p-3"><strong>Nenhuma despesa encontrada com os filtros aplicados</strong></td></tr>';
+        return;
+    }
+    
+    despesasFiltradas.forEach((despesa, index) => {
+        try {
+            console.log(`Renderizando despesa ${index + 1}:`, despesa);
+            
+            const categoria = categorias_despesa.find(c => c.id == despesa.categoria_id);
+            const veiculo = veiculos.find(v => v.id == despesa.veiculo_id);
+            
+            const dataFormatada = formatarData(despesa.data_despesa) || 'Data inválida';
+            const descricao = despesa.descricao || 'Sem descrição';
+            const categoriaNome = categoria ? categoria.nome : 'Categoria não encontrada';
+            const veiculoInfo = veiculo ? `${veiculo.placa} - ${veiculo.modelo}` : (despesa.veiculo_id ? 'Veículo não encontrado' : 'Sem veículo');
+            const valor = formatarMoeda(despesa.valor) || 'R$ 0,00';
+            const tipo = despesa.tipo || 'Manual';
+            
+            tbody.innerHTML += `
+                <tr class="text-dark">
+                    <td class="text-dark">${dataFormatada}</td>
+                    <td class="text-dark">${descricao}</td>
+                    <td><span class="badge bg-danger text-white">${categoriaNome}</span></td>
+                    <td class="text-dark">${veiculoInfo}</td>
+                    <td class="text-danger fw-bold">${valor}</td>
+                    <td><span class="badge bg-primary text-white">${tipo}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-warning" onclick="editarDespesa(${despesa.id})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="excluirDespesa(${despesa.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        } catch (error) {
+            console.error(`Erro ao processar despesa ${index}:`, error, despesa);
+        }
+    });
+    
+    console.log('=== FIM CARREGAMENTO DESPESAS ===');
+}
+
+// Salvar entrada
+function salvarEntrada() {
+    const form = document.getElementById('novaEntradaForm');
+    const formData = new FormData(form);
+    
+    const entrada = {
+        descricao: formData.get('descricao'),
+        valor: parseFloat(formData.get('valor')),
+        data_entrada: formData.get('data_entrada'),
+        categoria_id: formData.get('categoria_id'),
+        veiculo_id: formData.get('veiculo_id') || null,
+        observacoes: formData.get('observacoes'),
+        tipo: 'Manual'
+    };
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    fetch('/api/financeiro/entrada', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(entrada)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Entrada cadastrada com sucesso!');
+            bootstrap.Modal.getInstance(document.getElementById('novaEntradaModal')).hide();
+            form.reset();
+            carregarDadosIniciais(); // Recarregar dados
+        } else {
+            alert('Erro: ' + result.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao salvar entrada');
+    });
+}
+
+// Salvar despesa
+function salvarDespesa() {
+    const form = document.getElementById('novaDespesaForm');
+    const formData = new FormData(form);
+    
+    const despesa = {
+        descricao: formData.get('descricao'),
+        valor: parseFloat(formData.get('valor')),
+        data_despesa: formData.get('data_despesa'),
+        categoria_id: formData.get('categoria_id'),
+        veiculo_id: formData.get('veiculo_id') || null,
+        observacoes: formData.get('observacoes'),
+        tipo: 'Manual'
+    };
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    fetch('/api/financeiro/despesa', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(despesa)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Despesa cadastrada com sucesso!');
+            bootstrap.Modal.getInstance(document.getElementById('novaDespesaModal')).hide();
+            form.reset();
+            carregarDadosIniciais(); // Recarregar dados
+        } else {
+            alert('Erro: ' + result.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao salvar despesa');
+    });
+}
+
+// Funções auxiliares
+function formatarMoeda(valor) {
+    const numero = parseFloat(valor || 0);
+    return 'R$ ' + numero.toLocaleString('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+// Limpar formatação de moeda para cálculos
+function limparValor(valor) {
+    if (typeof valor === 'string') {
+        return valor.replace(/[^\d,.-]/g, '').replace(',', '.');
+    }
+    return valor;
+}
+
+function formatarData(data) {
+    if (!data) return 'Data não informada';
+    
+    try {
+        // Tentar diferentes formatos de data
+        let date;
+        
+        if (data.includes('T')) {
+            // Formato ISO com time
+            date = new Date(data);
+        } else if (data.includes('-')) {
+            // Formato YYYY-MM-DD
+            date = new Date(data + 'T00:00:00');
+        } else {
+            // Tentar parsing direto
+            date = new Date(data);
+        }
+        
+        if (isNaN(date.getTime())) {
+            console.warn('Data inválida:', data);
+            return 'Data inválida';
+        }
+        
+        return date.toLocaleDateString('pt-BR');
+    } catch (error) {
+        console.error('Erro ao formatar data:', error, data);
+        return 'Erro na data';
+    }
+}
+
+function configurarFiltros() {
+    // Configurar eventos para os filtros de entrada
+    document.getElementById('filtroDataInicialEntrada').addEventListener('change', carregarEntradas);
+    document.getElementById('filtroDataFinalEntrada').addEventListener('change', carregarEntradas);
+    document.getElementById('filtroCategoriaEntrada').addEventListener('change', carregarEntradas);
+    document.getElementById('filtroVeiculoEntrada').addEventListener('change', carregarEntradas);
+    
+    // Configurar eventos para os filtros de despesa
+    document.getElementById('filtroDataInicialDespesa').addEventListener('change', carregarDespesas);
+    document.getElementById('filtroDataFinalDespesa').addEventListener('change', carregarDespesas);
+    document.getElementById('filtroCategoriaDespesa').addEventListener('change', carregarDespesas);
+    document.getElementById('filtroVeiculoDespesa').addEventListener('change', carregarDespesas);
+    
+    // Limpar filtros ao inicializar
+    document.getElementById('filtroDataInicialEntrada').value = '';
+    document.getElementById('filtroDataFinalEntrada').value = '';
+    document.getElementById('filtroDataInicialDespesa').value = '';
+    document.getElementById('filtroDataFinalDespesa').value = '';
+    
+    console.log('Filtros configurados e limpos');
+}
+
+// Funções para limpar filtros
+function limparFiltrosEntrada() {
+    document.getElementById('filtroDataInicialEntrada').value = '';
+    document.getElementById('filtroDataFinalEntrada').value = '';
+    document.getElementById('filtroCategoriaEntrada').value = '';
+    document.getElementById('filtroVeiculoEntrada').value = '';
+    carregarEntradas();
+}
+
+function limparFiltrosDespesa() {
+    document.getElementById('filtroDataInicialDespesa').value = '';
+    document.getElementById('filtroDataFinalDespesa').value = '';
+    document.getElementById('filtroCategoriaDespesa').value = '';
+    document.getElementById('filtroVeiculoDespesa').value = '';
+    carregarDespesas();
+}
+
+// Placeholder para funções de edição e exclusão
+function editarEntrada(id) {
+    alert('Funcionalidade de edição será implementada em breve');
+}
+
+function excluirEntrada(id) {
+    if (confirm('Deseja realmente excluir esta entrada?')) {
+        // Implementar exclusão
+        alert('Funcionalidade de exclusão será implementada em breve');
+    }
+}
+
+function editarDespesa(id) {
+    alert('Funcionalidade de edição será implementada em breve');
+}
+
+function excluirDespesa(id) {
+    if (confirm('Deseja realmente excluir esta despesa?')) {
+        // Implementar exclusão
+        alert('Funcionalidade de exclusão será implementada em breve');
+    }
+}
+
+// Variáveis globais para os gráficos
+let graficoFluxoCaixa, graficoLucroPorVeiculo, graficoEntradasCategoria, graficoDespesasCategoria;
+
+// Função para gerar os gráficos dos relatórios
+function gerarGraficos() {
+    console.log('Gerando gráficos dos relatórios...');
+    
+    // Aguardar um pouco para garantir que os dados estejam carregados
+    setTimeout(() => {
+        gerarGraficoFluxoCaixa();
+        gerarGraficoLucroPorVeiculo();
+        gerarGraficoEntradasCategoria();
+        gerarGraficoDespesasCategoria();
+    }, 500);
+}
+
+// Gráfico de Fluxo de Caixa
+function gerarGraficoFluxoCaixa() {
+    const ctx = document.getElementById('graficoFluxoCaixa');
+    if (!ctx) return;
+    
+    // Destruir gráfico existente se houver
+    if (graficoFluxoCaixa) {
+        graficoFluxoCaixa.destroy();
+    }
+    
+    // Agrupar dados por mês
+    const dadosPorMes = {};
+    
+    // Processar entradas
+    entradas.forEach(entrada => {
+        const mes = entrada.data_entrada.substring(0, 7); // YYYY-MM
+        if (!dadosPorMes[mes]) dadosPorMes[mes] = { entradas: 0, despesas: 0 };
+        dadosPorMes[mes].entradas += parseFloat(entrada.valor || 0);
+    });
+    
+    // Processar despesas
+    despesas.forEach(despesa => {
+        const mes = despesa.data_despesa.substring(0, 7); // YYYY-MM
+        if (!dadosPorMes[mes]) dadosPorMes[mes] = { entradas: 0, despesas: 0 };
+        dadosPorMes[mes].despesas += parseFloat(despesa.valor || 0);
+    });
+    
+    // Ordenar meses
+    const mesesOrdenados = Object.keys(dadosPorMes).sort();
+    const labels = mesesOrdenados.map(mes => {
+        const [ano, mesNum] = mes.split('-');
+        const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        return `${meses[parseInt(mesNum) - 1]}/${ano}`;
+    });
+    
+    const dataEntradas = mesesOrdenados.map(mes => dadosPorMes[mes].entradas);
+    const dataDespesas = mesesOrdenados.map(mes => dadosPorMes[mes].despesas);
+    
+    graficoFluxoCaixa = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Entradas',
+                data: dataEntradas,
+                borderColor: 'rgb(25, 135, 84)',
+                backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                tension: 0.1
+            }, {
+                label: 'Despesas',
+                data: dataDespesas,
+                borderColor: 'rgb(220, 53, 69)',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Fluxo de Caixa Mensal'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'R$ ' + value.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Gráfico de Lucro por Veículo
+function gerarGraficoLucroPorVeiculo() {
+    const ctx = document.getElementById('graficoLucroPorVeiculo');
+    if (!ctx) return;
+    
+    if (graficoLucroPorVeiculo) {
+        graficoLucroPorVeiculo.destroy();
+    }
+    
+    const lucroPorVeiculo = {};
+    
+    // Calcular entradas por veículo
+    entradas.forEach(entrada => {
+        if (entrada.veiculo_id) {
+            const veiculo = veiculos.find(v => v.id == entrada.veiculo_id);
+            const nome = veiculo ? veiculo.placa : `Veículo ${entrada.veiculo_id}`;
+            if (!lucroPorVeiculo[nome]) lucroPorVeiculo[nome] = 0;
+            lucroPorVeiculo[nome] += parseFloat(entrada.valor || 0);
+        }
+    });
+    
+    // Subtrair despesas por veículo
+    despesas.forEach(despesa => {
+        if (despesa.veiculo_id) {
+            const veiculo = veiculos.find(v => v.id == despesa.veiculo_id);
+            const nome = veiculo ? veiculo.placa : `Veículo ${despesa.veiculo_id}`;
+            if (!lucroPorVeiculo[nome]) lucroPorVeiculo[nome] = 0;
+            lucroPorVeiculo[nome] -= parseFloat(despesa.valor || 0);
+        }
+    });
+    
+    const labels = Object.keys(lucroPorVeiculo);
+    const data = Object.values(lucroPorVeiculo);
+    
+    graficoLucroPorVeiculo = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Lucro/Prejuízo',
+                data: data,
+                backgroundColor: data.map(value => value >= 0 ? 'rgba(25, 135, 84, 0.6)' : 'rgba(220, 53, 69, 0.6)'),
+                borderColor: data.map(value => value >= 0 ? 'rgb(25, 135, 84)' : 'rgb(220, 53, 69)'),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Lucro por Veículo'
+                }
+            },
+            scales: {
+                y: {
+                    ticks: {
+                        callback: function(value) {
+                            return 'R$ ' + value.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Gráfico de Entradas por Categoria
+function gerarGraficoEntradasCategoria() {
+    const ctx = document.getElementById('graficoEntradasCategoria');
+    if (!ctx) return;
+    
+    if (graficoEntradasCategoria) {
+        graficoEntradasCategoria.destroy();
+    }
+    
+    const entradasPorCategoria = {};
+    
+    entradas.forEach(entrada => {
+        const categoria = categorias_entrada.find(c => c.id == entrada.categoria_id);
+        const nome = categoria ? categoria.nome : 'Sem categoria';
+        if (!entradasPorCategoria[nome]) entradasPorCategoria[nome] = 0;
+        entradasPorCategoria[nome] += parseFloat(entrada.valor || 0);
+    });
+    
+    const labels = Object.keys(entradasPorCategoria);
+    const data = Object.values(entradasPorCategoria);
+    
+    graficoEntradasCategoria = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    'rgba(25, 135, 84, 0.6)',
+                    'rgba(13, 202, 240, 0.6)',
+                    'rgba(255, 193, 7, 0.6)',
+                    'rgba(111, 66, 193, 0.6)',
+                    'rgba(220, 53, 69, 0.6)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Entradas por Categoria'
+                }
+            }
+        }
+    });
+}
+
+// Gráfico de Despesas por Categoria
+function gerarGraficoDespesasCategoria() {
+    const ctx = document.getElementById('graficoDespesasCategoria');
+    if (!ctx) return;
+    
+    if (graficoDespesasCategoria) {
+        graficoDespesasCategoria.destroy();
+    }
+    
+    const despesasPorCategoria = {};
+    
+    despesas.forEach(despesa => {
+        const categoria = categorias_despesa.find(c => c.id == despesa.categoria_id);
+        const nome = categoria ? categoria.nome : 'Sem categoria';
+        if (!despesasPorCategoria[nome]) despesasPorCategoria[nome] = 0;
+        despesasPorCategoria[nome] += parseFloat(despesa.valor || 0);
+    });
+    
+    const labels = Object.keys(despesasPorCategoria);
+    const data = Object.values(despesasPorCategoria);
+    
+    graficoDespesasCategoria = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    'rgba(220, 53, 69, 0.6)',
+                    'rgba(255, 193, 7, 0.6)',
+                    'rgba(111, 66, 193, 0.6)',
+                    'rgba(13, 202, 240, 0.6)',
+                    'rgba(25, 135, 84, 0.6)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Despesas por Categoria'
+                }
+            }
+        }
+    });
+}
+
+// Adicionar evento para gerar gráficos quando a aba de relatórios for clicada
+document.addEventListener('DOMContentLoaded', function() {
+    const relatoriosTab = document.getElementById('relatorios-tab');
+    if (relatoriosTab) {
+        relatoriosTab.addEventListener('click', function() {
+            // Aguardar a aba abrir completamente
+            setTimeout(gerarGraficos, 100);
+        });
+    }
+});
+</script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+{% endblock %}

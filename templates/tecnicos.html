@@ -1,0 +1,778 @@
+{% extends "base.html" %}
+
+{% block title %}Técnicos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="display-6">👷 Gestão de Técnicos</h1>
+        <p class="text-muted">Gerencie a equipe de técnicos da empresa</p>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoTecnicoModal">
+            <i class="fas fa-plus"></i> Novo Técnico
+        </button>
+        <button class="btn btn-success ms-2" onclick="exportarTecnicos()">
+            <i class="fas fa-file-export"></i> Exportar Lista
+        </button>
+    </div>
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar técnico..." id="searchTecnicos" onkeyup="filtrarTecnicos()">
+            <select class="form-select" style="max-width: 180px;" id="filtroStatus" onchange="filtrarTecnicos()">
+                <option value="">Todos os status</option>
+                <option value="Ativo">✅ Ativo</option>
+                <option value="Inativo">⚪ Inativo</option>
+                <option value="Férias">🌴 Férias</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button" title="Buscar">
+                <i class="fas fa-search"></i>
+            </button>
+            <button class="btn btn-outline-danger" type="button" onclick="limparFiltros()" title="Limpar Filtros">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Cards de Técnicos -->
+<div class="row" id="listaTecnicos">
+    {% for tecnico in tecnicos %}
+    <div class="col-md-6 col-lg-4 mb-4 tecnico-card" data-nome="{{ tecnico[1]|lower }}" data-status="{{ tecnico[7] }}">
+        <div class="card h-100">
+            <div class="card-header {% if tecnico[7] == 'Ativo' %}bg-success{% elif tecnico[7] == 'Férias' %}bg-warning{% else %}bg-secondary{% endif %} text-white">
+                <h6 class="mb-0">
+                    <i class="fas fa-user-cog"></i> {{ tecnico[1] }}
+                    <span class="badge bg-light text-dark float-end">{{ tecnico[7] }}</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong><i class="fas fa-id-card"></i> CPF:</strong><br>
+                    <span class="text-muted">{{ tecnico[2] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-phone"></i> Telefone:</strong><br>
+                    <span class="text-muted">{{ tecnico[3] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-envelope"></i> Email:</strong><br>
+                    <span class="text-muted">{{ tecnico[4] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-wrench"></i> Especialidade:</strong><br>
+                    <span class="badge bg-primary">{{ tecnico[5] or 'Geral' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-calendar"></i> Data Admissão:</strong><br>
+                    <span class="text-muted">{{ tecnico[6] or 'Não informada' }}</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-group w-100" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-primary btn-detalhes" data-id="{{ tecnico[0] }}" title="Ver Detalhes">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-whatsapp" data-tel="{{ tecnico[3] or '' }}" title="WhatsApp">
+                        <i class="fab fa-whatsapp"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning btn-editar" data-id="{{ tecnico[0] }}" title="Editar">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger btn-excluir" data-id="{{ tecnico[0] }}" data-nome="{{ tecnico[1] }}" title="Excluir">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Estatísticas -->
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-2x mb-2"></i>
+                <h5>Total de Técnicos</h5>
+                <h3>{{ tecnicos|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body text-center">
+                <i class="fas fa-user-check fa-2x mb-2"></i>
+                <h5>Ativos</h5>
+                <h3>
+                    {% set ns = namespace(count=0) %}
+                    {% for tecnico in tecnicos %}
+                        {% if tecnico[7] == 'Ativo' %}
+                            {% set ns.count = ns.count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ ns.count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body text-center">
+                <i class="fas fa-umbrella-beach fa-2x mb-2"></i>
+                <h5>De Férias</h5>
+                <h3>
+                    {% set ns = namespace(count=0) %}
+                    {% for tecnico in tecnicos %}
+                        {% if tecnico[7] == 'Férias' %}
+                            {% set ns.count = ns.count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ ns.count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-secondary">
+            <div class="card-body text-center">
+                <i class="fas fa-user-times fa-2x mb-2"></i>
+                <h5>Inativos</h5>
+                <h3>
+                    {% set ns = namespace(count=0) %}
+                    {% for tecnico in tecnicos %}
+                        {% if tecnico[7] == 'Inativo' %}
+                            {% set ns.count = ns.count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ ns.count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Novo Técnico -->
+<div class="modal fade" id="novoTecnicoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Novo Técnico</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novoTecnicoForm">
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label">Nome Completo *</label>
+                            <input type="text" class="form-control" name="nome" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">CPF</label>
+                            <input type="text" class="form-control" name="cpf" placeholder="000.000.000-00">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" name="telefone" placeholder="(11) 99999-8888">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" name="email">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Especialidade *</label>
+                            <select class="form-select" name="especialidade" required>
+                                <option value="">Selecione a especialidade</option>
+                                <option value="Mecânica Pesada">Mecânica Pesada</option>
+                                <option value="Mecânica Geral">Mecânica Geral</option>
+                                <option value="Elétrica Automotiva">Elétrica Automotiva</option>
+                                <option value="Hidráulica">Hidráulica</option>
+                                <option value="Funilaria e Pintura">Funilaria e Pintura</option>
+                                <option value="Ar Condicionado">Ar Condicionado</option>
+                                <option value="Alinhamento e Balanceamento">Alinhamento e Balanceamento</option>
+                                <option value="Injeção Eletrônica">Injeção Eletrônica</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data de Admissão</label>
+                            <input type="date" class="form-control" name="data_admissao">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" name="status">
+                            <option value="Ativo" selected>Ativo</option>
+                            <option value="Férias">Férias</option>
+                            <option value="Inativo">Inativo</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarNovoTecnico()">
+                    <i class="fas fa-save"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Técnico -->
+<div class="modal fade" id="editarTecnicoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Técnico</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editarTecnicoForm">
+                    <input type="hidden" id="edit-id">
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label">Nome Completo *</label>
+                            <input type="text" class="form-control" id="edit-nome" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">CPF</label>
+                            <input type="text" class="form-control" id="edit-cpf" placeholder="000.000.000-00">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" id="edit-telefone" placeholder="(11) 99999-8888">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="edit-email">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Especialidade *</label>
+                            <select class="form-select" id="edit-especialidade" required>
+                                <option value="">Selecione a especialidade</option>
+                                <option value="Mecânica Pesada">Mecânica Pesada</option>
+                                <option value="Mecânica Geral">Mecânica Geral</option>
+                                <option value="Elétrica Automotiva">Elétrica Automotiva</option>
+                                <option value="Hidráulica">Hidráulica</option>
+                                <option value="Funilaria e Pintura">Funilaria e Pintura</option>
+                                <option value="Ar Condicionado">Ar Condicionado</option>
+                                <option value="Alinhamento e Balanceamento">Alinhamento e Balanceamento</option>
+                                <option value="Injeção Eletrônica">Injeção Eletrônica</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data de Admissão</label>
+                            <input type="date" class="form-control" id="edit-data-admissao">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="edit-status">
+                            <option value="Ativo">Ativo</option>
+                            <option value="Férias">Férias</option>
+                            <option value="Inativo">Inativo</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" onclick="salvarEdicaoTecnico()">
+                    <i class="fas fa-save"></i> Salvar Alterações
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Detalhes do Técnico -->
+<div class="modal fade" id="detalhesTecnicoModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-user-cog"></i> Perfil Completo do Técnico</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Cabeçalho do Perfil -->
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 60px; height: 60px;">
+                                <i class="fas fa-user-tie text-white fs-3"></i>
+                            </div>
+                            <div>
+                                <h3 id="detalhe-nome" class="mb-1 text-primary"></h3>
+                                <p class="text-muted mb-0" id="detalhe-especialidade-header"></p>
+                            </div>
+                            <div class="ms-auto">
+                                <span id="detalhe-status-badge"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Informações Pessoais -->
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-id-card text-primary"></i> Informações Pessoais</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="info-item mb-3">
+                                    <label class="form-label text-muted mb-1">CPF</label>
+                                    <div class="fw-bold" id="detalhe-cpf"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="info-item mb-3">
+                                    <label class="form-label text-muted mb-1">Telefone</label>
+                                    <div class="fw-bold" id="detalhe-telefone"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="info-item mb-3">
+                                    <label class="form-label text-muted mb-1">Email</label>
+                                    <div class="fw-bold" id="detalhe-email"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Informações Profissionais -->
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-briefcase text-primary"></i> Informações Profissionais</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="info-item mb-3">
+                                    <label class="form-label text-muted mb-1">Especialidade</label>
+                                    <div class="fw-bold" id="detalhe-especialidade"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="info-item mb-3">
+                                    <label class="form-label text-muted mb-1">Data de Admissão</label>
+                                    <div class="fw-bold" id="detalhe-data-admissao"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Histórico de Manutenções -->
+                <div class="card">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-history text-primary"></i> Histórico de Manutenções</h6>
+                        <small class="text-muted" id="total-manutencoes"></small>
+                    </div>
+                    <div class="card-body">
+                        <div id="historico-manutencoes">
+                            <div class="d-flex justify-content-center p-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Carregando...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i> Fechar
+                </button>
+                <button type="button" class="btn btn-success" id="btn-whatsapp-modal">
+                    <i class="fab fa-whatsapp"></i> Contatar via WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Salvar novo técnico
+function salvarNovoTecnico() {
+    const form = document.getElementById('novoTecnicoForm');
+    const formData = new FormData(form);
+    
+    const data = {
+        nome: formData.get('nome'),
+        cpf: formData.get('cpf'),
+        telefone: formData.get('telefone'),
+        email: formData.get('email'),
+        especialidade: formData.get('especialidade'),
+        data_admissao: formData.get('data_admissao'),
+        status: formData.get('status')
+    };
+    
+    fetch('/api/tecnico', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ ' + data.message);
+            location.reload();
+        } else {
+            alert('❌ Erro: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('❌ Erro ao salvar técnico');
+    });
+}
+
+// Editar técnico
+function editarTecnico(id) {
+    // Buscar dados do técnico
+    fetch(`/api/tecnico/${id}`)
+        .then(response => response.json())
+        .then(tecnico => {
+            document.getElementById('edit-id').value = tecnico.id;
+            document.getElementById('edit-nome').value = tecnico.nome;
+            document.getElementById('edit-cpf').value = tecnico.cpf || '';
+            document.getElementById('edit-telefone').value = tecnico.telefone || '';
+            document.getElementById('edit-email').value = tecnico.email || '';
+            document.getElementById('edit-especialidade').value = tecnico.especialidade || '';
+            document.getElementById('edit-data-admissao').value = tecnico.data_admissao || '';
+            document.getElementById('edit-status').value = tecnico.status || 'Ativo';
+            
+            const modal = new bootstrap.Modal(document.getElementById('editarTecnicoModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('❌ Erro ao carregar dados do técnico');
+        });
+}
+
+// Salvar edição
+function salvarEdicaoTecnico() {
+    const id = document.getElementById('edit-id').value;
+    
+    const data = {
+        nome: document.getElementById('edit-nome').value,
+        cpf: document.getElementById('edit-cpf').value,
+        telefone: document.getElementById('edit-telefone').value,
+        email: document.getElementById('edit-email').value,
+        especialidade: document.getElementById('edit-especialidade').value,
+        data_admissao: document.getElementById('edit-data-admissao').value,
+        status: document.getElementById('edit-status').value
+    };
+    
+    fetch(`/api/tecnico/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ ' + data.message);
+            location.reload();
+        } else {
+            alert('❌ Erro: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('❌ Erro ao atualizar técnico');
+    });
+}
+
+// Confirmar exclusão
+function confirmarExclusao(id, nome) {
+    if (confirm(`Tem certeza que deseja excluir o técnico "${nome}"?`)) {
+        fetch(`/api/tecnico/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.message);
+                location.reload();
+            } else {
+                alert('❌ Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('❌ Erro ao excluir técnico');
+        });
+    }
+}
+
+// Ver detalhes do técnico
+function verDetalhesTecnico(id) {
+    fetch(`/api/tecnico/${id}`)
+        .then(response => response.json())
+        .then(tecnico => {
+            // Preenche informações básicas
+            document.getElementById('detalhe-nome').textContent = tecnico.nome || 'Nome não informado';
+            document.getElementById('detalhe-especialidade-header').textContent = tecnico.especialidade || 'Especialidade não informada';
+            
+            // Informações pessoais
+            document.getElementById('detalhe-cpf').innerHTML = tecnico.cpf ? 
+                `<i class="fas fa-id-card me-1"></i>${formatarCPF(tecnico.cpf)}` : 
+                '<span class="text-muted"><i class="fas fa-minus"></i> Não informado</span>';
+                
+            document.getElementById('detalhe-telefone').innerHTML = tecnico.telefone ? 
+                `<i class="fas fa-phone me-1"></i>${formatarTelefone(tecnico.telefone)}` : 
+                '<span class="text-muted"><i class="fas fa-minus"></i> Não informado</span>';
+                
+            document.getElementById('detalhe-email').innerHTML = tecnico.email ? 
+                `<i class="fas fa-envelope me-1"></i>${tecnico.email}` : 
+                '<span class="text-muted"><i class="fas fa-minus"></i> Não informado</span>';
+            
+            // Informações profissionais
+            document.getElementById('detalhe-especialidade').innerHTML = tecnico.especialidade ? 
+                `<span class="badge bg-primary">${tecnico.especialidade}</span>` : 
+                '<span class="text-muted">Não informada</span>';
+                
+            document.getElementById('detalhe-data-admissao').innerHTML = tecnico.data_admissao ? 
+                `<i class="fas fa-calendar me-1"></i>${formatarData(tecnico.data_admissao)}` : 
+                '<span class="text-muted"><i class="fas fa-minus"></i> Não informada</span>';
+            
+            // Status com badge colorido e ícone
+            const statusBadge = document.getElementById('detalhe-status-badge');
+            if (tecnico.status === 'Ativo') {
+                statusBadge.innerHTML = '<span class="badge bg-success fs-6"><i class="fas fa-check-circle"></i> Ativo</span>';
+            } else if (tecnico.status === 'Férias') {
+                statusBadge.innerHTML = '<span class="badge bg-warning fs-6"><i class="fas fa-umbrella-beach"></i> Férias</span>';
+            } else {
+                statusBadge.innerHTML = '<span class="badge bg-danger fs-6"><i class="fas fa-times-circle"></i> Inativo</span>';
+            }
+
+            // Configurar botão WhatsApp
+            const btnWhatsApp = document.getElementById('btn-whatsapp-modal');
+            if (tecnico.telefone) {
+                btnWhatsApp.onclick = () => abrirWhatsApp(tecnico.telefone, tecnico.nome);
+                btnWhatsApp.style.display = 'inline-block';
+            } else {
+                btnWhatsApp.style.display = 'none';
+            }
+            
+            // Busca histórico de manutenções
+            fetch(`/api/tecnico/${id}/historico`)
+                .then(response => response.json())
+                .then(historico => {
+                    const divHistorico = document.getElementById('historico-manutencoes');
+                    const totalManutencoes = document.getElementById('total-manutencoes');
+                    
+                    totalManutencoes.textContent = `${historico.length} manutenção(ões) registrada(s)`;
+                    
+                    if (historico.length === 0) {
+                        divHistorico.innerHTML = `
+                            <div class="text-center py-5">
+                                <i class="fas fa-wrench fa-3x text-muted mb-3"></i>
+                                <h6 class="text-muted">Nenhuma manutenção registrada</h6>
+                                <p class="text-muted mb-0">Este técnico ainda não possui histórico de manutenções.</p>
+                            </div>
+                        `;
+                    } else {
+                        let html = '<div class="table-responsive">';
+                        html += '<table class="table table-hover align-middle">';
+                        html += `<thead class="table-light">
+                            <tr>
+                                <th><i class="fas fa-calendar"></i> Data</th>
+                                <th><i class="fas fa-car"></i> Veículo</th>
+                                <th><i class="fas fa-wrench"></i> Tipo</th>
+                                <th><i class="fas fa-info-circle"></i> Status</th>
+                                <th><i class="fas fa-dollar-sign"></i> Custo</th>
+                            </tr>
+                        </thead><tbody>`;
+                        
+                        historico.forEach(m => {
+                            let statusBadge = '';
+                            let statusIcon = '';
+                            
+                            switch(m.status) {
+                                case 'Concluída':
+                                    statusBadge = '<span class="badge bg-success"><i class="fas fa-check"></i> Concluída</span>';
+                                    break;
+                                case 'Em Andamento':
+                                    statusBadge = '<span class="badge bg-primary"><i class="fas fa-cog fa-spin"></i> Em Andamento</span>';
+                                    break;
+                                case 'Agendada':
+                                    statusBadge = '<span class="badge bg-warning"><i class="fas fa-clock"></i> Agendada</span>';
+                                    break;
+                                default:
+                                    statusBadge = '<span class="badge bg-secondary">-</span>';
+                            }
+                            
+                            const custo = m.custo ? `R$ ${parseFloat(m.custo).toFixed(2).replace('.', ',')}` : '-';
+                            const data = m.data ? formatarData(m.data) : '-';
+                            
+                            html += `<tr>
+                                <td>${data}</td>
+                                <td><strong>${m.veiculo || '-'}</strong></td>
+                                <td><span class="badge bg-info">${m.tipo || '-'}</span></td>
+                                <td>${statusBadge}</td>
+                                <td><strong class="text-success">${custo}</strong></td>
+                            </tr>`;
+                        });
+                        
+                        html += '</tbody></table></div>';
+                        divHistorico.innerHTML = html;
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao carregar histórico:', error);
+                    document.getElementById('historico-manutencoes').innerHTML = 
+                        `<div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            Erro ao carregar histórico de manutenções.
+                        </div>`;
+                });
+            
+            // Abre o modal
+            const modal = new bootstrap.Modal(document.getElementById('detalhesTecnicoModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Erro ao carregar detalhes:', error);
+            alert('❌ Erro ao carregar detalhes do técnico');
+        });
+}
+
+// Funções auxiliares de formatação
+function formatarCPF(cpf) {
+    if (!cpf) return '';
+    return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+
+function formatarTelefone(telefone) {
+    if (!telefone) return '';
+    const numbers = telefone.replace(/\D/g, '');
+    if (numbers.length === 11) {
+        return numbers.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+    } else if (numbers.length === 10) {
+        return numbers.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
+    }
+    return telefone;
+}
+
+function formatarData(data) {
+    if (!data) return '';
+    const date = new Date(data + 'T00:00:00');
+    return date.toLocaleDateString('pt-BR');
+}
+
+// Contatar técnico via WhatsApp
+function contatarWhatsApp(telefone) {
+    if (telefone && telefone !== 'Não informado') {
+        // Remove caracteres não numéricos
+        const numeroLimpo = telefone.replace(/\D/g, '');
+        
+        // Mensagem padrão
+        const mensagem = encodeURIComponent('Olá! Entrando em contato pelo sistema de Gestão de Frota.');
+        
+        // Abre WhatsApp Web
+        window.open(`https://wa.me/55${numeroLimpo}?text=${mensagem}`, '_blank');
+    } else {
+        alert('� Telefone não cadastrado');
+    }
+}
+
+// Filtrar técnicos
+function filtrarTecnicos() {
+    const searchText = document.getElementById('searchTecnicos').value.toLowerCase();
+    const filtroStatus = document.getElementById('filtroStatus').value;
+    const cards = document.querySelectorAll('.tecnico-card');
+    
+    let contadorVisiveis = 0;
+    
+    cards.forEach(card => {
+        const nome = card.getAttribute('data-nome');
+        const status = card.getAttribute('data-status');
+        
+        const matchSearch = nome.includes(searchText);
+        const matchStatus = !filtroStatus || status === filtroStatus;
+        
+        if (matchSearch && matchStatus) {
+            card.style.display = 'block';
+            contadorVisiveis++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+    
+    // Feedback visual no select quando filtrado
+    const selectElement = document.getElementById('filtroStatus');
+    if (filtroStatus) {
+        selectElement.style.backgroundColor = '#e3f2fd';
+        selectElement.style.fontWeight = 'bold';
+    } else {
+        selectElement.style.backgroundColor = '';
+        selectElement.style.fontWeight = '';
+    }
+    
+    console.log(`Filtro aplicado: "${filtroStatus}" - ${contadorVisiveis} técnicos exibidos`);
+}
+
+// Limpar todos os filtros
+function limparFiltros() {
+    document.getElementById('searchTecnicos').value = '';
+    document.getElementById('filtroStatus').value = '';
+    filtrarTecnicos();
+}
+
+// Exportar lista de técnicos
+function exportarTecnicos() {
+    alert('📄 Funcionalidade de exportação em desenvolvimento');
+}
+
+// Delegated click handlers for buttons that use data- attributes (avoids inline JS with template braces)
+document.addEventListener('click', function(event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    if (btn.classList.contains('btn-detalhes')) {
+        const id = btn.getAttribute('data-id');
+        if (id) verDetalhesTecnico(id);
+    } else if (btn.classList.contains('btn-whatsapp')) {
+        const tel = btn.getAttribute('data-tel') || '';
+        contatarWhatsApp(tel);
+    } else if (btn.classList.contains('btn-editar')) {
+        const id = btn.getAttribute('data-id');
+        if (id) editarTecnico(id);
+    } else if (btn.classList.contains('btn-excluir')) {
+        const id = btn.getAttribute('data-id');
+        const nome = btn.getAttribute('data-nome') || '';
+        if (id) confirmarExclusao(id, nome);
+    }
+});
+</script>
+{% endblock %}

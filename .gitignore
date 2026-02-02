@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Flask
+instance/
+.webassets-cache
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+temp/
+tmp/
+uploads/*.tmp
+
+# Reports (podem ser grandes)
+reports/*.pdf
+
+# Backup files
+*_backup.*
+app_backup.py
+app_new.py
+app_professional.py
+
+# Test files
+test_*.py
+teste_*.py
+testar_*.py
+verificar_*.py
+
+# Documentation drafts
+*.md
+!README.md

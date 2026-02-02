@@ -1,0 +1,1511 @@
+{% extends "base.html" %}
+
+{% block title %}Manutenção{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="display-6">Gestão de Manutenção</h1>
+        <p class="text-muted">Agende e acompanhe as manutenções da frota</p>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaManutencaoModal">
+            <i class="fas fa-plus"></i> Nova Manutenção
+        </button>
+        <button class="btn btn-success ms-2" onclick="abrirCalendario()">
+            <i class="fas fa-calendar-alt"></i> Calendário
+        </button>
+    </div>
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar veículo ou descrição..." id="searchManutencoes" onkeyup="filtrarManutencoes()">
+            <select class="form-select" style="max-width: 200px;" id="filtroStatus" onchange="filtrarManutencoes()">
+                <option value="">Todos os status</option>
+                <option value="Agendada">📅 Agendada</option>
+                <option value="Em Andamento">⚙️ Em Andamento</option>
+                <option value="Concluída">✅ Concluída</option>
+                <option value="Cancelada">❌ Cancelada</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button" title="Filtrar">
+                <i class="fas fa-filter"></i>
+            </button>
+            <button class="btn btn-outline-danger" type="button" onclick="limparFiltrosManutencao()" title="Limpar Filtros">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-wrench"></i> Lista de Manutenções</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Veículo</th>
+                        <th>Tipo</th>
+                        <th>Descrição</th>
+                        <th>Data Agendada</th>
+                        <th>Data Realizada</th>
+                        <th>Custo</th>
+                        <th>Status</th>
+                        <th>Técnico</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead> 
+                <tbody>
+                    {% for manutencao in manutencoes %}
+                    <tr class="manutencao-row" 
+                        data-veiculo="{{ manutencao[13]|lower }} {{ manutencao[14]|lower }}" 
+                        data-descricao="{{ manutencao[3]|lower }}"
+                        data-status="{{ manutencao[7] }}"
+                        data-id="{{ manutencao[0] }}"
+                        data-placa="{{ manutencao[13] }}"
+                        data-modelo="{{ manutencao[14] }}"
+                        data-tipo="{{ manutencao[2] }}"
+                        data-data="{{ manutencao[4] }}"
+                        data-tecnico="{{ manutencao[8] if manutencao[8] else 'Não definido' }}"
+                        data-telefone="{{ manutencao[15] if manutencao[15] else '' }}">
+                        <td><strong>#{{ manutencao[0] }}</strong></td>
+                        <td>
+                            <strong class="text-primary">{{ manutencao[13] }}</strong><br>
+                            <small class="text-muted">{{ manutencao[14] }}</small>
+                        </td>
+                        <td>
+                            {% if manutencao[2] == 'Preventiva' %}
+                                <span class="badge bg-info">{{ manutencao[2] }}</span>
+                            {% elif manutencao[2] == 'Corretiva' %}
+                                <span class="badge bg-warning">{{ manutencao[2] }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ manutencao[2] }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span title="{{ manutencao[3] }}">
+                                {{ manutencao[3][:30] }}{% if manutencao[3]|length > 30 %}...{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <small class="text-primary">{{ manutencao[4] }}</small>
+                        </td>
+                        <td>
+                            {% if manutencao[5] %}
+                                <small class="text-success">{{ manutencao[5] }}</small>
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if manutencao[6] %}
+                                <span class="text-success">{{ manutencao[6]|moeda_br }}</span>
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if manutencao[7] == 'Agendada' %}
+                                <span class="badge bg-warning">{{ manutencao[7] }}</span>
+                            {% elif manutencao[7] == 'Em Andamento' %}
+                                <span class="badge bg-info">{{ manutencao[7] }}</span>
+                            {% elif manutencao[7] == 'Concluída' %}
+                                <span class="badge bg-success">{{ manutencao[7] }}</span>
+                            {% else %}
+                                <span class="badge bg-danger">{{ manutencao[7] }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if manutencao[8] %}
+                                <small>{{ manutencao[8] }}</small>
+                            {% else %}
+                                <small class="text-muted">Não definido</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-primary" title="Ver Detalhes"
+                                        onclick="verDetalhesManutencao('{{ manutencao[0] }}')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning" title="Editar"
+                                        onclick="editarManutencao('{{ manutencao[0] }}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                {% if manutencao[7] == 'Agendada' %}
+                                <button class="btn btn-sm btn-outline-success iniciar-whatsapp" 
+                                        title="Iniciar e Notificar via WhatsApp"
+                                        onclick="iniciarViaWhatsApp(this)">
+                                    <i class="fab fa-whatsapp"></i> Iniciar
+                                </button>
+                                {% elif manutencao[7] == 'Em Andamento' %}
+                                <button class="btn btn-sm btn-outline-success" title="Finalizar"
+                                        onclick="finalizarManutencao('{{ manutencao[0] }}')">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Manutenção -->
+<div class="modal fade" id="novaManutencaoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Nova Manutenção</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novaManutencaoForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Veículo</label>
+                            <select class="form-select" name="veiculo_id" required>
+                                <option value="">Selecione o veículo</option>
+                                {% for veiculo in veiculos %}
+                                <option value="{{ veiculo[0] }}">{{ veiculo[1] }} - {{ veiculo[2] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" name="tipo" required>
+                                <option value="">Selecione o tipo</option>
+                                <option value="Preventiva">Preventiva</option>
+                                <option value="Corretiva">Corretiva</option>
+                                <option value="Emergencial">Emergencial</option>
+                                <option value="Revisão">Revisão</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição</label>
+                        <textarea class="form-control" name="descricao" rows="3" 
+                                  placeholder="Descreva os serviços a serem realizados..."></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Agendada</label>
+                            <input type="date" class="form-control" name="data_agendada" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Responsável pela Manutenção</label>
+                            <select class="form-select" name="tecnico" required>
+                                <option value="">Selecione o responsável</option>
+                                
+                                <!-- Técnicos Internos -->
+                                <optgroup label="👨‍🔧 Técnicos Internos">
+                                    {% for tecnico in tecnicos %}
+                                    <option value="{{ tecnico[1] }}">{{ tecnico[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                
+                                <!-- Fornecedores de Serviços -->
+                                {% if fornecedores_servicos %}
+                                <optgroup label="🏢 Empresas Terceirizadas">
+                                    {% for fornecedor in fornecedores_servicos %}
+                                    <option value="{{ fornecedor[1] }}">{{ fornecedor[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                
+                                <!-- Outros -->
+                                <optgroup label="📋 Outros">
+                                    <option value="Externo">Serviço Externo (Não Cadastrado)</option>
+                                </optgroup>
+                            </select>
+                            <small class="text-muted">Selecione um técnico interno ou empresa terceirizada</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Prioridade</label>
+                            <select class="form-select" name="prioridade">
+                                <option value="Baixa">Baixa</option>
+                                <option value="Média" selected>Média</option>
+                                <option value="Alta">Alta</option>
+                                <option value="Urgente">Urgente</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Custo Estimado</label>
+                            <input type="number" class="form-control" name="custo_estimado" 
+                                   step="0.01" placeholder="0.00">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="agendarManutencao()">
+                    <i class="fas fa-save"></i> Agendar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Manutenção -->
+<div class="modal fade" id="editarManutencaoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Manutenção</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editarManutencaoForm">
+                    <input type="hidden" id="edit-manutencao-id">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Veículo *</label>
+                            <select class="form-select" id="edit-veiculo" name="veiculo_id" required>
+                                {% for veiculo in veiculos %}
+                                <option value="{{ veiculo[0] }}">{{ veiculo[1] }} - {{ veiculo[2] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo *</label>
+                            <select class="form-select" id="edit-tipo" name="tipo" required>
+                                <option value="Preventiva">Preventiva</option>
+                                <option value="Corretiva">Corretiva</option>
+                                <option value="Emergencial">Emergencial</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrição *</label>
+                        <textarea class="form-control" id="edit-descricao" name="descricao" rows="3" required></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Agendada *</label>
+                            <input type="date" class="form-control" id="edit-data-agendada" name="data_agendada" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Data Realizada <span id="data-realizada-required" class="text-danger" style="display:none;">*</span></label>
+                            <input type="date" class="form-control" id="edit-data-realizada" name="data_realizada">
+                            <small id="data-realizada-help" class="text-danger" style="display:none;">⚠️ Obrigatório para status "Concluída"</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Custo Mão de Obra (R$)</label>
+                            <input type="number" class="form-control" id="edit-custo" name="custo" step="0.01" placeholder="0.00">
+                            <small class="text-muted">Custo das peças será somado automaticamente</small>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Status *</label>
+                            <select class="form-select" id="edit-status" name="status" required>
+                                <option value="Agendada">Agendada</option>
+                                <option value="Em Andamento">Em Andamento</option>
+                                <option value="Concluída">Concluída</option>
+                                <option value="Cancelada">Cancelada</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Responsável</label>
+                            <select class="form-select" id="edit-tecnico" name="tecnico">
+                                <option value="">Selecione o responsável</option>
+                                
+                                <!-- Técnicos Internos -->
+                                <optgroup label="👨‍🔧 Técnicos Internos">
+                                    {% for tecnico in tecnicos %}
+                                    <option value="{{ tecnico[1] }}">{{ tecnico[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                
+                                <!-- Fornecedores de Serviços -->
+                                {% if fornecedores_servicos %}
+                                <optgroup label="🏢 Empresas Terceirizadas">
+                                    {% for fornecedor in fornecedores_servicos %}
+                                    <option value="{{ fornecedor[1] }}">{{ fornecedor[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                
+                                <!-- Outros -->
+                                <optgroup label="📋 Outros">
+                                    <option value="Externo">Serviço Externo (Não Cadastrado)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+                
+                <!-- Seção de Peças -->
+                <hr class="my-4">
+                <div class="peças-section">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0"><i class="fas fa-cogs"></i> Peças Utilizadas</h6>
+                        <button type="button" class="btn btn-sm btn-success" onclick="abrirModalAdicionarPecaEdicao()">
+                            <i class="fas fa-plus"></i> Adicionar Peça
+                        </button>
+                    </div>
+                    <div id="edit-pecas-lista" class="table-responsive">
+                        <p class="text-muted">Carregando peças...</p>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Total em Peças:</strong>
+                                <span id="edit-total-pecas" class="text-success fs-5">R$ 0,00</span>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <strong>Custo Total:</strong>
+                                <span id="edit-custo-total" class="text-primary fs-5">R$ 0,00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" onclick="salvarEdicaoManutencao()">
+                    <i class="fas fa-save"></i> Salvar Alterações
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Detalhes da Manutenção -->
+<div class="modal fade" id="detalhesManutencaoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="fas fa-info-circle"></i> Detalhes da Manutenção</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="container-fluid">
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">ID:</strong></div>
+                        <div class="col-8" id="detalhe-id" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">Veículo:</strong></div>
+                        <div class="col-8" id="detalhe-veiculo" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">Tipo:</strong></div>
+                        <div class="col-8" id="detalhe-tipo" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">Status:</strong></div>
+                        <div class="col-8" id="detalhe-status" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">Data Agendada:</strong></div>
+                        <div class="col-8" id="detalhe-data-agendada" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-4"><strong style="color: #333; font-size: 14px;">Técnico:</strong></div>
+                        <div class="col-8" id="detalhe-tecnico" style="background: #f8f9fa; padding: 8px; border-radius: 4px; color: #333; font-size: 14px; min-height: 30px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-12"><strong style="color: #333; font-size: 14px;">Descrição:</strong></div>
+                        <div class="col-12 mt-2" id="detalhe-descricao" style="background: #f8f9fa; padding: 12px; border-radius: 4px; min-height: 60px; color: #333; font-size: 14px; display: block !important; visibility: visible !important;">🔄 Carregando...</div>
+                    </div>
+                    
+                    <!-- Seção de Peças Utilizadas (somente visualização) -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <h6 style="color: #333; font-size: 16px; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
+                                <i class="fas fa-cogs"></i> Peças Utilizadas
+                            </h6>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="d-flex justify-content-end align-items-center mb-2">
+                                <span id="total-pecas" class="badge bg-primary fs-6">Total: R$ 0,00</span>
+                            </div>
+                            <div id="lista-pecas-utilizadas" style="background: #f8f9fa; padding: 12px; border-radius: 4px; min-height: 80px;">
+                                <div class="text-center text-muted">🔄 Carregando peças...</div>
+                            </div>
+                            <div class="alert alert-info mt-3 mb-0">
+                                <i class="fas fa-info-circle"></i> Para adicionar ou remover peças, use o botão <strong>Editar</strong>.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Adicionar Peça à Manutenção -->
+<div class="modal fade" id="adicionarPecaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Adicionar Peça à Manutenção</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Buscar Peça</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="busca-peca" placeholder="Digite o nome, código ou marca da peça...">
+                        <button class="btn btn-outline-secondary" type="button" onclick="buscarPecas()">
+                            <i class="fas fa-search"></i>
+                        </button>
+                        <button class="btn btn-outline-info" type="button" onclick="mostrarTodasPecas()" title="Mostrar todas as peças">
+                            <i class="fas fa-list"></i>
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">🔍 Use a busca para encontrar peças específicas ou clique na lista para ver todas</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Peça</label>
+                    <select class="form-select" id="select-peca" onchange="atualizarInfoPeca()">
+                        <option value="">Selecione uma peça...</option>
+                    </select>
+                    <small class="form-text text-muted" id="resultado-busca"></small>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Código</label>
+                        <input type="text" class="form-control" id="info-codigo" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Preço Unitário</label>
+                        <input type="text" class="form-control" id="info-preco" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Estoque Disponível</label>
+                        <input type="text" class="form-control" id="info-estoque" readonly>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Quantidade</label>
+                    <input type="number" class="form-control" id="quantidade-peca" min="1" placeholder="Quantidade a usar">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Subtotal</label>
+                    <input type="text" class="form-control" id="subtotal-peca" readonly>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="confirmarAdicionarPeca()">
+                    <i class="fas fa-plus"></i> Adicionar Peça
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Monitorar mudanças no status para exibir aviso sobre data realizada
+document.addEventListener('DOMContentLoaded', function() {
+    const editStatus = document.getElementById('edit-status');
+    if (editStatus) {
+        editStatus.addEventListener('change', function() {
+            const dataRealizadaRequired = document.getElementById('data-realizada-required');
+            const dataRealizadaHelp = document.getElementById('data-realizada-help');
+            const dataRealizadaInput = document.getElementById('edit-data-realizada');
+            
+            if (this.value === 'Concluída') {
+                dataRealizadaRequired.style.display = 'inline';
+                dataRealizadaHelp.style.display = 'block';
+                dataRealizadaInput.classList.add('border-danger');
+            } else {
+                dataRealizadaRequired.style.display = 'none';
+                dataRealizadaHelp.style.display = 'none';
+                dataRealizadaInput.classList.remove('border-danger');
+            }
+        });
+    }
+});
+
+// Função para carregar dados da manutenção para edição
+function editarManutencao(manutencaoId) {
+    console.log('Editando manutenção ID:', manutencaoId);
+    
+    fetch(`/manutencao/get/${manutencaoId}`)
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Dados recebidos:', data);
+            if (data.success) {
+                const manutencao = data.manutencao;
+                document.getElementById('edit-manutencao-id').value = manutencao.id;
+                document.getElementById('edit-veiculo').value = manutencao.veiculo_id;
+                document.getElementById('edit-tipo').value = manutencao.tipo;
+                document.getElementById('edit-descricao').value = manutencao.descricao;
+                document.getElementById('edit-data-agendada').value = manutencao.data_agendada;
+                document.getElementById('edit-data-realizada').value = manutencao.data_realizada || '';
+                document.getElementById('edit-custo').value = manutencao.custo || '';
+                document.getElementById('edit-status').value = manutencao.status;
+                document.getElementById('edit-tecnico').value = manutencao.tecnico || '';
+                
+                // Verificar se status é Concluída para mostrar aviso
+                const dataRealizadaRequired = document.getElementById('data-realizada-required');
+                const dataRealizadaHelp = document.getElementById('data-realizada-help');
+                const dataRealizadaInput = document.getElementById('edit-data-realizada');
+                
+                if (manutencao.status === 'Concluída') {
+                    dataRealizadaRequired.style.display = 'inline';
+                    dataRealizadaHelp.style.display = 'block';
+                    dataRealizadaInput.classList.add('border-danger');
+                } else {
+                    dataRealizadaRequired.style.display = 'none';
+                    dataRealizadaHelp.style.display = 'none';
+                    dataRealizadaInput.classList.remove('border-danger');
+                }
+                
+                // Carregar peças da manutenção
+                carregarPecasEdicao(manutencao.id);
+                
+                const modal = new bootstrap.Modal(document.getElementById('editarManutencaoModal'));
+                modal.show();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao carregar dados da manutenção: ' + error.message);
+            console.error('Erro completo:', error);
+        });
+}
+
+// Função para salvar edição
+function salvarEdicaoManutencao() {
+    console.log('Salvando edição da manutenção...');
+    
+    // Calcular custo total (mão de obra + peças)
+    const custoMaoObra = parseFloat(document.getElementById('edit-custo').value) || 0;
+    const totalPecasText = document.getElementById('edit-total-pecas').textContent;
+    const totalPecas = parseFloat(totalPecasText.replace('R$', '').replace(',', '.').trim()) || 0;
+    const custoTotal = custoMaoObra + totalPecas;
+    
+    console.log('Custo Mão de Obra:', custoMaoObra, 'Total Peças:', totalPecas, 'Custo Total:', custoTotal);
+    
+    const formData = new FormData();
+    formData.append('veiculo_id', document.getElementById('edit-veiculo').value);
+    formData.append('tipo', document.getElementById('edit-tipo').value);
+    formData.append('descricao', document.getElementById('edit-descricao').value);
+    formData.append('data_agendada', document.getElementById('edit-data-agendada').value);
+    formData.append('data_realizada', document.getElementById('edit-data-realizada').value);
+    formData.append('custo', custoTotal.toFixed(2)); // Enviar custo total
+    formData.append('status', document.getElementById('edit-status').value);
+    formData.append('tecnico', document.getElementById('edit-tecnico').value);
+    
+    const manutencaoId = document.getElementById('edit-manutencao-id').value;
+    console.log('ID da manutenção:', manutencaoId);
+    
+    // Validar campos obrigatórios
+    if (!document.getElementById('edit-veiculo').value || 
+        !document.getElementById('edit-tipo').value || 
+        !document.getElementById('edit-descricao').value || 
+        !document.getElementById('edit-data-agendada').value ||
+        !document.getElementById('edit-status').value) {
+        alert('Por favor, preencha todos os campos obrigatórios!');
+        return;
+    }
+    
+    // Validar data realizada se status for Concluída
+    const status = document.getElementById('edit-status').value;
+    const dataRealizada = document.getElementById('edit-data-realizada').value;
+    
+    if (status === 'Concluída' && !dataRealizada) {
+        alert('⚠️ Para concluir uma manutenção, é obrigatório informar a Data Realizada!');
+        document.getElementById('edit-data-realizada').focus();
+        return;
+    }
+    
+    fetch(`/manutencao/edit/${manutencaoId}`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        },
+        body: formData
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        return response.json();
+    })
+    .then(data => {
+        console.log('Resposta do servidor:', data);
+        if (data.success) {
+            alert('Manutenção atualizada com sucesso!');
+            location.reload();
+        } else {
+            alert('Erro: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Erro ao salvar alterações: ' + error.message);
+        console.error('Erro completo:', error);
+    });
+}
+
+// Função para ver detalhes
+function verDetalhesManutencao(manutencaoId) {
+    console.log('Carregando detalhes da manutenção ID:', manutencaoId);
+    
+    fetch(`/manutencao/get/${manutencaoId}`)
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Dados recebidos:', data);
+            if (data.success) {
+                const manutencao = data.manutencao;
+                console.log('Objeto manutenção:', manutencao);
+                
+                // Verificar se os elementos existem
+                const elementos = [
+                    'detalhe-id', 'detalhe-veiculo', 'detalhe-tipo', 
+                    'detalhe-status', 'detalhe-data-agendada', 
+                    'detalhe-tecnico', 'detalhe-descricao'
+                ];
+                
+                elementos.forEach(id => {
+                    const elemento = document.getElementById(id);
+                    if (!elemento) {
+                        console.error(`Elemento ${id} não encontrado!`);
+                    }
+                });
+                
+                console.log('Abrindo modal primeiro...');
+                const modal = new bootstrap.Modal(document.getElementById('detalhesManutencaoModal'));
+                modal.show();
+                
+                // Definir ID da manutenção atual para controle de peças
+                manutencaoAtualId = manutencaoId;
+                
+                // Aguardar o modal carregar completamente antes de preencher dados
+                setTimeout(() => {
+                    console.log('Preenchendo dados após modal abrir...');
+                    document.getElementById('detalhe-id').textContent = manutencao.id || 'N/A';
+                    document.getElementById('detalhe-veiculo').textContent = `${manutencao.veiculo_placa || 'N/A'} - ${manutencao.veiculo_modelo || 'N/A'}`;
+                    document.getElementById('detalhe-tipo').textContent = manutencao.tipo || 'N/A';
+                    document.getElementById('detalhe-status').textContent = manutencao.status || 'N/A';
+                    document.getElementById('detalhe-data-agendada').textContent = manutencao.data_agendada || 'N/A';
+                    document.getElementById('detalhe-tecnico').textContent = manutencao.tecnico || 'Não definido';
+                    document.getElementById('detalhe-descricao').textContent = manutencao.descricao || 'N/A';
+                    
+                    // Carregar peças utilizadas
+                    carregarPecasUtilizadas();
+                    
+                    console.log('Dados preenchidos com sucesso!');
+                }, 300);
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao carregar detalhes: ' + error.message);
+            console.error('Erro completo:', error);
+        });
+}
+
+// Função para iniciar manutenção
+function iniciarManutencao(manutencaoId) {
+    if (confirm('Deseja iniciar esta manutenção?')) {
+        const formData = new FormData();
+        formData.append('status', 'Em Andamento');
+        
+        fetch(`/manutencao/status/${manutencaoId}`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Manutenção iniciada!');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao iniciar manutenção');
+            console.error(error);
+        });
+    }
+}
+
+// Função para finalizar manutenção
+function finalizarManutencao(manutencaoId) {
+    if (confirm('Deseja finalizar esta manutenção?')) {
+        const formData = new FormData();
+        formData.append('status', 'Concluída');
+        
+        fetch(`/manutencao/status/${manutencaoId}`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Manutenção finalizada!');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao finalizar manutenção');
+            console.error(error);
+        });
+    }
+}
+
+// Variáveis globais para controle de peças
+let manutencaoAtualId = null;
+let pecasDisponiveis = [];
+
+// Função para abrir modal de adicionar peça
+// Função para carregar peças utilizadas na manutenção (somente visualização)
+function carregarPecasUtilizadas() {
+    if (!manutencaoAtualId) return;
+    
+    fetch(`/manutencao/${manutencaoAtualId}/pecas`)
+        .then(response => response.json())
+        .then(pecas => {
+            const container = document.getElementById('lista-pecas-utilizadas');
+            
+            if (pecas.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted"><i class="fas fa-info-circle"></i> Nenhuma peça adicionada ainda</div>';
+                document.getElementById('total-pecas').textContent = `Total: ${formatarMoedaBR(0)}`;
+                return;
+            }
+            
+            let totalGeral = 0;
+            let html = '<div class="table-responsive"><table class="table table-sm table-striped">';
+            html += '<thead><tr><th>Peça</th><th>Código</th><th>Qtd</th><th>Preço Unit.</th><th>Subtotal</th></tr></thead><tbody>';
+            
+            pecas.forEach(peca => {
+                const subtotal = parseFloat(peca[3]) * parseFloat(peca[4]);
+                totalGeral += subtotal;
+                
+                html += `<tr>
+                    <td><strong>${peca[6]}</strong></td>
+                    <td><small>${peca[7]}</small></td>
+                    <td>${peca[3]}</td>
+                    <td>${formatarMoedaBR(parseFloat(peca[4]))}</td>
+                    <td>${formatarMoedaBR(subtotal)}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+            document.getElementById('total-pecas').textContent = `Total: ${formatarMoedaBR(totalGeral)}`;
+        })
+        .catch(error => {
+            console.error('Erro ao carregar peças:', error);
+            document.getElementById('lista-pecas-utilizadas').innerHTML = '<div class="text-center text-danger">Erro ao carregar peças</div>';
+        });
+}
+
+// ===== FUNÇÕES PARA GERENCIAR PEÇAS NA EDIÇÃO =====
+
+// Variável global para armazenar o ID da manutenção sendo editada
+let manutencaoEdicaoId = null;
+
+// Função para carregar peças da manutenção no modo de edição
+function carregarPecasEdicao(manutencaoId) {
+    manutencaoEdicaoId = manutencaoId;
+    
+    fetch(`/manutencao/${manutencaoId}/pecas`)
+        .then(response => response.json())
+        .then(data => {
+            console.log('Dados recebidos da API:', data);
+            console.log('Tipo de dados:', typeof data, Array.isArray(data));
+            if (data.length > 0) {
+                console.log('Primeira peça:', data[0]);
+                console.log('Propriedades:', Object.keys(data[0]));
+            }
+            // A API retorna um array direto ou objeto com success
+            let pecas = Array.isArray(data) ? data : (data.pecas || []);
+            exibirPecasEdicao(pecas);
+            atualizarTotaisEdicao(pecas);
+        })
+        .catch(error => {
+            console.error('Erro ao carregar peças:', error);
+            document.getElementById('edit-pecas-lista').innerHTML = '<p class="text-danger">Erro ao carregar peças</p>';
+        });
+}
+
+// Função para exibir peças no modo de edição
+function exibirPecasEdicao(pecas) {
+    const container = document.getElementById('edit-pecas-lista');
+    
+    if (!pecas || pecas.length === 0) {
+        container.innerHTML = '<p class="text-muted">Nenhuma peça adicionada ainda.</p>';
+        return;
+    }
+    
+    let html = '<table class="table table-sm table-hover">';
+    html += '<thead><tr><th>Peça</th><th>Código</th><th>Qtd</th><th>Preço Unit.</th><th>Subtotal</th><th>Ações</th></tr></thead><tbody>';
+    
+    pecas.forEach(peca => {
+        // peca agora é um objeto com propriedades nomeadas
+        const quantidade = peca.quantidade || peca[3];
+        const precoUnitario = peca.preco_unitario || peca[4];
+        const subtotal = peca.subtotal || (quantidade * precoUnitario);
+        const nome = peca.nome || peca[6];
+        const codigo = peca.codigo || peca[7];
+        const id = peca.id || peca[0];
+        
+        html += `<tr>
+            <td><strong>${nome}</strong></td>
+            <td><small>${codigo}</small></td>
+            <td>${quantidade}</td>
+            <td>${formatarMoedaBR(parseFloat(precoUnitario))}</td>
+            <td>${formatarMoedaBR(subtotal)}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-danger" onclick="removerPecaEdicao(${id})" title="Remover">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// Função para atualizar totais no modo de edição
+function atualizarTotaisEdicao(pecas) {
+    let totalPecas = 0;
+    
+    if (pecas && pecas.length > 0) {
+        // pecas agora são objetos com propriedades nomeadas
+        totalPecas = pecas.reduce((sum, peca) => {
+            const quantidade = parseFloat(peca.quantidade || peca[3]) || 0;
+            const preco = parseFloat(peca.preco_unitario || peca[4]) || 0;
+            return sum + (quantidade * preco);
+        }, 0);
+    }
+    
+    const custoMaoObraInput = document.getElementById('edit-custo');
+    const custoMaoObra = custoMaoObraInput ? (parseFloat(custoMaoObraInput.value) || 0) : 0;
+    const custoTotal = totalPecas + custoMaoObra;
+    
+    console.log('Total Peças:', totalPecas, 'Custo Mão de Obra:', custoMaoObra, 'Custo Total:', custoTotal);
+    
+    document.getElementById('edit-total-pecas').textContent = formatarMoedaBR(totalPecas);
+    document.getElementById('edit-custo-total').textContent = formatarMoedaBR(custoTotal);
+}
+
+// Função para abrir modal de adicionar peça na edição
+function abrirModalAdicionarPecaEdicao() {
+    if (!manutencaoEdicaoId) {
+        alert('Erro: ID da manutenção não encontrado');
+        return;
+    }
+    
+    // Guardar o ID da manutenção atual
+    window.manutencaoAtualId = manutencaoEdicaoId;
+    
+    // Carregar peças disponíveis
+    fetch(`/manutencao/${manutencaoEdicaoId}/pecas/disponiveis`)
+        .then(response => response.json())
+        .then(data => {
+            // A API retorna um array direto
+            const pecas = Array.isArray(data) ? data : (data.pecas || []);
+            
+            const select = document.getElementById('select-peca');
+            select.innerHTML = '<option value="">Selecione uma peça...</option>';
+            
+            pecas.forEach(peca => {
+                // peca = [id, nome, codigo, veiculo_compativel, preco, fornecedor_id, quantidade_estoque, fornecedor_nome]
+                const id = peca[0];
+                const nome = peca[1];
+                const codigo = peca[2];
+                const preco = peca[4];
+                const estoque = peca[6];
+                
+                select.innerHTML += `<option value="${id}" 
+                    data-nome="${nome}"
+                    data-codigo="${codigo}"
+                    data-preco="${preco}"
+                    data-estoque="${estoque}">
+                    ${nome} - ${codigo} (Estoque: ${estoque})
+                </option>`;
+            });
+            
+            // Limpar campos
+            document.getElementById('info-codigo').value = '';
+            document.getElementById('info-preco').value = '';
+            document.getElementById('info-estoque').value = '';
+            document.getElementById('quantidade-peca').value = '';
+            document.getElementById('subtotal-peca').value = '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('adicionarPecaModal'));
+            modal.show();
+        })
+        .catch(error => {
+            alert('Erro ao carregar peças disponíveis: ' + error.message);
+            console.error(error);
+        });
+}
+
+// Função para buscar peças por termo
+function buscarPecas() {
+    const termo = document.getElementById('busca-peca').value.trim();
+    const manutencaoId = window.manutencaoAtualId;
+    
+    if (!termo) {
+        document.getElementById('resultado-busca').textContent = '⚠️ Digite um termo para buscar';
+        return;
+    }
+    
+    document.getElementById('resultado-busca').textContent = '🔍 Buscando...';
+    
+    fetch(`/manutencao/${manutencaoId}/pecas/buscar?q=${encodeURIComponent(termo)}`)
+        .then(response => response.json())
+        .then(pecas => {
+            const select = document.getElementById('select-peca');
+            select.innerHTML = '<option value="">Selecione uma peça...</option>';
+            
+            if (pecas.length === 0) {
+                document.getElementById('resultado-busca').textContent = `❌ Nenhuma peça encontrada para "${termo}"`;
+                return;
+            }
+            
+            document.getElementById('resultado-busca').textContent = `✅ ${pecas.length} peça(s) encontrada(s) para "${termo}"`;
+            
+            pecas.forEach(peca => {
+                // peca = [id, nome, codigo, veiculo_compativel, preco, fornecedor_id, quantidade_estoque, fornecedor_nome]
+                const id = peca[0];
+                const nome = peca[1];
+                const codigo = peca[2];
+                const compativel = peca[3];
+                const preco = peca[4];
+                const estoque = peca[6];
+                const fornecedor = peca[7];
+                
+                select.innerHTML += `<option value="${id}" 
+                    data-nome="${nome}"
+                    data-codigo="${codigo}"
+                    data-preco="${preco}"
+                    data-estoque="${estoque}">
+                    ${nome} - ${codigo} | ${compativel} | Estoque: ${estoque} | ${fornecedor}
+                </option>`;
+            });
+        })
+        .catch(error => {
+            document.getElementById('resultado-busca').textContent = '❌ Erro na busca';
+            console.error('Erro ao buscar peças:', error);
+        });
+}
+
+// Função para mostrar todas as peças (original)
+function mostrarTodasPecas() {
+    const manutencaoId = window.manutencaoAtualId;
+    document.getElementById('resultado-busca').textContent = '📋 Carregando todas as peças...';
+    document.getElementById('busca-peca').value = '';
+    
+    fetch(`/manutencao/${manutencaoId}/pecas/disponiveis`)
+        .then(response => response.json())
+        .then(pecas => {
+            const select = document.getElementById('select-peca');
+            select.innerHTML = '<option value="">Selecione uma peça...</option>';
+            
+            document.getElementById('resultado-busca').textContent = `📋 ${pecas.length} peça(s) disponível(is)`;
+            
+            pecas.forEach(peca => {
+                const id = peca[0];
+                const nome = peca[1];
+                const codigo = peca[2];
+                const preco = peca[4];
+                const estoque = peca[6];
+                
+                select.innerHTML += `<option value="${id}" 
+                    data-nome="${nome}"
+                    data-codigo="${codigo}"
+                    data-preco="${preco}"
+                    data-estoque="${estoque}">
+                    ${nome} - ${codigo} (Estoque: ${estoque})
+                </option>`;
+            });
+        })
+        .catch(error => {
+            document.getElementById('resultado-busca').textContent = '❌ Erro ao carregar';
+            console.error('Erro ao carregar peças:', error);
+        });
+}
+
+// Permitir busca ao pressionar Enter
+document.addEventListener('DOMContentLoaded', function() {
+    const buscaInput = document.getElementById('busca-peca');
+    if (buscaInput) {
+        buscaInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                buscarPecas();
+            }
+        });
+    }
+});
+
+// Função para remover peça no modo de edição
+function removerPecaEdicao(itemId) {
+    if (!confirm('Deseja remover esta peça da manutenção? O estoque será recomposto.')) {
+        return;
+    }
+    
+    fetch(`/manutencao/${manutencaoEdicaoId}/pecas/${itemId}/remover`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            carregarPecasEdicao(manutencaoEdicaoId);
+        } else {
+            alert('Erro: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Erro ao remover peça: ' + error.message);
+        console.error(error);
+    });
+}
+
+// ===== FUNÇÕES COMPARTILHADAS DO MODAL DE ADICIONAR PEÇA =====
+
+// Função para atualizar informações da peça selecionada
+function atualizarInfoPeca() {
+    const select = document.getElementById('select-peca');
+    const selectedOption = select.options[select.selectedIndex];
+    
+    if (selectedOption.value) {
+        document.getElementById('info-codigo').value = selectedOption.dataset.codigo;
+        document.getElementById('info-preco').value = formatarMoedaBR(parseFloat(selectedOption.dataset.preco));
+        document.getElementById('info-estoque').value = selectedOption.dataset.estoque;
+        
+        // Atualizar subtotal quando mudar quantidade
+        document.getElementById('quantidade-peca').oninput = calcularSubtotal;
+        calcularSubtotal();
+    } else {
+        document.getElementById('info-codigo').value = '';
+        document.getElementById('info-preco').value = '';
+        document.getElementById('info-estoque').value = '';
+        document.getElementById('subtotal-peca').value = '';
+    }
+}
+
+// Função para calcular subtotal
+function calcularSubtotal() {
+    const select = document.getElementById('select-peca');
+    const selectedOption = select.options[select.selectedIndex];
+    const quantidade = document.getElementById('quantidade-peca').value;
+    
+    if (selectedOption.value && quantidade) {
+        const preco = parseFloat(selectedOption.dataset.preco);
+        const subtotal = preco * parseInt(quantidade);
+        document.getElementById('subtotal-peca').value = formatarMoedaBR(subtotal);
+    } else {
+        document.getElementById('subtotal-peca').value = '';
+    }
+}
+
+// Função para confirmar adição da peça (usado no modal de edição)
+function confirmarAdicionarPeca() {
+    const pecaId = document.getElementById('select-peca').value;
+    const quantidade = document.getElementById('quantidade-peca').value;
+    
+    if (!pecaId || !quantidade) {
+        alert('Por favor, selecione uma peça e informe a quantidade!');
+        return;
+    }
+    
+    const select = document.getElementById('select-peca');
+    const selectedOption = select.options[select.selectedIndex];
+    const estoqueDisponivel = parseInt(selectedOption.dataset.estoque);
+    
+    if (parseInt(quantidade) > estoqueDisponivel) {
+        alert(`Quantidade solicitada (${quantidade}) excede o estoque disponível (${estoqueDisponivel})!`);
+        return;
+    }
+    
+    // Usar o ID da manutenção em edição
+    const manutencaoId = manutencaoEdicaoId || window.manutencaoAtualId;
+    
+    if (!manutencaoId) {
+        alert('Erro: ID da manutenção não identificado!');
+        return;
+    }
+    
+    // Enviar requisição para adicionar peça
+    fetch(`/manutencao/${manutencaoId}/pecas/adicionar`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        },
+        body: JSON.stringify({
+            peca_id: pecaId,
+            quantidade: quantidade
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            // Fechar modal
+            bootstrap.Modal.getInstance(document.getElementById('adicionarPecaModal')).hide();
+            // Atualizar lista de peças da edição
+            if (manutencaoEdicaoId) {
+                carregarPecasEdicao(manutencaoEdicaoId);
+            }
+        } else {
+            alert('Erro: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Erro ao adicionar peça: ' + error.message);
+        console.error(error);
+    });
+}
+
+// Atualizar totais quando o custo de mão de obra mudar
+document.addEventListener('DOMContentLoaded', function() {
+    const editCustoInput = document.getElementById('edit-custo');
+    if (editCustoInput) {
+        editCustoInput.addEventListener('input', function() {
+            if (manutencaoEdicaoId) {
+                fetch(`/manutencao/${manutencaoEdicaoId}/pecas`)
+                    .then(response => response.json())
+                    .then(data => {
+                        // A API retorna array direto
+                        const pecas = Array.isArray(data) ? data : (data.pecas || []);
+                        atualizarTotaisEdicao(pecas);
+                    })
+                    .catch(error => console.error('Erro ao atualizar totais:', error));
+            } else {
+                // Se não houver peças carregadas ainda, apenas atualizar com valor 0
+                atualizarTotaisEdicao([]);
+            }
+        });
+    }
+});
+
+// Filtrar manutenções
+function filtrarManutencoes() {
+    const searchText = document.getElementById('searchManutencoes').value.toLowerCase();
+    const filtroStatus = document.getElementById('filtroStatus').value;
+    const rows = document.querySelectorAll('.manutencao-row');
+    
+    let contadorVisiveis = 0;
+    
+    rows.forEach(row => {
+        const veiculo = row.getAttribute('data-veiculo');
+        const descricao = row.getAttribute('data-descricao');
+        const status = row.getAttribute('data-status');
+        
+        const matchSearch = veiculo.includes(searchText) || descricao.includes(searchText);
+        const matchStatus = !filtroStatus || status === filtroStatus;
+        
+        if (matchSearch && matchStatus) {
+            row.style.display = '';
+            contadorVisiveis++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // Feedback visual no select quando filtrado
+    const selectElement = document.getElementById('filtroStatus');
+    if (filtroStatus) {
+        selectElement.style.backgroundColor = '#e3f2fd';
+        selectElement.style.fontWeight = 'bold';
+    } else {
+        selectElement.style.backgroundColor = '';
+        selectElement.style.fontWeight = '';
+    }
+    
+    console.log(`Filtro aplicado: "${filtroStatus}" - ${contadorVisiveis} manutenções exibidas`);
+}
+
+// Limpar todos os filtros
+function limparFiltrosManutencao() {
+    document.getElementById('searchManutencoes').value = '';
+    document.getElementById('filtroStatus').value = '';
+    filtrarManutencoes();
+}
+
+// Iniciar manutenção via WhatsApp
+function iniciarViaWhatsApp(button) {
+    const row = button.closest('tr');
+    const id = row.getAttribute('data-id');
+    const placa = row.getAttribute('data-placa');
+    const modelo = row.getAttribute('data-modelo');
+    const tipo = row.getAttribute('data-tipo');
+    const descricao = row.getAttribute('data-descricao');
+    const data = row.getAttribute('data-data');
+    const tecnico = row.getAttribute('data-tecnico');
+    const telefone = row.getAttribute('data-telefone');
+    
+    // Verificar se há técnico e telefone
+    if (!tecnico || tecnico === 'Não definido') {
+        alert('⚠️ Esta manutenção não tem um técnico definido!\n\nPor favor, edite a manutenção e atribua um técnico antes de iniciar.');
+        return;
+    }
+    
+    if (!telefone) {
+        alert('⚠️ O técnico ' + tecnico + ' não tem telefone cadastrado!\n\nPor favor, cadastre o telefone do técnico antes de enviar a mensagem.');
+        return;
+    }
+    
+    // Confirmar ação
+    if (!confirm('🚀 Deseja iniciar a manutenção e notificar o técnico ' + tecnico + ' via WhatsApp?')) {
+        return;
+    }
+    
+    // Mudar status para "Em Andamento"
+    fetch(`/manutencao/status/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'Em Andamento' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Formatar data para melhor visualização
+            const dataFormatada = new Date(data + 'T00:00:00').toLocaleDateString('pt-BR');
+            
+            // Formatar mensagem do WhatsApp de forma profissional
+            const mensagem = `*ORDEM DE SERVICO - MANUTENCAO*
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*OS N°:* ${id}
+*Status:* EM ANDAMENTO
+
+*DADOS DO VEICULO*
+> Modelo: ${modelo}
+> Placa: ${placa}
+> Tipo de Manutencao: ${tipo}
+
+*AGENDAMENTO*
+Data: ${data}
+
+*DESCRICAO DO SERVICO*
+${descricao}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+_Atenciosamente,_
+_Departamento de Manutencao_
+
+_Por favor, confirme o recebimento desta OS respondendo esta mensagem._`;
+
+            // Limpar telefone (remover caracteres não numéricos)
+            const telefoneNumerico = telefone.replace(/\D/g, '');
+            
+            // Adicionar código do país se necessário (Brasil = 55)
+            const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+            
+            // Abrir WhatsApp em nova aba
+            const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
+            window.open(url, '_blank');
+            
+            // Recarregar página após 1 segundo
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            alert('Erro ao atualizar status: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao iniciar manutenção: ' + error.message);
+    });
+}
+
+
+</script>
+
+<!-- Modal do Calendário -->
+<div class="modal fade" id="calendarioModal" tabindex="-1" aria-labelledby="calendarioModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="calendarioModalLabel">
+                    <i class="fas fa-calendar-alt"></i> Calendário de Manutenções
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" style="min-height: 600px; background-color: #fff;">
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle"></i> 
+                    <strong>Legenda:</strong> 
+                    <span class="badge bg-primary ms-2">Agendada</span>
+                    <span class="badge bg-warning ms-2">Em Andamento</span>
+                    <span class="badge bg-success ms-2">Concluída</span>
+                    <span class="badge bg-danger ms-2">Cancelada</span>
+                </div>
+                <div id="calendar" style="background: white; padding: 10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i> Fechar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Garantir que o FullCalendar tenha visibilidade */
+#calendar {
+    background: white !important;
+    color: #000 !important;
+}
+
+.fc {
+    background: white !important;
+}
+
+.fc .fc-toolbar-title {
+    color: #000 !important;
+    font-size: 1.5rem !important;
+}
+
+.fc .fc-button {
+    background-color: #0d6efd !important;
+    border-color: #0d6efd !important;
+}
+
+.fc .fc-button:hover {
+    background-color: #0b5ed7 !important;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+    border: 1px solid #ddd !important;
+}
+
+.fc-daygrid-day-number {
+    color: #000 !important;
+}
+
+.fc-col-header-cell-cushion {
+    color: #000 !important;
+}
+</style>
+
+<script>
+let calendar = null;
+
+function abrirCalendario() {
+    const modalElement = document.getElementById('calendarioModal');
+    const modal = new bootstrap.Modal(modalElement);
+    
+    // Mostrar modal primeiro
+    modal.show();
+    
+    // Aguardar modal estar completamente visível
+    modalElement.addEventListener('shown.bs.modal', function () {
+        // Pequeno delay para garantir que o DOM está pronto
+        setTimeout(function() {
+            if (calendar === null) {
+                const calendarEl = document.getElementById('calendar');
+                
+                console.log('Inicializando calendário...');
+                
+                calendar = new FullCalendar.Calendar(calendarEl, {
+                    initialView: 'dayGridMonth',
+                    locale: 'pt-br',
+                    height: 'auto',
+                    contentHeight: 'auto',
+                    aspectRatio: 1.8,
+                    headerToolbar: {
+                        left: 'prev,next today',
+                        center: 'title',
+                        right: 'dayGridMonth,timeGridWeek,listWeek'
+                    },
+                    buttonText: {
+                        today: 'Hoje',
+                        month: 'Mês',
+                        week: 'Semana',
+                        list: 'Lista'
+                    },
+                    events: function(info, successCallback, failureCallback) {
+                        console.log('Buscando eventos...');
+                        // Buscar eventos do backend
+                        fetch('/api/manutencoes/calendario')
+                            .then(response => response.json())
+                            .then(data => {
+                                console.log('Eventos carregados:', data);
+                                successCallback(data);
+                            })
+                            .catch(error => {
+                                console.error('Erro ao carregar eventos:', error);
+                                failureCallback(error);
+                            });
+                    },
+                    eventClick: function(info) {
+                        // Exibir detalhes ao clicar no evento
+                        alert(
+                            'Veículo: ' + info.event.extendedProps.veiculo + '\n' +
+                            'Tipo: ' + info.event.extendedProps.tipo + '\n' +
+                            'Status: ' + info.event.extendedProps.status + '\n' +
+                            'Data: ' + info.event.start.toLocaleDateString('pt-BR')
+                        );
+                    },
+                    eventDidMount: function(info) {
+                        // Adicionar tooltip
+                        info.el.title = info.event.extendedProps.veiculo + ' - ' + info.event.extendedProps.tipo;
+                    },
+                    loading: function(isLoading) {
+                        console.log('Loading:', isLoading);
+                    }
+                });
+                
+                console.log('Renderizando calendário...');
+                calendar.render();
+                console.log('Calendário renderizado!');
+            } else {
+                console.log('Atualizando eventos...');
+                calendar.refetchEvents();
+                calendar.render();
+            }
+        }, 100);
+    }, { once: true });
+}
+
+// Função para formatação de moeda brasileira
+function formatarMoedaBR(valor) {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(valor || 0);
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,653 @@
+{% extends "base.html" %}
+
+{% block title %}Fornecedores{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="display-6">Gestão de Fornecedores</h1>
+        <p class="text-muted">Gerencie sua rede de fornecedores e parceiros</p>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoFornecedorModal">
+            <i class="fas fa-plus"></i> Novo Fornecedor
+        </button>
+        <button class="btn btn-success ms-2">
+            <i class="fas fa-file-export"></i> Exportar Lista
+        </button>
+    </div>
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar fornecedor..." id="searchFornecedores">
+            <select class="form-select" style="max-width: 200px;">
+                <option value="">Todas especialidades</option>
+                <option value="Peças">Peças</option>
+                <option value="Serviços">Serviços</option>
+                <option value="Pneus">Pneus</option>
+                <option value="Combustível">Combustível</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    {% for fornecedor in fornecedores %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0">
+                    <i class="fas fa-building"></i> {{ fornecedor[1] }}
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong><i class="fas fa-user"></i> Contato:</strong><br>
+                    <span class="text-muted">{{ fornecedor[2] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-phone"></i> Telefone:</strong><br>
+                    <span class="text-muted">{{ fornecedor[3] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-envelope"></i> Email:</strong><br>
+                    <span class="text-muted">{{ fornecedor[4] or 'Não informado' }}</span>
+                </div>
+                
+                <div class="mb-3">
+                    <strong><i class="fas fa-tags"></i> Especialidade:</strong><br>
+                    <span class="badge bg-info">{{ fornecedor[5] or 'Geral' }}</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-group w-100" role="group">
+                    <button class="btn btn-sm btn-outline-primary btn-detalhes" data-id="{{ fornecedor[0] }}" title="Ver Detalhes">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-success btn-whatsapp" data-telefone="{{ fornecedor[3] or '' }}" data-nome="{{ fornecedor[1] }}" title="WhatsApp">
+                        <i class="fab fa-whatsapp"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning btn-editar" data-id="{{ fornecedor[0] }}" title="Editar">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger btn-excluir" data-id="{{ fornecedor[0] }}" data-nome="{{ fornecedor[1] }}" title="Excluir">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Estatísticas -->
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body text-center">
+                <i class="fas fa-building fa-2x mb-2"></i>
+                <h5>Total de Fornecedores</h5>
+                <h3>{{ fornecedores|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body text-center">
+                <i class="fas fa-cogs fa-2x mb-2"></i>
+                <h5>Peças</h5>
+                <h3>
+                    {% set count = 0 %}
+                    {% for fornecedor in fornecedores %}
+                        {% if fornecedor[5] and 'peças' in fornecedor[5].lower() %}
+                            {% set count = count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body text-center">
+                <i class="fas fa-wrench fa-2x mb-2"></i>
+                <h5>Serviços</h5>
+                <h3>
+                    {% set count = 0 %}
+                    {% for fornecedor in fornecedores %}
+                        {% if fornecedor[5] and 'mecânic' in fornecedor[5].lower() %}
+                            {% set count = count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body text-center">
+                <i class="fas fa-circle fa-2x mb-2"></i>
+                <h5>Pneus</h5>
+                <h3>
+                    {% set count = 0 %}
+                    {% for fornecedor in fornecedores %}
+                        {% if fornecedor[5] and 'pneu' in fornecedor[5].lower() %}
+                            {% set count = count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ count }}
+                </h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Novo Fornecedor -->
+<div class="modal fade" id="novoFornecedorModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Novo Fornecedor</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novoFornecedorForm" autocomplete="off" novalidate onsubmit="return false;">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome da Empresa <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="nome" id="inputNomeFornecedor" autocomplete="off" autofocus>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Pessoa de Contato</label>
+                            <input type="text" class="form-control" name="contato" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" name="telefone" placeholder="(11) 9999-8888" autocomplete="off">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" name="email" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Especialidade</label>
+                        <select class="form-select" name="especialidade">
+                            <option value="">Selecione a especialidade</option>
+                            <option value="Peças para caminhões">Peças para caminhões</option>
+                            <option value="Peças para máquinas">Peças para máquinas</option>
+                            <option value="Serviços mecânicos">Serviços mecânicos</option>
+                            <option value="Pneus e rodas">Pneus e rodas</option>
+                            <option value="Combustível e lubrificantes">Combustível e lubrificantes</option>
+                            <option value="Elétrica e eletrônica">Elétrica e eletrônica</option>
+                            <option value="Pintura e funilaria">Pintura e funilaria</option>
+                            <option value="Vidros e acessórios">Vidros e acessórios</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">CNPJ</label>
+                            <input type="text" class="form-control" name="cnpj" placeholder="00.000.000/0000-00">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Inscrição Estadual</label>
+                            <input type="text" class="form-control" name="inscricao_estadual">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Endereço</label>
+                        <input type="text" class="form-control" name="endereco" placeholder="Rua, número, bairro, cidade, CEP">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Site</label>
+                            <input type="url" class="form-control" name="site" placeholder="https://www.exemplo.com">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Prazo de Pagamento</label>
+                            <select class="form-select" name="prazo_pagamento">
+                                <option value="">Selecione</option>
+                                <option value="À vista">À vista</option>
+                                <option value="30 dias">30 dias</option>
+                                <option value="60 dias">60 dias</option>
+                                <option value="90 dias">90 dias</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Observações</label>
+                        <textarea class="form-control" name="observacoes" rows="3" 
+                                  placeholder="Informações adicionais sobre o fornecedor..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnSalvarFornecedor">
+                    <i class="fas fa-save"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Detalhes do Fornecedor -->
+<div class="modal fade" id="detalhesFornecedorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-info-circle"></i> Detalhes do Fornecedor</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-building"></i> Nome da Empresa:</strong>
+                        <p class="text-muted" id="detalhe-nome">-</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-user"></i> Pessoa de Contato:</strong>
+                        <p class="text-muted" id="detalhe-contato">-</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-phone"></i> Telefone:</strong>
+                        <p class="text-muted" id="detalhe-telefone">-</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-envelope"></i> Email:</strong>
+                        <p class="text-muted" id="detalhe-email">-</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <strong><i class="fas fa-tags"></i> Especialidade:</strong>
+                        <p class="text-muted" id="detalhe-especialidade">-</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-id-card"></i> CNPJ:</strong>
+                        <p class="text-muted" id="detalhe-cnpj">-</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-file-alt"></i> Inscrição Estadual:</strong>
+                        <p class="text-muted" id="detalhe-ie">-</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong><i class="fas fa-map-marker-alt"></i> Endereço:</strong>
+                    <p class="text-muted" id="detalhe-endereco">-</p>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-globe"></i> Site:</strong>
+                        <p class="text-muted" id="detalhe-site">-</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <strong><i class="fas fa-calendar-check"></i> Prazo de Pagamento:</strong>
+                        <p class="text-muted" id="detalhe-prazo">-</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong><i class="fas fa-comment"></i> Observações:</strong>
+                    <p class="text-muted" id="detalhe-obs">-</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                <button type="button" class="btn btn-success" onclick="contatarWhatsAppDetalhes()">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Fornecedor -->
+<div class="modal fade" id="editarFornecedorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Fornecedor</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editarFornecedorForm">
+                    <input type="hidden" id="edit-id">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome da Empresa</label>
+                            <input type="text" class="form-control" id="edit-nome" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Pessoa de Contato</label>
+                            <input type="text" class="form-control" id="edit-contato">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" id="edit-telefone" placeholder="(11) 9999-8888">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="edit-email">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Especialidade</label>
+                        <select class="form-select" id="edit-especialidade">
+                            <option value="">Selecione a especialidade</option>
+                            <option value="Peças para caminhões">Peças para caminhões</option>
+                            <option value="Peças para máquinas">Peças para máquinas</option>
+                            <option value="Serviços mecânicos">Serviços mecânicos</option>
+                            <option value="Pneus e rodas">Pneus e rodas</option>
+                            <option value="Combustível e lubrificantes">Combustível e lubrificantes</option>
+                            <option value="Elétrica e eletrônica">Elétrica e eletrônica</option>
+                            <option value="Pintura e funilaria">Pintura e funilaria</option>
+                            <option value="Vidros e acessórios">Vidros e acessórios</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" onclick="salvarEdicaoFornecedor()">
+                    <i class="fas fa-save"></i> Salvar Alterações
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================
+// VERSÃO ULTRA SIMPLES - MÉTODO DIRETO (FUNCIONOU NO CONSOLE!)
+// ============================================
+
+function salvarFornecedor() {
+    console.log('🚀 MÉTODO DIRETO - SALVANDO FORNECEDOR');
+    
+    // Pegar valor DIRETAMENTE do input com seletor específico do modal
+    const nomeInput = document.querySelector('#novoFornecedorModal input[name="nome"]');
+    const contatoInput = document.querySelector('#novoFornecedorModal input[name="contato"]');
+    const telefoneInput = document.querySelector('#novoFornecedorModal input[name="telefone"]');
+    const emailInput = document.querySelector('#novoFornecedorModal input[name="email"]');
+    const especialidadeSelect = document.querySelector('#novoFornecedorModal select[name="especialidade"]');
+    
+    const nome = nomeInput ? nomeInput.value.trim() : '';
+    
+    console.log('Nome capturado:', nome);
+    
+    
+    
+    // Dados completos
+    const dados = {
+        nome: nome,
+        contato: contatoInput ? contatoInput.value.trim() : '',
+        telefone: telefoneInput ? telefoneInput.value.trim() : '',
+        email: emailInput ? emailInput.value.trim() : '',
+        especialidade: especialidadeSelect ? especialidadeSelect.value : ''
+    };
+    
+    console.log('Enviando:', dados);
+    
+    // Enviar
+    fetch('/fornecedores/criar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(dados)
+    })
+    .then(r => r.json())
+    .then(result => {
+        console.log('Resultado:', result);
+        if (result.success) {
+            alert('✅ Fornecedor cadastrado com sucesso!');
+            location.reload();
+        } else {
+            alert('❌ Erro: ' + result.message);
+        }
+    })
+    .catch(err => {
+        console.error('Erro:', err);
+        alert('❌ Falha na conexão');
+    });
+}
+
+console.log('✅ Função salvarFornecedor() carregada - VERSÃO DO CONSOLE');
+
+// ============================================
+// ANEXAR EVENTO AO BOTÃO - VERSÃO SIMPLES
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✓ DOM carregado');
+    
+    // 🛡️ BLOQUEAR SUBMIT DO FORM (CRÍTICO!)
+    const form = document.getElementById('novoFornecedorForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            console.log('🚫 Submit do form BLOQUEADO (preventDefault)');
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            return false;
+        });
+        console.log('✅ Form submit BLOQUEADO!');
+    }
+    
+    // Buscar botão
+    const botao = document.getElementById('btnSalvarFornecedor');
+    console.log('✓ Botão encontrado:', botao);
+    
+    // Anexar evento de clique
+    if (botao) {
+        botao.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('👆 BOTÃO CLICADO - Chamando salvarFornecedor()');
+            salvarFornecedor();
+            return false;
+        });
+        console.log('✓ Evento anexado ao botão');
+    }
+    
+    // Focar no campo nome quando modal abrir
+    const modal = document.getElementById('novoFornecedorModal');
+    if (modal) {
+        modal.addEventListener('shown.bs.modal', function() {
+            console.log('✓ Modal aberto');
+            const inputNome = document.getElementById('inputNomeFornecedor');
+            if (inputNome) {
+                setTimeout(function() {
+                    inputNome.focus();
+                    console.log('✓ Foco no campo nome');
+                }, 150);
+            }
+        });
+        
+        // Limpar formulário ao fechar
+        modal.addEventListener('hidden.bs.modal', function() {
+            console.log('✓ Modal fechado - limpando formulário');
+            const form = document.getElementById('novoFornecedorForm');
+            if (form) form.reset();
+        });
+    }
+    
+    console.log('✓ Inicialização completa');
+});
+
+// Contatar fornecedor via WhatsApp
+function contatarFornecedorWhatsApp(telefone, nomeFornecedor) {
+    if (telefone && telefone !== 'Não informado') {
+        // Remove caracteres não numéricos
+        const numeroLimpo = telefone.replace(/\D/g, '');
+        
+        // Mensagem padrão
+        const mensagem = encodeURIComponent(`Olá ${nomeFornecedor}! Entrando em contato pelo sistema de Gestão de Frota para solicitar informações.`);
+        
+        // Abre WhatsApp Web
+        window.open(`https://wa.me/55${numeroLimpo}?text=${mensagem}`, '_blank');
+    } else {
+        alert('📱 Telefone não cadastrado para este fornecedor');
+    }
+}
+
+// Variável global para armazenar dados do fornecedor atual
+let fornecedorAtual = {};
+
+// Ver detalhes do fornecedor
+function verDetalhesFornecedor(id) {
+    fetch(`/fornecedores/detalhes/${id}`)
+        .then(response => response.json())
+        .then(fornecedor => {
+            // Armazena dados globalmente
+            fornecedorAtual = fornecedor;
+            
+            // Preenche os campos do modal
+            document.getElementById('detalhe-nome').textContent = fornecedor.nome || 'Não informado';
+            document.getElementById('detalhe-contato').textContent = fornecedor.contato || 'Não informado';
+            document.getElementById('detalhe-telefone').textContent = fornecedor.telefone || 'Não informado';
+            document.getElementById('detalhe-email').textContent = fornecedor.email || 'Não informado';
+            document.getElementById('detalhe-especialidade').textContent = fornecedor.especialidade || 'Não informado';
+            document.getElementById('detalhe-cnpj').textContent = fornecedor.cnpj || 'Não informado';
+            document.getElementById('detalhe-ie').textContent = fornecedor.inscricao_estadual || 'Não informado';
+            document.getElementById('detalhe-endereco').textContent = fornecedor.endereco || 'Não informado';
+            document.getElementById('detalhe-site').textContent = fornecedor.site || 'Não informado';
+            document.getElementById('detalhe-prazo').textContent = fornecedor.prazo_pagamento || 'Não informado';
+            document.getElementById('detalhe-obs').textContent = fornecedor.observacoes || 'Nenhuma observação';
+            
+            // Abre o modal
+            const modal = new bootstrap.Modal(document.getElementById('detalhesFornecedorModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Erro ao carregar detalhes:', error);
+            alert('❌ Erro ao carregar detalhes do fornecedor');
+        });
+}
+
+// WhatsApp a partir do modal de detalhes
+function contatarWhatsAppDetalhes() {
+    contatarFornecedorWhatsApp(fornecedorAtual.telefone, fornecedorAtual.nome);
+}
+
+// Editar fornecedor
+function editarFornecedor(id) {
+    fetch(`/fornecedores/detalhes/${id}`)
+        .then(response => response.json())
+        .then(fornecedor => {
+            // Preenche o formulário de edição
+            document.getElementById('edit-id').value = fornecedor.id;
+            document.getElementById('edit-nome').value = fornecedor.nome || '';
+            document.getElementById('edit-contato').value = fornecedor.contato || '';
+            document.getElementById('edit-telefone').value = fornecedor.telefone || '';
+            document.getElementById('edit-email').value = fornecedor.email || '';
+            document.getElementById('edit-especialidade').value = fornecedor.especialidade || '';
+            
+            // Abre o modal
+            const modal = new bootstrap.Modal(document.getElementById('editarFornecedorModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Erro ao carregar fornecedor:', error);
+            alert('❌ Erro ao carregar dados do fornecedor');
+        });
+}
+
+// Salvar edição do fornecedor
+function salvarEdicaoFornecedor() {
+    const id = document.getElementById('edit-id').value;
+    const dados = {
+        nome: document.getElementById('edit-nome').value,
+        contato: document.getElementById('edit-contato').value,
+        telefone: document.getElementById('edit-telefone').value,
+        email: document.getElementById('edit-email').value,
+        especialidade: document.getElementById('edit-especialidade').value
+    };
+    
+    
+    
+    fetch(`/fornecedores/editar/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dados)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ Fornecedor atualizado com sucesso!');
+            location.reload();
+        } else {
+            alert('❌ Erro ao atualizar fornecedor: ' + (data.error || 'Erro desconhecido'));
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao salvar:', error);
+        alert('❌ Erro ao salvar alterações');
+    });
+}
+
+// Excluir fornecedor
+function excluirFornecedor(id, nome) {
+    if (!confirm(`⚠️ Tem certeza que deseja excluir o fornecedor "${nome}"?\n\nEsta ação não pode ser desfeita!`)) {
+        return;
+    }
+    
+    fetch(`/fornecedores/excluir/${id}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ Fornecedor excluído com sucesso!');
+            location.reload();
+        } else {
+            alert('❌ Erro ao excluir fornecedor: ' + (data.error || 'Erro desconhecido'));
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao excluir:', error);
+        alert('❌ Erro ao excluir fornecedor');
+    });
+}
+
+// Event listener para os botões de detalhes
+document.addEventListener('click', function(event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    if (btn.classList.contains('btn-detalhes')) {
+        const id = btn.getAttribute('data-id');
+        if (id) verDetalhesFornecedor(id);
+    } else if (btn.classList.contains('btn-editar')) {
+        const id = btn.getAttribute('data-id');
+        if (id) editarFornecedor(id);
+    } else if (btn.classList.contains('btn-excluir')) {
+        const id = btn.getAttribute('data-id');
+        const nome = btn.getAttribute('data-nome');
+        if (id) excluirFornecedor(id, nome);
+    } else if (btn.classList.contains('btn-whatsapp')) {
+        const telefone = btn.getAttribute('data-telefone');
+        const nome = btn.getAttribute('data-nome');
+        if (telefone) contatarFornecedorWhatsApp(telefone, nome);
+    }
+});
+
+</script>
+
+{% endblock %}

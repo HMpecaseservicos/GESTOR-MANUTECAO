@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+
+{% block title %}Veículos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="display-6">Gestão de Veículos</h1>
+        <p class="text-muted">Controle completo da sua frota</p>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
+            <i class="fas fa-plus"></i> Novo Veículo
+        </button>
+    </div>
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar por placa ou modelo..." id="searchInput">
+            <button class="btn btn-outline-secondary" type="button">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-list"></i> Lista de Veículos</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Marca/Modelo</th>
+                        <th>Placa</th>
+                        <th>Ano</th>
+                        <th>Quilometragem</th>
+                        <th>Próxima Manutenção</th>
+                        <th>Status</th>
+                        <th>Manutenções</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for veiculo in veiculos %}
+                    <tr>
+                        <td>
+                            <span class="badge bg-secondary">{{ veiculo[1] }}</span>
+                        </td>
+                        <td>
+                            <strong>{{ veiculo[2] }}</strong><br>
+                            <small class="text-muted">{{ veiculo[3] }}</small>
+                        </td>
+                        <td>
+                            <strong class="text-primary">{{ veiculo[4] }}</strong>
+                        </td>
+                        <td>{{ veiculo[5] }}</td>
+                        <td>
+                            <span class="badge bg-info">{{ "{:,}".format(veiculo[6]) }} km</span>
+                        </td>
+                        <td>
+                            {% if veiculo[7] %}
+                                <small class="text-warning">{{ veiculo[7] }}</small>
+                            {% else %}
+                                <small class="text-muted">Não agendada</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if veiculo[8] == 'Operacional' %}
+                                <span class="badge bg-success">{{ veiculo[8] }}</span>
+                            {% elif veiculo[8] == 'Manutenção' %}
+                                <span class="badge bg-warning">{{ veiculo[8] }}</span>
+                            {% else %}
+                                <span class="badge bg-danger">{{ veiculo[8] }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-primary">{{ veiculo[9] }}</span>
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('detalhes_veiculo', veiculo_id=veiculo[0]) }}" 
+                                   class="btn btn-sm btn-outline-primary" title="Ver Detalhes">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarVeiculo({{ veiculo[0] }})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="excluirVeiculo({{ veiculo[0] }}, '{{ veiculo[2] }} {{ veiculo[3] }} - {{ veiculo[4] }}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Novo Veículo -->
+<div class="modal fade" id="novoVeiculoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Novo Veículo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novoVeiculoForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" name="tipo" id="tipo" required onchange="ajustarCampoQuilometragem('novo')">
+                                <option value="">Selecione o tipo</option>
+                                <option value="Caminhão">Caminhão</option>
+                                <option value="Máquina">Máquina</option>
+                                <option value="Van">Van</option>
+                                <option value="Pickup">Pickup</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Marca</label>
+                            <input type="text" class="form-control" name="marca" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Modelo</label>
+                            <input type="text" class="form-control" name="modelo" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Placa</label>
+                            <input type="text" class="form-control" name="placa" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Ano</label>
+                            <input type="number" class="form-control" name="ano" min="1990" max="2030">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" id="label-quilometragem-novo">Quilometragem</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" name="quilometragem" id="input-quilometragem-novo" min="0" placeholder="0">
+                                <span class="input-group-text" id="unidade-quilometragem-novo">km</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Próxima Manutenção</label>
+                        <input type="date" class="form-control" name="proxima_manutencao">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarVeiculo()">
+                    <i class="fas fa-save"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Veículo -->
+<div class="modal fade" id="editarVeiculoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Veículo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editarVeiculoForm">
+                    <input type="hidden" id="edit-veiculo-id">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" id="edit-tipo" required onchange="ajustarCampoQuilometragem('edit')">
+                                <option value="">Selecione o tipo</option>
+                                <option value="Caminhão">Caminhão</option>
+                                <option value="Máquina">Máquina</option>
+                                <option value="Van">Van</option>
+                                <option value="Pickup">Pickup</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Marca</label>
+                            <input type="text" class="form-control" id="edit-marca" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Modelo</label>
+                            <input type="text" class="form-control" id="edit-modelo" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Placa</label>
+                            <input type="text" class="form-control" id="edit-placa" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Ano</label>
+                            <input type="number" class="form-control" id="edit-ano" min="1990" max="2030">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" id="label-quilometragem-edit">Quilometragem</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="edit-quilometragem" min="0" placeholder="0">
+                                <span class="input-group-text" id="unidade-quilometragem-edit">km</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Próxima Manutenção</label>
+                        <input type="date" class="form-control" id="edit-proxima-manutencao">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" onclick="salvarEdicaoVeiculo()">
+                    <i class="fas fa-save"></i> Salvar Alterações
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Limpar modal quando aberto
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('novoVeiculoModal');
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            const form = document.getElementById('novoVeiculoForm');
+            if (form) {
+                form.reset();
+            }
+        });
+    }
+});
+
+// Função para editar veículo
+function editarVeiculo(veiculoId) {
+    // Carregar dados do veículo
+    fetch(`/api/veiculo/${veiculoId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const veiculo = data.veiculo;
+                
+                // Preencher formulário
+                document.getElementById('edit-veiculo-id').value = veiculo.id;
+                document.getElementById('edit-tipo').value = veiculo.tipo || '';
+                document.getElementById('edit-marca').value = veiculo.marca || '';
+                document.getElementById('edit-modelo').value = veiculo.modelo || '';
+                document.getElementById('edit-placa').value = veiculo.placa || '';
+                document.getElementById('edit-ano').value = veiculo.ano || '';
+                document.getElementById('edit-quilometragem').value = veiculo.quilometragem || '';
+                document.getElementById('edit-proxima-manutencao').value = veiculo.proxima_manutencao || '';
+                
+                // Abrir modal
+                const modal = new bootstrap.Modal(document.getElementById('editarVeiculoModal'));
+                modal.show();
+            } else {
+                alert('Erro ao carregar dados do veículo: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao carregar veículo:', error);
+            alert('Erro ao carregar dados do veículo');
+        });
+}
+
+// Função para salvar edição do veículo
+function salvarEdicaoVeiculo() {
+    const veiculoId = document.getElementById('edit-veiculo-id').value;
+    const dados = {
+        tipo: document.getElementById('edit-tipo').value,
+        marca: document.getElementById('edit-marca').value,
+        modelo: document.getElementById('edit-modelo').value,
+        placa: document.getElementById('edit-placa').value,
+        ano: parseInt(document.getElementById('edit-ano').value) || null,
+        quilometragem: parseInt(document.getElementById('edit-quilometragem').value) || 0,
+        proxima_manutencao: document.getElementById('edit-proxima-manutencao').value || null
+    };
+    
+    // Validação básica
+    if (!dados.tipo || !dados.marca || !dados.modelo || !dados.placa) {
+        alert('Por favor, preencha todos os campos obrigatórios.');
+        return;
+    }
+    
+    fetch(`/api/veiculo/${veiculoId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dados)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Veículo atualizado com sucesso!');
+            
+            // Fechar modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editarVeiculoModal'));
+            modal.hide();
+            
+            // Recarregar página
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            alert('Erro: ' + result.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao salvar:', error);
+        alert('Erro ao salvar alterações');
+    });
+}
+
+// Função para ajustar campo de quilometragem baseado no tipo
+function ajustarCampoQuilometragem(modalType) {
+    const tipoSelect = document.getElementById(modalType === 'novo' ? 'tipo' : 'edit-tipo');
+    const label = document.getElementById(`label-quilometragem-${modalType}`);
+    const input = document.getElementById(modalType === 'novo' ? 'input-quilometragem-novo' : 'edit-quilometragem');
+    const unidade = document.getElementById(`unidade-quilometragem-${modalType}`);
+    
+    if (tipoSelect && label && input && unidade) {
+        const tipoSelecionado = tipoSelect.value;
+        
+        if (tipoSelecionado === 'Máquina') {
+            label.textContent = 'Horas de Trabalho';
+            input.placeholder = '0';
+            unidade.textContent = 'h';
+        } else {
+            label.textContent = 'Quilometragem';
+            input.placeholder = '0';
+            unidade.textContent = 'km';
+        }
+    }
+}
+
+// Função de busca em tempo real
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase().trim();
+            const tableRows = document.querySelectorAll('table tbody tr');
+            
+            let encontrados = 0;
+            tableRows.forEach(row => {
+                const tipo = row.cells[0]?.textContent.toLowerCase() || '';
+                const marcaModelo = row.cells[1]?.textContent.toLowerCase() || '';
+                const placa = row.cells[2]?.textContent.toLowerCase() || '';
+                const ano = row.cells[3]?.textContent.toLowerCase() || '';
+                
+                if (tipo.includes(searchTerm) || 
+                    marcaModelo.includes(searchTerm) || 
+                    placa.includes(searchTerm) || 
+                    ano.includes(searchTerm)) {
+                    row.style.display = '';
+                    encontrados++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            console.log(`Busca por "${searchTerm}": ${encontrados} veículos encontrados`);
+        });
+    }
+});
+
+function excluirVeiculo(id, descricao) {
+    if (confirm(`Tem certeza que deseja excluir o veículo:\n${descricao}?`)) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        
+        fetch(`/api/veiculo/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao excluir veículo!');
+        });
+    }
+}
+</script>
+{% endblock %}

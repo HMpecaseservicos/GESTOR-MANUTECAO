@@ -1,0 +1,630 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Executivo{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header Executivo -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="display-5 fw-bold text-primary">
+                        <i class="fas fa-tachometer-alt me-2"></i>Dashboard Executivo
+                    </h1>
+                    <p class="fs-5 text-muted mb-0">Controle Total da Frota • Última atualização: <span id="ultimaAtualizacao"></span></p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary" onclick="atualizarDashboard()">
+                        <i class="fas fa-sync-alt"></i> Atualizar
+                    </button>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#relatorioRapidoModal">
+                        <i class="fas fa-download"></i> Exportar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Métricas Principais - Design Moderno -->
+    <div class="row mb-4">
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Total da Frota</div>
+                            <div class="fs-2 fw-bold text-primary mb-0">{{ total_veiculos }}</div>
+                            <div class="fs-7 text-success">
+                                <i class="fas fa-arrow-up me-1"></i>100% Operacional
+                            </div>
+                        </div>
+                        <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-truck text-primary fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Manutenções</div>
+                            <div class="fs-2 fw-bold text-warning mb-0">{{ manutencoes_pendentes }}</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-clock me-1"></i>Pendentes
+                            </div>
+                        </div>
+                        <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-tools text-warning fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Concluídas</div>
+                            <div class="fs-2 fw-bold text-success mb-0">{{ manutencoes_30_dias }}</div>
+                            <div class="fs-7 text-success">
+                                <i class="fas fa-calendar me-1"></i>Últimos 30 dias
+                            </div>
+                        </div>
+                        <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-check-circle text-success fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Equipe Técnica</div>
+                            <div class="fs-2 fw-bold text-info mb-0">{{ tecnicos_ativos }}</div>
+                            <div class="fs-7 text-info">
+                                <i class="fas fa-user-check me-1"></i>Técnicos Ativos
+                            </div>
+                        </div>
+                        <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-users-cog text-info fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção Principal - Layout Avançado -->
+    <div class="row mb-4">
+        <!-- Gráficos e Análises -->
+        <div class="col-xl-8 mb-4">
+            <!-- Gráfico de Manutenções -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-0 pb-0">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-0">
+                            <i class="fas fa-chart-line text-primary me-2"></i>Análise de Manutenções
+                        </h5>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <input type="radio" class="btn-check" name="periodoGrafico" id="mes" autocomplete="off" checked>
+                            <label class="btn btn-outline-primary" for="mes">Mês</label>
+                            <input type="radio" class="btn-check" name="periodoGrafico" id="trimestre" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="trimestre">Trimestre</label>
+                            <input type="radio" class="btn-check" name="periodoGrafico" id="ano" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="ano">Ano</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <canvas id="graficoManutencoes" height="100"></canvas>
+                </div>
+            </div>
+
+            <!-- Próximas Manutenções - Design Moderno -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-calendar-check text-primary me-2"></i>Agenda de Manutenções
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if proximas_manutencoes %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="border-0 fw-semibold">Veículo</th>
+                                    <th class="border-0 fw-semibold">Tipo de Serviço</th>
+                                    <th class="border-0 fw-semibold">Data Programada</th>
+                                    <th class="border-0 fw-semibold">Prioridade</th>
+                                    <th class="border-0 fw-semibold">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for placa, modelo, tipo, data in proximas_manutencoes %}
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="bg-primary bg-opacity-10 rounded-circle p-2 me-3">
+                                                <i class="fas fa-car text-primary"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-semibold">{{ placa }}</div>
+                                                <div class="text-muted small">{{ modelo }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info bg-opacity-20 text-info border border-info">{{ tipo }}</span>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold">{{ data }}</div>
+                                        <div class="text-muted small" id="diasRestantes_{{ loop.index }}"></div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-warning bg-opacity-20 text-warning border border-warning">
+                                            <i class="fas fa-clock me-1"></i>Agendada
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="verDetalhesManutencao('{{ placa }}')">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <div class="bg-success bg-opacity-10 rounded-circle d-inline-flex p-4 mb-3">
+                            <i class="fas fa-calendar-check text-success fs-2"></i>
+                        </div>
+                        <h6 class="fw-semibold text-muted">Nenhuma manutenção agendada</h6>
+                        <p class="text-muted mb-3">Sua frota está em dia!</p>
+                        <a href="/manutencao" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Agendar Manutenção
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <!-- Sidebar Direita - Alertas e Indicadores -->
+        <div class="col-xl-4">
+            <!-- Central de Alertas -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-bell text-warning me-2"></i>Central de Alertas
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if alertas_estoque %}
+                    {% for nome, quantidade in alertas_estoque %}
+                    <div class="d-flex align-items-center p-3 mb-2 bg-warning bg-opacity-10 rounded-3 border border-warning border-opacity-25">
+                        <div class="bg-warning bg-opacity-20 rounded-circle p-2 me-3">
+                            <i class="fas fa-exclamation-triangle text-warning"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold text-dark">{{ nome }}</div>
+                            <div class="text-muted small">Estoque crítico: {{ quantidade }} unidades</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-warning" onclick="reabastecer('{{ nome }}')">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center py-4">
+                        <div class="bg-success bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
+                            <i class="fas fa-shield-check text-success fs-4"></i>
+                        </div>
+                        <h6 class="fw-semibold text-success">Tudo sob controle!</h6>
+                        <p class="text-muted small mb-0">Nenhum alerta ativo no momento</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Indicadores de Performance -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-chart-pie text-info me-2"></i>Performance da Frota
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Taxa de Disponibilidade -->
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-semibold">Taxa de Disponibilidade</span>
+                            <span class="badge bg-success bg-opacity-20 text-success">95%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" role="progressbar" style="width: 95%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Eficiência Operacional -->
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-semibold">Eficiência Operacional</span>
+                            <span class="badge bg-info bg-opacity-20 text-info">88%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-info" role="progressbar" style="width: 88%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tempo Médio de Reparo -->
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-semibold">Tempo Médio de Reparo</span>
+                            <span class="badge bg-warning bg-opacity-20 text-warning">2.3 dias</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-warning" role="progressbar" style="width: 75%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Resumo Numérico -->
+                    <div class="border-top pt-3">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="fw-bold text-primary fs-4">{{ total_veiculos }}</div>
+                                <div class="text-muted small">Veículos</div>
+                            </div>
+                            <div class="col-4">
+                                <div class="fw-bold text-success fs-4">{{ manutencoes_30_dias }}</div>
+                                <div class="text-muted small">Concluídas</div>
+                            </div>
+                            <div class="col-4">
+                                <div class="fw-bold text-warning fs-4">{{ manutencoes_pendentes }}</div>
+                                <div class="text-muted small">Pendentes</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ações Rápidas -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-bolt text-primary me-2"></i>Ações Rápidas
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="/manutencao" class="btn btn-primary d-flex align-items-center">
+                            <i class="fas fa-plus me-2"></i>Nova Manutenção
+                        </a>
+                        <a href="/veiculos" class="btn btn-outline-primary d-flex align-items-center">
+                            <i class="fas fa-car me-2"></i>Gerenciar Veículos
+                        </a>
+                        <a href="/pecas" class="btn btn-outline-secondary d-flex align-items-center">
+                            <i class="fas fa-cube me-2"></i>Controle de Estoque
+                        </a>
+                        <a href="/financeiro" class="btn btn-outline-success d-flex align-items-center">
+                            <i class="fas fa-chart-line me-2"></i>Financeiro
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção de Insights Avançados -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-brain text-primary me-2"></i>Insights Inteligentes
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <div class="bg-primary bg-opacity-10 rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="bg-primary rounded-circle p-2 me-3">
+                                        <i class="fas fa-lightbulb text-white"></i>
+                                    </div>
+                                    <h6 class="fw-bold mb-0">Recomendação</h6>
+                                </div>
+                                <p class="text-muted mb-2">Com base no histórico de manutenções, recomendamos:</p>
+                                <p class="fw-semibold text-primary mb-0">Revisão preventiva nos próximos 15 dias</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="bg-success bg-opacity-10 rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="bg-success rounded-circle p-2 me-3">
+                                        <i class="fas fa-chart-line text-white"></i>
+                                    </div>
+                                    <h6 class="fw-bold mb-0">Tendência</h6>
+                                </div>
+                                <p class="text-muted mb-2">Comparado ao mês anterior:</p>
+                                <p class="fw-semibold text-success mb-0">
+                                    <i class="fas fa-arrow-down me-1"></i>15% menos manutenções corretivas
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="bg-info bg-opacity-10 rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="bg-info rounded-circle p-2 me-3">
+                                        <i class="fas fa-trophy text-white"></i>
+                                    </div>
+                                    <h6 class="fw-bold mb-0">Destaque</h6>
+                                </div>
+                                <p class="text-muted mb-2">Veículo com melhor performance:</p>
+                                <p class="fw-semibold text-info mb-0">
+                                    <i class="fas fa-star me-1"></i>ABC-1234 - 0 manutenções este mês
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer do Dashboard -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm bg-light">
+                <div class="card-body text-center py-4">
+                    <h6 class="fw-bold text-muted mb-3">Acesso Rápido aos Módulos</h6>
+                    <div class="row">
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/veiculos" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-car fs-3 text-primary mb-2"></i>
+                                <span class="fw-semibold">Veículos</span>
+                            </a>
+                        </div>
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/manutencao" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-tools fs-3 text-warning mb-2"></i>
+                                <span class="fw-semibold">Manutenção</span>
+                            </a>
+                        </div>
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/pecas" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-cube fs-3 text-secondary mb-2"></i>
+                                <span class="fw-semibold">Peças</span>
+                            </a>
+                        </div>
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/tecnicos" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-users-cog fs-3 text-info mb-2"></i>
+                                <span class="fw-semibold">Técnicos</span>
+                            </a>
+                        </div>
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/financeiro" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-chart-line fs-3 text-success mb-2"></i>
+                                <span class="fw-semibold">Financeiro</span>
+                            </a>
+                        </div>
+                        <div class="col-md-2 col-6 mb-3">
+                            <a href="/relatorios" class="btn btn-light border w-100 h-100 d-flex flex-column align-items-center justify-content-center text-decoration-none">
+                                <i class="fas fa-chart-bar fs-3 text-dark mb-2"></i>
+                                <span class="fw-semibold">Relatórios</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Relatório Rápido -->
+<div class="modal fade" id="relatorioRapidoModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-download me-2"></i>Exportar Relatório
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Selecione o tipo de relatório que deseja exportar:</p>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary" onclick="exportarRelatorio('geral')">
+                        <i class="fas fa-file-pdf me-2"></i>Relatório Geral (PDF)
+                    </button>
+                    <button class="btn btn-outline-success" onclick="exportarRelatorio('excel')">
+                        <i class="fas fa-file-excel me-2"></i>Dados em Excel
+                    </button>
+                    <button class="btn btn-outline-info" onclick="exportarRelatorio('manutencoes')">
+                        <i class="fas fa-tools me-2"></i>Relatório de Manutenções
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Variáveis globais
+let graficoManutencoes;
+
+// Inicialização do Dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    atualizarUltimaAtualizacao();
+    inicializarGraficos();
+    calcularDiasRestantes();
+    setInterval(atualizarUltimaAtualizacao, 60000); // Atualizar a cada minuto
+});
+
+// Atualizar timestamp da última atualização
+function atualizarUltimaAtualizacao() {
+    const agora = new Date();
+    const formatado = agora.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    document.getElementById('ultimaAtualizacao').textContent = formatado;
+}
+
+// Inicializar gráficos
+function inicializarGraficos() {
+    const ctx = document.getElementById('graficoManutencoes');
+    if (!ctx) return;
+
+    // Dados mockados para demonstração
+    const dadosManutencoes = {
+        labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'],
+        datasets: [{
+            label: 'Preventivas',
+            data: [12, 15, 8, 22, 18, 14],
+            borderColor: 'rgb(25, 135, 84)',
+            backgroundColor: 'rgba(25, 135, 84, 0.1)',
+            tension: 0.4
+        }, {
+            label: 'Corretivas',
+            data: [8, 5, 12, 7, 9, 6],
+            borderColor: 'rgb(220, 53, 69)',
+            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+            tension: 0.4
+        }]
+    };
+
+    graficoManutencoes = new Chart(ctx, {
+        type: 'line',
+        data: dadosManutencoes,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 20
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            },
+            elements: {
+                point: {
+                    radius: 4,
+                    hoverRadius: 6
+                }
+            }
+        }
+    });
+}
+
+// Calcular dias restantes para manutenções
+function calcularDiasRestantes() {
+    const elementos = document.querySelectorAll('[id^="diasRestantes_"]');
+    elementos.forEach((elemento, index) => {
+        // Aqui você implementaria o cálculo real baseado na data
+        const diasAleatorios = Math.floor(Math.random() * 30) + 1;
+        elemento.textContent = `em ${diasAleatorios} dias`;
+    });
+}
+
+// Função para atualizar dashboard
+function atualizarDashboard() {
+    const btn = event.target;
+    const iconOriginal = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Atualizando...';
+    btn.disabled = true;
+    
+    // Simular atualização
+    setTimeout(() => {
+        btn.innerHTML = iconOriginal;
+        btn.disabled = false;
+        atualizarUltimaAtualizacao();
+        
+        // Mostrar notificação de sucesso
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+        alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999;';
+        alert.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>Dashboard atualizado com sucesso!
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alert);
+        
+        setTimeout(() => alert.remove(), 3000);
+    }, 2000);
+}
+
+// Funções para ações específicas
+function verDetalhesManutencao(placa) {
+    // Implementar visualização de detalhes
+    alert(`Visualizando detalhes da manutenção do veículo ${placa}`);
+}
+
+function reabastecer(peca) {
+    // Implementar reabastecimento de peça
+    alert(`Iniciando processo de reabastecimento: ${peca}`);
+}
+
+function exportarRelatorio(tipo) {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('relatorioRapidoModal'));
+    modal.hide();
+    
+    // Simular exportação
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-info alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999;';
+    alert.innerHTML = `
+        <i class="fas fa-download me-2"></i>Gerando relatório ${tipo}...
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    setTimeout(() => {
+        alert.remove();
+        const successAlert = document.createElement('div');
+        successAlert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+        successAlert.style.cssText = 'top: 20px; right: 20px; z-index: 9999;';
+        successAlert.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>Relatório ${tipo} gerado com sucesso!
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(successAlert);
+        setTimeout(() => successAlert.remove(), 3000);
+    }, 3000);
+}
+</script>
+
+{% endblock %}

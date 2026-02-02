@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Meu Perfil{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card shadow mt-4">
+                <div class="card-header bg-primary text-white">
+                    <h4><i class="fas fa-user-circle"></i> Meu Perfil</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h5>Informações do Usuário</h5>
+                            <hr>
+                            <p><strong>Nome de Usuário:</strong> {{ user.username }}</p>
+                            <p><strong>Email:</strong> {{ user.email }}</p>
+                            <p><strong>Função:</strong> 
+                                {% if user.is_admin() %}
+                                    <span class="badge bg-danger">Administrador</span>
+                                {% elif user.is_tecnico() %}
+                                    <span class="badge bg-warning">Técnico</span>
+                                {% else %}
+                                    <span class="badge bg-info">Usuário</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Alterar Senha</h5>
+                            <hr>
+                            <form method="POST" action="{{ url_for('alterar_senha') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                
+                                <div class="mb-3">
+                                    <label for="senha_atual" class="form-label">Senha Atual</label>
+                                    <input type="password" class="form-control" id="senha_atual" name="senha_atual" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="senha_nova" class="form-label">Nova Senha</label>
+                                    <input type="password" class="form-control" id="senha_nova" name="senha_nova" required minlength="6">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="senha_confirma" class="form-label">Confirmar Nova Senha</label>
+                                    <input type="password" class="form-control" id="senha_confirma" name="senha_confirma" required minlength="6">
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-key"></i> Alterar Senha
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    {% if user.is_admin() %}
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h5>Ações de Administrador</h5>
+                            <hr>
+                            <a href="{{ url_for('admin_backup') }}" class="btn btn-success">
+                                <i class="fas fa-download"></i> Fazer Backup do Banco de Dados
+                            </a>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
