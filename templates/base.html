@@ -16,6 +16,11 @@
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('dashboard') }}">
                 <i class="fas fa-truck"></i> Gestor de Manutenção
+                {% if current_user.is_authenticated and tipo_operacao %}
+                <span class="badge ms-2 {% if is_frota %}bg-info{% else %}bg-warning{% endif %}" style="font-size: 0.6rem; vertical-align: middle;">
+                    {% if is_frota %}Frota Própria{% else %}Prestação de Serviços{% endif %}
+                </span>
+                {% endif %}
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -26,10 +31,10 @@
                         <i class="fas fa-tachometer-alt"></i> Dashboard
                     </a>
                     <a class="nav-link" href="{{ url_for('veiculos') }}">
-                        <i class="fas fa-car"></i> Veículos
+                        <i class="fas fa-car"></i> {% if is_servico %}Veículos Atendidos{% else %}Veículos{% endif %}
                     </a>
                     <a class="nav-link" href="{{ url_for('manutencao') }}">
-                        <i class="fas fa-wrench"></i> Manutenção
+                        <i class="fas fa-wrench"></i> {% if is_servico %}Serviços{% else %}Manutenção{% endif %}
                     </a>
                     <a class="nav-link" href="{{ url_for('pecas') }}">
                         <i class="fas fa-cogs"></i> Peças

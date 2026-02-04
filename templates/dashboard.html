@@ -12,7 +12,7 @@
                     <h1 class="display-5 fw-bold text-primary">
                         <i class="fas fa-tachometer-alt me-2"></i>Dashboard Executivo
                     </h1>
-                    <p class="fs-5 text-muted mb-0">Controle Total da Frota • Última atualização: <span id="ultimaAtualizacao"></span></p>
+                    <p class="fs-5 text-muted mb-0">{% if is_servico %}Gestão de Serviços{% else %}Controle Total da Frota{% endif %} • Última atualização: <span id="ultimaAtualizacao"></span></p>
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-primary" onclick="atualizarDashboard()">
@@ -33,10 +33,10 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Total da Frota</div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">{% if is_servico %}Veículos Atendidos{% else %}Total da Frota{% endif %}</div>
                             <div class="fs-2 fw-bold text-primary mb-0">{{ total_veiculos }}</div>
                             <div class="fs-7 text-success">
-                                <i class="fas fa-arrow-up me-1"></i>100% Operacional
+                                <i class="fas fa-arrow-up me-1"></i>{% if is_servico %}Em serviço{% else %}100% Operacional{% endif %}
                             </div>
                         </div>
                         <div class="bg-primary bg-opacity-10 rounded-3 p-3">
@@ -52,7 +52,7 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Manutenções</div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">{% if is_servico %}Serviços{% else %}Manutenções{% endif %}</div>
                             <div class="fs-2 fw-bold text-warning mb-0">{{ manutencoes_pendentes }}</div>
                             <div class="fs-7 text-muted">
                                 <i class="fas fa-clock me-1"></i>Pendentes
