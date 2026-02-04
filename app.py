@@ -33,7 +33,7 @@ VERSÃO: 2.0.0 Professional
 # IMPORTAÇÕES E CONFIGURAÇÕES
 # =============================================
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, Response, flash, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, Response, flash, session, g
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -133,6 +133,67 @@ if not app.debug:
     app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
     app.logger.info('Sistema de Gestão de Frota iniciado')
+
+# =============================================
+# CONTEXTO GLOBAL - EMPRESA DO USUÁRIO LOGADO
+# =============================================
+
+@app.before_request
+def load_empresa_context():
+    """
+    Carrega os dados da empresa do usuário logado no contexto global g.
+    Disponibiliza g.empresa com tipo_operacao para uso em toda a aplicação.
+    """
+    g.empresa = None
+    g.tipo_operacao = 'FROTA'  # Default seguro
+    
+    if current_user.is_authenticated and hasattr(current_user, 'empresa_id') and current_user.empresa_id:
+        try:
+            if Config.IS_POSTGRES:
+                import psycopg2
+                conn = psycopg2.connect(Config.DATABASE_URL)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, nome, tipo_operacao, plano FROM empresas WHERE id = %s",
+                    (current_user.empresa_id,)
+                )
+            else:
+                conn = sqlite3.connect(DATABASE)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, nome, tipo_operacao, plano FROM empresas WHERE id = ?",
+                    (current_user.empresa_id,)
+                )
+            
+            row = cursor.fetchone()
+            if row:
+                g.empresa = {
+                    'id': row[0],
+                    'nome': row[1],
+                    'tipo_operacao': row[2] or 'FROTA',  # Fallback para empresas antigas
+                    'plano': row[3]
+                }
+                g.tipo_operacao = g.empresa['tipo_operacao']
+            
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            app.logger.warning(f"Erro ao carregar contexto da empresa: {e}")
+
+
+@app.context_processor
+def inject_empresa_context():
+    """
+    Injeta variáveis de contexto da empresa em todos os templates.
+    Permite usar {{ empresa }}, {{ is_frota }}, {{ is_servico }} nos templates.
+    """
+    from empresa_helpers import is_frota, is_servico
+    return {
+        'empresa': getattr(g, 'empresa', None),
+        'tipo_operacao': getattr(g, 'tipo_operacao', 'FROTA'),
+        'is_frota': is_frota(),
+        'is_servico': is_servico()
+    }
 
 # Handler de erros globais
 @app.errorhandler(404)
@@ -253,6 +314,11 @@ def cadastro():
         empresa_email = request.form.get('empresa_email', '').strip()
         plano = request.form.get('plano', 'basico')
         
+        # Tipo de operação (ETAPA 1 HÍBRIDO)
+        tipo_operacao = request.form.get('tipo_operacao', 'FROTA')
+        if tipo_operacao not in ('FROTA', 'SERVICO'):
+            tipo_operacao = 'FROTA'  # Fallback seguro
+        
         # Dados do usuário
         nome = request.form.get('nome', '').strip()
         email = request.form.get('email', '').strip()
@@ -305,13 +371,13 @@ def cadastro():
             
             limite = limites.get(plano, limites['basico'])
             
-            # Criar a empresa
+            # Criar a empresa (com tipo_operacao - ETAPA 1 HÍBRIDO)
             cursor.execute('''
                 INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
-                                     limite_veiculos, limite_usuarios, data_criacao)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime('now'))
+                                     limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, datetime('now'))
             ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
-                  plano, limite['veiculos'], limite['usuarios']))
+                  plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
             
             empresa_id = cursor.lastrowid
             

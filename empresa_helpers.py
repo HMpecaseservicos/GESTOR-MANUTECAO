@@ -47,3 +47,35 @@ def super_admin_required(f):
             abort(403, description="Acesso restrito ao administrador do sistema")
         return f(*args, **kwargs)
     return decorated_function
+
+
+# =============================================
+# HELPERS DE TIPO DE OPERAÇÃO (ETAPA 1 HÍBRIDO)
+# =============================================
+
+def get_tipo_operacao():
+    """
+    Retorna o tipo de operação da empresa do usuário logado.
+    Valores possíveis: 'FROTA' ou 'SERVICO'
+    Default: 'FROTA' (comportamento original)
+    """
+    from flask import g
+    if hasattr(g, 'empresa') and g.empresa:
+        return g.empresa.get('tipo_operacao', 'FROTA')
+    return 'FROTA'
+
+
+def is_frota():
+    """
+    Verifica se a empresa logada opera no modo FROTA.
+    Retorna True se for FROTA ou se não houver empresa (fallback seguro).
+    """
+    return get_tipo_operacao() == 'FROTA'
+
+
+def is_servico():
+    """
+    Verifica se a empresa logada opera no modo SERVIÇO.
+    Retorna True apenas se explicitamente configurado como SERVICO.
+    """
+    return get_tipo_operacao() == 'SERVICO'

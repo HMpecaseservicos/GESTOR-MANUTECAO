@@ -261,6 +261,46 @@
                     </div>
                 </div>
                 
+                <!-- Tipo de Operação (ETAPA 1 HÍBRIDO) -->
+                <h6 class="section-title mt-4"><i class="fas fa-cogs me-2"></i>Como você pretende usar o sistema?</h6>
+                
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="plan-card tipo-card selected" onclick="selecionarTipo('FROTA')">
+                            <input type="radio" name="tipo_operacao" value="FROTA" id="tipo_frota" checked hidden>
+                            <div class="d-flex align-items-center">
+                                <div class="me-3">
+                                    <i class="fas fa-truck fa-3x text-primary"></i>
+                                </div>
+                                <div>
+                                    <h6 class="mb-1">Controle de Frota Própria</h6>
+                                    <small class="text-muted">
+                                        Gerencie os veículos e manutenções da sua própria empresa.
+                                        Ideal para transportadoras, construtoras e empresas com frota.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="plan-card tipo-card" onclick="selecionarTipo('SERVICO')">
+                            <input type="radio" name="tipo_operacao" value="SERVICO" id="tipo_servico" hidden>
+                            <div class="d-flex align-items-center">
+                                <div class="me-3">
+                                    <i class="fas fa-wrench fa-3x text-success"></i>
+                                </div>
+                                <div>
+                                    <h6 class="mb-1">Prestação de Serviços</h6>
+                                    <small class="text-muted">
+                                        Ofereça serviços de manutenção para veículos de clientes.
+                                        Ideal para oficinas, centros automotivos e mecânicas.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- Dados do Administrador -->
                 <h6 class="section-title"><i class="fas fa-user-shield me-2"></i>Dados do Administrador</h6>
                 
@@ -416,9 +456,17 @@
     <script>
         // Selecionar plano
         function selecionarPlano(plano) {
-            document.querySelectorAll('.plan-card').forEach(card => card.classList.remove('selected'));
+            // Apenas cards de plano (não os de tipo)
+            document.querySelectorAll('.plan-card:not(.tipo-card)').forEach(card => card.classList.remove('selected'));
             document.getElementById('plano_' + plano).checked = true;
             document.getElementById('plano_' + plano).closest('.plan-card').classList.add('selected');
+        }
+        
+        // Selecionar tipo de operação (ETAPA 1 HÍBRIDO)
+        function selecionarTipo(tipo) {
+            document.querySelectorAll('.tipo-card').forEach(card => card.classList.remove('selected'));
+            document.getElementById('tipo_' + tipo.toLowerCase()).checked = true;
+            document.getElementById('tipo_' + tipo.toLowerCase()).closest('.tipo-card').classList.add('selected');
         }
         
         // Toggle mostrar/ocultar senha
