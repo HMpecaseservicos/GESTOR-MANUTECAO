@@ -820,6 +820,390 @@ def atualizar_minha_empresa():
 
 
 # =============================================
+# ROTAS DE GESTÃO DE USUÁRIOS (ETAPA 11)
+# =============================================
+
+@app.route('/usuarios')
+@login_required
+def usuarios():
+    """Lista de usuários da empresa - APENAS ADMIN"""
+    from empresa_helpers import is_admin, get_empresa_id, get_limite_usuarios
+    
+    if not is_admin():
+        flash('Acesso restrito. Apenas administradores podem gerenciar usuários.', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    empresa_id = get_empresa_id()
+    usuarios_lista = []
+    stats = {'usuarios': 0, 'admins': 0, 'operadores': 0}
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT id, username, nome, email, role, ativo, ultimo_login, data_criacao
+                FROM usuarios 
+                WHERE empresa_id = %s
+                ORDER BY role DESC, nome
+            """, (empresa_id,))
+            usuarios_lista = cursor.fetchall()
+            
+            # Estatísticas
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true", (empresa_id,))
+            stats['usuarios'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'ADMIN'", (empresa_id,))
+            stats['admins'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'OPERADOR'", (empresa_id,))
+            stats['operadores'] = cursor.fetchone()[0]
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, username, nome, email, role, ativo, ultimo_login, data_criacao
+                FROM usuarios 
+                WHERE empresa_id = ?
+                ORDER BY role DESC, nome
+            """, (empresa_id,))
+            usuarios_lista = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1", (empresa_id,))
+            stats['usuarios'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1 AND role = 'ADMIN'", (empresa_id,))
+            stats['admins'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1 AND role = 'OPERADOR'", (empresa_id,))
+            stats['operadores'] = cursor.fetchone()[0]
+            
+            conn.close()
+            
+    except Exception as e:
+        print(f"Erro ao listar usuários: {e}")
+        traceback.print_exc()
+        flash('Erro ao carregar lista de usuários.', 'danger')
+    
+    limite_usuarios = get_limite_usuarios()
+    
+    return render_template('usuarios.html', 
+                           usuarios=usuarios_lista, 
+                           stats=stats,
+                           limite_usuarios=limite_usuarios)
+
+
+@app.route('/usuarios/criar', methods=['POST'])
+@login_required
+def criar_usuario():
+    """Criar novo usuário na empresa - APENAS ADMIN"""
+    from empresa_helpers import is_admin, get_empresa_id, verificar_limite_usuarios
+    
+    if not is_admin():
+        flash('Acesso restrito. Apenas administradores podem criar usuários.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    empresa_id = get_empresa_id()
+    
+    nome = request.form.get('nome', '').strip()
+    email = request.form.get('email', '').strip()
+    username = request.form.get('username', '').strip().lower()
+    password = request.form.get('password', '')
+    role = request.form.get('role', 'OPERADOR')
+    
+    # Validações
+    if not nome:
+        flash('Nome é obrigatório.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if not email:
+        flash('Email é obrigatório.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if not username:
+        flash('Nome de usuário é obrigatório.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if len(password) < 6:
+        flash('Senha deve ter no mínimo 6 caracteres.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if role not in ('ADMIN', 'OPERADOR'):
+        role = 'OPERADOR'
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar limite de usuários
+            pode_criar, msg_limite = verificar_limite_usuarios(cursor, empresa_id)
+            if not pode_criar:
+                cursor.close()
+                conn.close()
+                flash(msg_limite, 'warning')
+                return redirect(url_for('usuarios'))
+            
+            # Verificar se username já existe
+            cursor.execute("SELECT id FROM usuarios WHERE username = %s", (username,))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash('Este nome de usuário já está em uso.', 'danger')
+                return redirect(url_for('usuarios'))
+            
+            # Verificar se email já existe na empresa
+            cursor.execute("SELECT id FROM usuarios WHERE email = %s AND empresa_id = %s", (email, empresa_id))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                flash('Este email já está cadastrado na empresa.', 'danger')
+                return redirect(url_for('usuarios'))
+            
+            # Criar usuário
+            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+            
+            cursor.execute("""
+                INSERT INTO usuarios (empresa_id, username, password_hash, nome, email, role, ativo, data_criacao)
+                VALUES (%s, %s, %s, %s, %s, %s, true, CURRENT_TIMESTAMP)
+            """, (empresa_id, username, password_hash, nome, email, role))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT id FROM usuarios WHERE username = ?", (username,))
+            if cursor.fetchone():
+                conn.close()
+                flash('Este nome de usuário já está em uso.', 'danger')
+                return redirect(url_for('usuarios'))
+            
+            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+            
+            cursor.execute("""
+                INSERT INTO usuarios (empresa_id, username, password_hash, nome, email, role, ativo, data_criacao)
+                VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
+            """, (empresa_id, username, password_hash, nome, email, role))
+            
+            conn.commit()
+            conn.close()
+        
+        flash(f'Usuário {username} criado com sucesso!', 'success')
+        
+    except Exception as e:
+        print(f"Erro ao criar usuário: {e}")
+        traceback.print_exc()
+        flash('Erro ao criar usuário.', 'danger')
+    
+    return redirect(url_for('usuarios'))
+
+
+@app.route('/usuarios/editar', methods=['POST'])
+@login_required
+def editar_usuario():
+    """Editar usuário existente - APENAS ADMIN"""
+    from empresa_helpers import is_admin, get_empresa_id
+    
+    if not is_admin():
+        flash('Acesso restrito. Apenas administradores podem editar usuários.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    empresa_id = get_empresa_id()
+    
+    usuario_id = request.form.get('usuario_id')
+    nome = request.form.get('nome', '').strip()
+    email = request.form.get('email', '').strip()
+    role = request.form.get('role', 'OPERADOR')
+    
+    if not usuario_id:
+        flash('Usuário não encontrado.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if not nome:
+        flash('Nome é obrigatório.', 'danger')
+        return redirect(url_for('usuarios'))
+    
+    if role not in ('ADMIN', 'OPERADOR'):
+        role = 'OPERADOR'
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se usuário pertence à empresa
+            cursor.execute("SELECT id, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
+            usuario_atual = cursor.fetchone()
+            
+            if not usuario_atual:
+                cursor.close()
+                conn.close()
+                flash('Usuário não encontrado.', 'danger')
+                return redirect(url_for('usuarios'))
+            
+            # Se está removendo permissão de ADMIN, verificar se não é o último
+            if usuario_atual[1] == 'ADMIN' and role == 'OPERADOR':
+                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
+                total_admins = cursor.fetchone()[0]
+                
+                if total_admins <= 1:
+                    cursor.close()
+                    conn.close()
+                    flash('Não é possível remover o último administrador da empresa.', 'danger')
+                    return redirect(url_for('usuarios'))
+            
+            # Atualizar usuário
+            cursor.execute("""
+                UPDATE usuarios 
+                SET nome = %s, email = %s, role = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND empresa_id = %s
+            """, (nome, email, role, usuario_id, empresa_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT id, role FROM usuarios WHERE id = ? AND empresa_id = ?", (usuario_id, empresa_id))
+            usuario_atual = cursor.fetchone()
+            
+            if not usuario_atual:
+                conn.close()
+                flash('Usuário não encontrado.', 'danger')
+                return redirect(url_for('usuarios'))
+            
+            if usuario_atual[1] == 'ADMIN' and role == 'OPERADOR':
+                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND role = 'ADMIN' AND ativo = 1", (empresa_id,))
+                if cursor.fetchone()[0] <= 1:
+                    conn.close()
+                    flash('Não é possível remover o último administrador da empresa.', 'danger')
+                    return redirect(url_for('usuarios'))
+            
+            cursor.execute("""
+                UPDATE usuarios 
+                SET nome = ?, email = ?, role = ?
+                WHERE id = ? AND empresa_id = ?
+            """, (nome, email, role, usuario_id, empresa_id))
+            
+            conn.commit()
+            conn.close()
+        
+        flash('Usuário atualizado com sucesso!', 'success')
+        
+    except Exception as e:
+        print(f"Erro ao editar usuário: {e}")
+        traceback.print_exc()
+        flash('Erro ao editar usuário.', 'danger')
+    
+    return redirect(url_for('usuarios'))
+
+
+@app.route('/usuarios/toggle-status', methods=['POST'])
+@login_required
+def toggle_usuario_status():
+    """Ativar/Desativar usuário - APENAS ADMIN"""
+    from empresa_helpers import is_admin, get_empresa_id
+    
+    if not is_admin():
+        return jsonify({'success': False, 'message': 'Acesso restrito a administradores'}), 403
+    
+    empresa_id = get_empresa_id()
+    data = request.json
+    usuario_id = data.get('usuario_id')
+    
+    if not usuario_id:
+        return jsonify({'success': False, 'message': 'Usuário não informado'}), 400
+    
+    # Não permitir alterar próprio status
+    if int(usuario_id) == current_user.id:
+        return jsonify({'success': False, 'message': 'Você não pode alterar seu próprio status'}), 400
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se usuário pertence à empresa
+            cursor.execute("SELECT id, ativo, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
+            usuario = cursor.fetchone()
+            
+            if not usuario:
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'message': 'Usuário não encontrado'}), 404
+            
+            novo_status = not usuario[1]
+            
+            # Se está desativando um ADMIN, verificar se não é o último
+            if not novo_status and usuario[2] == 'ADMIN':
+                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
+                total_admins = cursor.fetchone()[0]
+                
+                if total_admins <= 1:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'success': False, 'message': 'Não é possível desativar o último administrador da empresa'}), 400
+            
+            cursor.execute("""
+                UPDATE usuarios SET ativo = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND empresa_id = %s
+            """, (novo_status, usuario_id, empresa_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT id, ativo, role FROM usuarios WHERE id = ? AND empresa_id = ?", (usuario_id, empresa_id))
+            usuario = cursor.fetchone()
+            
+            if not usuario:
+                conn.close()
+                return jsonify({'success': False, 'message': 'Usuário não encontrado'}), 404
+            
+            novo_status = 0 if usuario[1] else 1
+            
+            if not novo_status and usuario[2] == 'ADMIN':
+                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND role = 'ADMIN' AND ativo = 1", (empresa_id,))
+                if cursor.fetchone()[0] <= 1:
+                    conn.close()
+                    return jsonify({'success': False, 'message': 'Não é possível desativar o último administrador da empresa'}), 400
+            
+            cursor.execute("UPDATE usuarios SET ativo = ? WHERE id = ? AND empresa_id = ?", (novo_status, usuario_id, empresa_id))
+            
+            conn.commit()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Status alterado com sucesso'})
+        
+    except Exception as e:
+        print(f"Erro ao alterar status do usuário: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': 'Erro ao alterar status'}), 500
+
+
+# =============================================
 # ROTAS PRINCIPAIS (COM PROTEÇÃO)
 # =============================================
 

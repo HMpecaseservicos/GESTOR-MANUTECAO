@@ -1,0 +1,287 @@
+{% extends 'base.html' %}
+
+{% block title %}Gestão de Usuários{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="fas fa-users-cog text-primary"></i> Gestão de Usuários</h2>
+        <p class="text-muted">Gerencie os usuários da sua empresa</p>
+    </div>
+    <div>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalUsuario" onclick="abrirModalCriar()">
+            <i class="fas fa-user-plus me-2"></i>Novo Usuário
+        </button>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<!-- Card de Limite -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card border-{% if stats.usuarios >= limite_usuarios %}danger{% elif stats.usuarios >= limite_usuarios * 0.8 %}warning{% else %}success{% endif %}">
+            <div class="card-body text-center">
+                <h5 class="card-title">
+                    <i class="fas fa-users me-2"></i>Usuários Ativos
+                </h5>
+                <h3 class="mb-1">{{ stats.usuarios }} / {% if limite_usuarios %}{{ limite_usuarios }}{% else %}∞{% endif %}</h3>
+                {% if limite_usuarios %}
+                {% set pct = (stats.usuarios / limite_usuarios) * 100 %}
+                <div class="progress mt-2" style="height: 8px;">
+                    <div class="progress-bar {% if pct >= 90 %}bg-danger{% elif pct >= 70 %}bg-warning{% else %}bg-success{% endif %}" 
+                         style="width: {{ pct }}%"></div>
+                </div>
+                {% if pct >= 80 %}
+                <small class="text-muted mt-2 d-block">
+                    <i class="fas fa-exclamation-triangle text-warning me-1"></i>
+                    Próximo do limite do plano
+                </small>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <h5 class="card-title text-primary">
+                    <i class="fas fa-user-shield me-2"></i>Administradores
+                </h5>
+                <h3 class="mb-0">{{ stats.admins }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-secondary">
+            <div class="card-body text-center">
+                <h5 class="card-title text-secondary">
+                    <i class="fas fa-user me-2"></i>Operadores
+                </h5>
+                <h3 class="mb-0">{{ stats.operadores }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Lista de Usuários -->
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-list me-2"></i>Usuários Cadastrados</h5>
+    </div>
+    <div class="card-body">
+        {% if usuarios %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Usuário</th>
+                        <th>Email</th>
+                        <th>Função</th>
+                        <th>Status</th>
+                        <th>Último Login</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for usuario in usuarios %}
+                    <tr class="{% if not usuario.ativo %}table-secondary{% endif %}">
+                        <td>
+                            <i class="fas fa-user-circle text-muted me-2"></i>
+                            {{ usuario.nome or usuario.username }}
+                            {% if usuario.id == current_user.id %}
+                            <span class="badge bg-info ms-1">Você</span>
+                            {% endif %}
+                        </td>
+                        <td><code>{{ usuario.username }}</code></td>
+                        <td>{{ usuario.email or '-' }}</td>
+                        <td>
+                            {% if usuario.role == 'ADMIN' %}
+                            <span class="badge bg-primary"><i class="fas fa-shield-alt me-1"></i>Administrador</span>
+                            {% else %}
+                            <span class="badge bg-secondary"><i class="fas fa-user me-1"></i>Operador</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if usuario.ativo %}
+                            <span class="badge bg-success"><i class="fas fa-check me-1"></i>Ativo</span>
+                            {% else %}
+                            <span class="badge bg-danger"><i class="fas fa-ban me-1"></i>Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if usuario.ultimo_login %}
+                            <small class="text-muted">{{ usuario.ultimo_login[:16] }}</small>
+                            {% else %}
+                            <small class="text-muted">Nunca</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" title="Editar" 
+                                        onclick="abrirModalEditar({{ usuario.id }}, '{{ usuario.nome or '' }}', '{{ usuario.email or '' }}', '{{ usuario.role }}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                {% if usuario.id != current_user.id %}
+                                <button class="btn btn-outline-{% if usuario.ativo %}danger{% else %}success{% endif %}" 
+                                        title="{% if usuario.ativo %}Desativar{% else %}Ativar{% endif %}"
+                                        onclick="toggleStatus({{ usuario.id }}, {{ 'true' if usuario.ativo else 'false' }})">
+                                    <i class="fas fa-{% if usuario.ativo %}ban{% else %}check{% endif %}"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-users fa-4x text-muted mb-3"></i>
+            <h5 class="text-muted">Nenhum usuário cadastrado</h5>
+            <p class="text-muted">Clique em "Novo Usuário" para adicionar.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal de Criar/Editar Usuário -->
+<div class="modal fade" id="modalUsuario" tabindex="-1" aria-labelledby="modalUsuarioLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="formUsuario" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="usuario_id" id="usuario_id" value="">
+                
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="modalUsuarioLabel">
+                        <i class="fas fa-user-plus me-2"></i>Novo Usuário
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="nome" class="form-label">Nome Completo *</label>
+                        <input type="text" class="form-control" id="nome" name="nome" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    
+                    <div class="mb-3" id="divUsername">
+                        <label for="username" class="form-label">Nome de Usuário *</label>
+                        <input type="text" class="form-control" id="username" name="username" 
+                               pattern="[a-z0-9_]+" title="Apenas letras minúsculas, números e underscore">
+                        <small class="text-muted">Usado para login. Apenas letras minúsculas, números e _</small>
+                    </div>
+                    
+                    <div class="mb-3" id="divSenha">
+                        <label for="password" class="form-label">Senha *</label>
+                        <input type="password" class="form-control" id="password" name="password" minlength="6">
+                        <small class="text-muted">Mínimo 6 caracteres</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Função *</label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="OPERADOR">Operador - Acesso limitado</option>
+                            <option value="ADMIN">Administrador - Acesso completo</option>
+                        </select>
+                        <small class="text-muted">Administradores podem gerenciar usuários e configurações</small>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btnSalvar">
+                        <i class="fas fa-save me-2"></i>Salvar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Configurar CSRF token para requisições AJAX
+const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+function abrirModalCriar() {
+    document.getElementById('modalUsuarioLabel').innerHTML = '<i class="fas fa-user-plus me-2"></i>Novo Usuário';
+    document.getElementById('formUsuario').action = "{{ url_for('criar_usuario') }}";
+    document.getElementById('usuario_id').value = '';
+    document.getElementById('nome').value = '';
+    document.getElementById('email').value = '';
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+    document.getElementById('role').value = 'OPERADOR';
+    
+    // Mostrar campos de criação
+    document.getElementById('divUsername').style.display = 'block';
+    document.getElementById('divSenha').style.display = 'block';
+    document.getElementById('username').required = true;
+    document.getElementById('password').required = true;
+}
+
+function abrirModalEditar(id, nome, email, role) {
+    document.getElementById('modalUsuarioLabel').innerHTML = '<i class="fas fa-user-edit me-2"></i>Editar Usuário';
+    document.getElementById('formUsuario').action = "{{ url_for('editar_usuario') }}";
+    document.getElementById('usuario_id').value = id;
+    document.getElementById('nome').value = nome;
+    document.getElementById('email').value = email;
+    document.getElementById('role').value = role;
+    
+    // Esconder campos de criação
+    document.getElementById('divUsername').style.display = 'none';
+    document.getElementById('divSenha').style.display = 'none';
+    document.getElementById('username').required = false;
+    document.getElementById('password').required = false;
+    
+    // Abrir modal
+    new bootstrap.Modal(document.getElementById('modalUsuario')).show();
+}
+
+function toggleStatus(usuarioId, ativo) {
+    const acao = ativo ? 'desativar' : 'ativar';
+    
+    if (!confirm(`Deseja ${acao} este usuário?`)) {
+        return;
+    }
+    
+    fetch("{{ url_for('toggle_usuario_status') }}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ usuario_id: usuarioId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.message || 'Erro ao alterar status');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao processar requisição');
+    });
+}
+</script>
+{% endblock %}
