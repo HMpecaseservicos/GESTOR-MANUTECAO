@@ -820,6 +820,97 @@ def atualizar_minha_empresa():
 
 
 # =============================================
+# ROTAS DE NOTIFICAÇÕES (ETAPA 12)
+# =============================================
+
+@app.route('/notificacoes')
+@login_required
+def notificacoes():
+    """Página de histórico de notificações"""
+    from empresa_helpers import get_empresa_id, is_admin, get_recent_notifications, TIPOS_NOTIFICACAO
+    
+    empresa_id = get_empresa_id()
+    usuario_id = current_user.id
+    admin = is_admin()
+    
+    # Buscar todas as notificações (limite maior para histórico)
+    notificacoes_lista = get_recent_notifications(empresa_id, usuario_id, admin, limit=100)
+    
+    return render_template('notificacoes.html', 
+                           notificacoes=notificacoes_lista,
+                           tipos=TIPOS_NOTIFICACAO)
+
+
+@app.route('/api/notificacoes')
+@login_required
+def api_notificacoes():
+    """API para buscar notificações recentes (dropdown)"""
+    from empresa_helpers import get_empresa_id, is_admin, get_recent_notifications, get_unread_count
+    
+    empresa_id = get_empresa_id()
+    usuario_id = current_user.id
+    admin = is_admin()
+    
+    notificacoes = get_recent_notifications(empresa_id, usuario_id, admin, limit=5)
+    unread_count = get_unread_count(empresa_id, usuario_id, admin)
+    
+    # Formatar para JSON
+    result = []
+    for n in notificacoes:
+        result.append({
+            'id': n['id'],
+            'tipo': n['tipo'],
+            'titulo': n['titulo'],
+            'mensagem': n['mensagem'],
+            'lida': n['lida'],
+            'link': n['link'],
+            'created_at': str(n['created_at'])[:16] if n['created_at'] else None
+        })
+    
+    return jsonify({
+        'success': True,
+        'notificacoes': result,
+        'unread_count': unread_count
+    })
+
+
+@app.route('/api/notificacoes/marcar-lida', methods=['POST'])
+@login_required
+def api_marcar_notificacao_lida():
+    """Marcar notificação como lida"""
+    from empresa_helpers import get_empresa_id, is_admin, mark_notification_read
+    
+    empresa_id = get_empresa_id()
+    usuario_id = current_user.id
+    admin = is_admin()
+    
+    data = request.json
+    notificacao_id = data.get('notificacao_id')
+    
+    if not notificacao_id:
+        return jsonify({'success': False, 'message': 'ID da notificação não informado'}), 400
+    
+    success = mark_notification_read(notificacao_id, empresa_id, usuario_id, admin)
+    
+    return jsonify({'success': success})
+
+
+@app.route('/api/notificacoes/marcar-todas-lidas', methods=['POST'])
+@login_required
+def api_marcar_todas_lidas():
+    """Marcar todas as notificações como lidas"""
+    from empresa_helpers import get_empresa_id, is_admin, mark_all_notifications_read
+    
+    empresa_id = get_empresa_id()
+    usuario_id = current_user.id
+    admin = is_admin()
+    
+    success = mark_all_notifications_read(empresa_id, usuario_id, admin)
+    
+    return jsonify({'success': success})
+
+
+# =============================================
 # ROTAS DE GESTÃO DE USUÁRIOS (ETAPA 11)
 # =============================================
 
@@ -950,6 +1041,12 @@ def criar_usuario():
             if not pode_criar:
                 cursor.close()
                 conn.close()
+                # Notificar sobre bloqueio de limite (ETAPA 12)
+                from empresa_helpers import create_notification
+                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                    'Limite de usuários atingido!', 
+                    msg_limite, 
+                    link='/minha-empresa')
                 flash(msg_limite, 'warning')
                 return redirect(url_for('usuarios'))
             
@@ -1002,6 +1099,10 @@ def criar_usuario():
             conn.close()
         
         flash(f'Usuário {username} criado com sucesso!', 'success')
+        
+        # Notificar sobre criação de usuário (ETAPA 12)
+        from empresa_helpers import notify_user_created
+        notify_user_created(empresa_id, current_user.id, nome, role)
         
     except Exception as e:
         print(f"Erro ao criar usuário: {e}")
@@ -1441,6 +1542,12 @@ def criar_veiculo():
             if not pode_criar:
                 cursor.close()
                 conn.close()
+                # Notificar sobre bloqueio de limite (ETAPA 12)
+                from empresa_helpers import create_notification
+                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                    'Limite de veículos atingido!', 
+                    msg_limite, 
+                    link='/minha-empresa')
                 return jsonify({
                     'success': False,
                     'message': msg_limite
@@ -3575,6 +3682,12 @@ def criar_cliente():
             if not pode_criar:
                 cursor.close()
                 conn.close()
+                # Notificar sobre bloqueio de limite (ETAPA 12)
+                from empresa_helpers import create_notification
+                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                    'Limite de clientes atingido!', 
+                    msg_limite, 
+                    link='/minha-empresa')
                 return jsonify({'success': False, 'message': msg_limite}), 403
             
             cursor.execute("""

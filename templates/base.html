@@ -67,6 +67,26 @@
                         <i class="fas fa-chart-bar"></i> Relatórios
                     </a>
                     
+                    <!-- Notificações -->
+                    <div class="nav-item dropdown">
+                        <a class="nav-link position-relative" href="#" id="notificationDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-bell"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" 
+                                  id="notification-badge" style="font-size: 0.6rem; display: none;">0</span>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end notification-dropdown" aria-labelledby="notificationDropdown" style="min-width: 320px; max-height: 400px; overflow-y: auto;">
+                            <div class="dropdown-header d-flex justify-content-between align-items-center">
+                                <strong><i class="fas fa-bell me-2"></i>Notificações</strong>
+                                <a href="{{ url_for('notificacoes') }}" class="text-primary small">Ver todas</a>
+                            </div>
+                            <div id="notification-list">
+                                <div class="text-center py-3 text-muted">
+                                    <i class="fas fa-spinner fa-spin"></i> Carregando...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Menu do Usuário -->
                     <div class="nav-item dropdown ms-3">
                         <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -138,5 +158,124 @@
     <!-- FullCalendar JS -->
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    
+    <!-- Script de Notificações -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Carregar notificações ao abrir dropdown
+        const notificationDropdown = document.getElementById('notificationDropdown');
+        if (notificationDropdown) {
+            notificationDropdown.addEventListener('click', carregarNotificacoes);
+            // Carregar contador inicial
+            atualizarContadorNotificacoes();
+            // Atualizar a cada 60 segundos
+            setInterval(atualizarContadorNotificacoes, 60000);
+        }
+    });
+    
+    function carregarNotificacoes() {
+        const lista = document.getElementById('notification-list');
+        if (!lista) return;
+        
+        fetch('/api/notificacoes')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.notificacoes.length > 0) {
+                let html = '';
+                data.notificacoes.forEach(n => {
+                    const icone = getIconeNotificacao(n.tipo);
+                    const cor = getCorNotificacao(n.tipo);
+                    html += `
+                        <a class="dropdown-item py-2 ${!n.lida ? 'bg-light' : ''}" href="${n.link || '#'}" 
+                           onclick="marcarNotificacaoLida(${n.id})">
+                            <div class="d-flex align-items-start">
+                                <span class="badge bg-${cor} me-2 mt-1"><i class="${icone}"></i></span>
+                                <div class="flex-grow-1">
+                                    <div class="fw-${n.lida ? 'normal' : 'bold'} small">${n.titulo}</div>
+                                    <small class="text-muted">${n.created_at || ''}</small>
+                                </div>
+                            </div>
+                        </a>
+                    `;
+                });
+                html += '<div class="dropdown-divider"></div>';
+                html += '<a class="dropdown-item text-center text-primary" href="/notificacoes"><i class="fas fa-list me-1"></i>Ver histórico completo</a>';
+                lista.innerHTML = html;
+            } else {
+                lista.innerHTML = '<div class="text-center py-3 text-muted"><i class="fas fa-check-circle me-1"></i>Nenhuma notificação</div>';
+            }
+            
+            // Atualizar badge
+            const badge = document.getElementById('notification-badge');
+            if (badge) {
+                if (data.unread_count > 0) {
+                    badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Erro ao carregar notificações:', err);
+            lista.innerHTML = '<div class="text-center py-3 text-muted">Erro ao carregar</div>';
+        });
+    }
+    
+    function atualizarContadorNotificacoes() {
+        fetch('/api/notificacoes')
+        .then(response => response.json())
+        .then(data => {
+            const badge = document.getElementById('notification-badge');
+            if (badge && data.success) {
+                if (data.unread_count > 0) {
+                    badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        })
+        .catch(err => console.error('Erro ao atualizar contador:', err));
+    }
+    
+    function marcarNotificacaoLida(notificacaoId) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        fetch('/api/notificacoes/marcar-lida', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken || ''
+            },
+            body: JSON.stringify({ notificacao_id: notificacaoId })
+        });
+    }
+    
+    function getIconeNotificacao(tipo) {
+        const icones = {
+            'LIMITE_AVISO': 'fas fa-exclamation-triangle',
+            'LIMITE_BLOQUEIO': 'fas fa-ban',
+            'MANUTENCAO_ATRASADA': 'fas fa-clock',
+            'SERVICO_SEM_FATURAMENTO': 'fas fa-file-invoice-dollar',
+            'USUARIO_CRIADO': 'fas fa-user-plus',
+            'ACAO_BLOQUEADA': 'fas fa-lock',
+            'SISTEMA': 'fas fa-info-circle'
+        };
+        return icones[tipo] || 'fas fa-bell';
+    }
+    
+    function getCorNotificacao(tipo) {
+        const cores = {
+            'LIMITE_AVISO': 'warning',
+            'LIMITE_BLOQUEIO': 'danger',
+            'MANUTENCAO_ATRASADA': 'warning',
+            'SERVICO_SEM_FATURAMENTO': 'info',
+            'USUARIO_CRIADO': 'success',
+            'ACAO_BLOQUEADA': 'danger',
+            'SISTEMA': 'primary'
+        };
+        return cores[tipo] || 'secondary';
+    }
+    </script>
 </body>
 </html>

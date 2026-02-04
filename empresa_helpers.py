@@ -309,3 +309,373 @@ def get_info_plano():
     }
     
     return info_planos.get(plano, info_planos['BASICO'])
+
+
+# =============================================
+# HELPERS DE NOTIFICAÇÕES (ETAPA 12)
+# =============================================
+
+# Tipos de notificação disponíveis
+TIPOS_NOTIFICACAO = {
+    'LIMITE_AVISO': {'icone': 'fas fa-exclamation-triangle', 'cor': 'warning'},
+    'LIMITE_BLOQUEIO': {'icone': 'fas fa-ban', 'cor': 'danger'},
+    'MANUTENCAO_ATRASADA': {'icone': 'fas fa-clock', 'cor': 'warning'},
+    'SERVICO_SEM_FATURAMENTO': {'icone': 'fas fa-file-invoice-dollar', 'cor': 'info'},
+    'USUARIO_CRIADO': {'icone': 'fas fa-user-plus', 'cor': 'success'},
+    'ACAO_BLOQUEADA': {'icone': 'fas fa-lock', 'cor': 'danger'},
+    'SISTEMA': {'icone': 'fas fa-info-circle', 'cor': 'primary'},
+}
+
+
+def create_notification(empresa_id, tipo, titulo, mensagem, usuario_id=None, link=None):
+    """
+    Cria uma nova notificação no sistema.
+    
+    Args:
+        empresa_id: ID da empresa (obrigatório)
+        tipo: Tipo da notificação (LIMITE_AVISO, MANUTENCAO_ATRASADA, etc.)
+        titulo: Título curto (max 200 chars)
+        mensagem: Descrição detalhada
+        usuario_id: ID do usuário destinatário (None = todos da empresa)
+        link: URL para ação (opcional)
+    
+    Returns:
+        int: ID da notificação criada ou None em caso de erro
+    """
+    from config import Config
+    
+    if not empresa_id or not titulo:
+        return None
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, link, lida)
+                VALUES (%s, %s, %s, %s, %s, %s, false)
+                RETURNING id
+            """, (empresa_id, usuario_id, tipo, titulo[:200], mensagem, link))
+            
+            notificacao_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return notificacao_id
+        else:
+            import sqlite3
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, link, lida)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            """, (empresa_id, usuario_id, tipo, titulo[:200], mensagem, link))
+            
+            notificacao_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return notificacao_id
+            
+    except Exception as e:
+        print(f"Erro ao criar notificação: {e}")
+        return None
+
+
+def get_unread_count(empresa_id, usuario_id=None, is_admin=False):
+    """
+    Retorna o número de notificações não lidas.
+    
+    Args:
+        empresa_id: ID da empresa
+        usuario_id: ID do usuário
+        is_admin: Se True, conta todas da empresa; se False, apenas do usuário
+    
+    Returns:
+        int: Quantidade de notificações não lidas
+    """
+    from config import Config
+    
+    if not empresa_id:
+        return 0
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            if is_admin:
+                # Admin vê todas da empresa
+                cursor.execute("""
+                    SELECT COUNT(*) FROM notificacoes 
+                    WHERE empresa_id = %s AND lida = false
+                """, (empresa_id,))
+            else:
+                # Operador vê apenas as dele ou gerais (usuario_id IS NULL)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM notificacoes 
+                    WHERE empresa_id = %s AND lida = false
+                    AND (usuario_id = %s OR usuario_id IS NULL)
+                """, (empresa_id, usuario_id))
+            
+            count = cursor.fetchone()[0]
+            cursor.close()
+            conn.close()
+            return count
+        else:
+            import sqlite3
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM notificacoes 
+                    WHERE empresa_id = ? AND lida = 0
+                """, (empresa_id,))
+            else:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM notificacoes 
+                    WHERE empresa_id = ? AND lida = 0
+                    AND (usuario_id = ? OR usuario_id IS NULL)
+                """, (empresa_id, usuario_id))
+            
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count
+            
+    except Exception as e:
+        print(f"Erro ao contar notificações: {e}")
+        return 0
+
+
+def get_recent_notifications(empresa_id, usuario_id=None, is_admin=False, limit=5):
+    """
+    Retorna as notificações mais recentes.
+    
+    Args:
+        empresa_id: ID da empresa
+        usuario_id: ID do usuário
+        is_admin: Se True, retorna todas da empresa
+        limit: Quantidade máxima de notificações
+    
+    Returns:
+        list: Lista de dicionários com notificações
+    """
+    from config import Config
+    
+    if not empresa_id:
+        return []
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            if is_admin:
+                cursor.execute("""
+                    SELECT id, tipo, titulo, mensagem, lida, link, created_at
+                    FROM notificacoes 
+                    WHERE empresa_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (empresa_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT id, tipo, titulo, mensagem, lida, link, created_at
+                    FROM notificacoes 
+                    WHERE empresa_id = %s
+                    AND (usuario_id = %s OR usuario_id IS NULL)
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (empresa_id, usuario_id, limit))
+            
+            notificacoes = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return notificacoes
+        else:
+            import sqlite3
+            conn = sqlite3.connect('database/frota.db')
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    SELECT id, tipo, titulo, mensagem, lida, link, created_at
+                    FROM notificacoes 
+                    WHERE empresa_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (empresa_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT id, tipo, titulo, mensagem, lida, link, created_at
+                    FROM notificacoes 
+                    WHERE empresa_id = ?
+                    AND (usuario_id = ? OR usuario_id IS NULL)
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (empresa_id, usuario_id, limit))
+            
+            notificacoes = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+            return notificacoes
+            
+    except Exception as e:
+        print(f"Erro ao buscar notificações: {e}")
+        return []
+
+
+def mark_notification_read(notificacao_id, empresa_id, usuario_id=None, is_admin=False):
+    """
+    Marca uma notificação como lida.
+    
+    Returns:
+        bool: True se sucesso, False se erro
+    """
+    from config import Config
+    
+    if not notificacao_id or not empresa_id:
+        return False
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = true
+                    WHERE id = %s AND empresa_id = %s
+                """, (notificacao_id, empresa_id))
+            else:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = true
+                    WHERE id = %s AND empresa_id = %s
+                    AND (usuario_id = %s OR usuario_id IS NULL)
+                """, (notificacao_id, empresa_id, usuario_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        else:
+            import sqlite3
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = 1
+                    WHERE id = ? AND empresa_id = ?
+                """, (notificacao_id, empresa_id))
+            else:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = 1
+                    WHERE id = ? AND empresa_id = ?
+                    AND (usuario_id = ? OR usuario_id IS NULL)
+                """, (notificacao_id, empresa_id, usuario_id))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+    except Exception as e:
+        print(f"Erro ao marcar notificação como lida: {e}")
+        return False
+
+
+def mark_all_notifications_read(empresa_id, usuario_id=None, is_admin=False):
+    """
+    Marca todas as notificações como lidas.
+    """
+    from config import Config
+    
+    if not empresa_id:
+        return False
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = true
+                    WHERE empresa_id = %s AND lida = false
+                """, (empresa_id,))
+            else:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = true
+                    WHERE empresa_id = %s AND lida = false
+                    AND (usuario_id = %s OR usuario_id IS NULL)
+                """, (empresa_id, usuario_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        else:
+            import sqlite3
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            
+            if is_admin:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = 1
+                    WHERE empresa_id = ? AND lida = 0
+                """, (empresa_id,))
+            else:
+                cursor.execute("""
+                    UPDATE notificacoes SET lida = 1
+                    WHERE empresa_id = ? AND lida = 0
+                    AND (usuario_id = ? OR usuario_id IS NULL)
+                """, (empresa_id, usuario_id))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+    except Exception as e:
+        print(f"Erro ao marcar todas notificações como lidas: {e}")
+        return False
+
+
+def notify_limit_warning(empresa_id, recurso, percentual, atual, limite):
+    """
+    Cria notificação de aviso de limite.
+    
+    Args:
+        recurso: 'clientes', 'veiculos' ou 'usuarios'
+        percentual: Percentual de uso (80, 90, 100)
+        atual: Quantidade atual
+        limite: Limite do plano
+    """
+    if percentual >= 100:
+        tipo = 'LIMITE_BLOQUEIO'
+        titulo = f"Limite de {recurso} atingido!"
+        mensagem = f"Você atingiu o limite de {limite} {recurso} do seu plano. Para continuar cadastrando, faça upgrade do plano."
+    else:
+        tipo = 'LIMITE_AVISO'
+        titulo = f"Atenção: {percentual}% do limite de {recurso}"
+        mensagem = f"Você está usando {atual} de {limite} {recurso} disponíveis no seu plano. Considere fazer upgrade."
+    
+    return create_notification(empresa_id, tipo, titulo, mensagem, link='/minha-empresa')
+
+
+def notify_user_created(empresa_id, admin_id, novo_usuario_nome, novo_usuario_role):
+    """
+    Notifica sobre criação de novo usuário.
+    """
+    titulo = f"Novo usuário criado: {novo_usuario_nome}"
+    mensagem = f"O usuário {novo_usuario_nome} foi adicionado como {novo_usuario_role}."
+    
+    return create_notification(empresa_id, 'USUARIO_CRIADO', titulo, mensagem, 
+                               usuario_id=admin_id, link='/usuarios')

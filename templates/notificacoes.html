@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+
+{% block title %}Notificações{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="fas fa-bell text-primary"></i> Notificações</h2>
+        <p class="text-muted">Acompanhe alertas e avisos importantes do sistema</p>
+    </div>
+    <div>
+        <button class="btn btn-outline-primary" onclick="marcarTodasComoLidas()">
+            <i class="fas fa-check-double me-2"></i>Marcar todas como lidas
+        </button>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-history me-2"></i>Histórico de Notificações</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if notificacoes %}
+        <div class="list-group list-group-flush">
+            {% for notif in notificacoes %}
+            {% set tipo_info = tipos.get(notif.tipo, {'icone': 'fas fa-info-circle', 'cor': 'primary'}) %}
+            <div class="list-group-item list-group-item-action {% if not notif.lida %}bg-light border-start border-4 border-{{ tipo_info.cor }}{% endif %}" 
+                 id="notif-{{ notif.id }}">
+                <div class="d-flex w-100 justify-content-between align-items-start">
+                    <div class="d-flex align-items-start">
+                        <div class="me-3">
+                            <span class="badge bg-{{ tipo_info.cor }} p-2">
+                                <i class="{{ tipo_info.icone }}"></i>
+                            </span>
+                        </div>
+                        <div>
+                            <h6 class="mb-1 {% if not notif.lida %}fw-bold{% endif %}">
+                                {{ notif.titulo }}
+                                {% if not notif.lida %}
+                                <span class="badge bg-primary ms-2">Nova</span>
+                                {% endif %}
+                            </h6>
+                            <p class="mb-1 text-muted">{{ notif.mensagem or '' }}</p>
+                            <small class="text-muted">
+                                <i class="fas fa-clock me-1"></i>
+                                {{ notif.created_at[:16] if notif.created_at else 'Agora' }}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        {% if notif.link %}
+                        <a href="{{ notif.link }}" class="btn btn-sm btn-outline-primary me-2" title="Ver detalhes">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                        {% endif %}
+                        {% if not notif.lida %}
+                        <button class="btn btn-sm btn-outline-secondary" onclick="marcarComoLida({{ notif.id }})" title="Marcar como lida">
+                            <i class="fas fa-check"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-bell-slash fa-4x text-muted mb-3"></i>
+            <h5 class="text-muted">Nenhuma notificação</h5>
+            <p class="text-muted">Quando houver alertas importantes, eles aparecerão aqui.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Legenda de tipos -->
+<div class="card mt-4">
+    <div class="card-header bg-light">
+        <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Tipos de Notificação</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for tipo, info in tipos.items() %}
+            <div class="col-md-4 mb-2">
+                <span class="badge bg-{{ info.cor }} me-2">
+                    <i class="{{ info.icone }}"></i>
+                </span>
+                <span class="text-muted">{{ tipo.replace('_', ' ').title() }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+function marcarComoLida(notificacaoId) {
+    fetch('/api/notificacoes/marcar-lida', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ notificacao_id: notificacaoId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const elem = document.getElementById('notif-' + notificacaoId);
+            if (elem) {
+                elem.classList.remove('bg-light', 'border-start', 'border-4');
+                elem.querySelector('.badge.bg-primary')?.remove();
+                elem.querySelector('button[onclick*="marcarComoLida"]')?.remove();
+            }
+            atualizarContador();
+        }
+    });
+}
+
+function marcarTodasComoLidas() {
+    fetch('/api/notificacoes/marcar-todas-lidas', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        }
+    });
+}
+
+function atualizarContador() {
+    fetch('/api/notificacoes')
+    .then(response => response.json())
+    .then(data => {
+        const badge = document.getElementById('notification-badge');
+        if (badge) {
+            if (data.unread_count > 0) {
+                badge.textContent = data.unread_count;
+                badge.style.display = 'inline';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    });
+}
+</script>
+{% endblock %}
