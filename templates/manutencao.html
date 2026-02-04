@@ -5,8 +5,8 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h1 class="display-6">Gestão de Manutenção</h1>
-        <p class="text-muted">Agende e acompanhe as manutenções da frota</p>
+        <h1 class="display-6">Gestão de {% if is_servico %}Serviços{% else %}Manutenção{% endif %}</h1>
+        <p class="text-muted">{% if is_servico %}Registre os serviços prestados aos clientes{% else %}Agende e acompanhe as manutenções da frota{% endif %}</p>
     </div>
 </div>
 
@@ -24,10 +24,19 @@
             <input type="text" class="form-control" placeholder="Buscar veículo ou descrição..." id="searchManutencoes" onkeyup="filtrarManutencoes()">
             <select class="form-select" style="max-width: 200px;" id="filtroStatus" onchange="filtrarManutencoes()">
                 <option value="">Todos os status</option>
+                {% if is_servico %}
+                <option value="RASCUNHO">📝 Rascunho</option>
+                <option value="ORCAMENTO">📋 Orçamento</option>
+                <option value="APROVADO">✅ Aprovado</option>
+                <option value="EM_EXECUCAO">⚙️ Em Execução</option>
+                <option value="FINALIZADO">🏁 Finalizado</option>
+                <option value="CANCELADO">❌ Cancelado</option>
+                {% else %}
                 <option value="Agendada">📅 Agendada</option>
                 <option value="Em Andamento">⚙️ Em Andamento</option>
                 <option value="Concluída">✅ Concluída</option>
                 <option value="Cancelada">❌ Cancelada</option>
+                {% endif %}
             </select>
             <button class="btn btn-outline-secondary" type="button" title="Filtrar">
                 <i class="fas fa-filter"></i>
@@ -116,6 +125,18 @@
                                 <span class="badge bg-info">{{ manutencao[7] }}</span>
                             {% elif manutencao[7] == 'Concluída' %}
                                 <span class="badge bg-success">{{ manutencao[7] }}</span>
+                            {% elif manutencao[7] == 'RASCUNHO' %}
+                                <span class="badge bg-secondary">📝 Rascunho</span>
+                            {% elif manutencao[7] == 'ORCAMENTO' %}
+                                <span class="badge bg-primary">📋 Orçamento</span>
+                            {% elif manutencao[7] == 'APROVADO' %}
+                                <span class="badge bg-success">✅ Aprovado</span>
+                            {% elif manutencao[7] == 'EM_EXECUCAO' %}
+                                <span class="badge bg-info">⚙️ Em Execução</span>
+                            {% elif manutencao[7] == 'FINALIZADO' %}
+                                <span class="badge bg-dark">🏁 Finalizado</span>
+                            {% elif manutencao[7] == 'CANCELADO' %}
+                                <span class="badge bg-danger">❌ Cancelado</span>
                             {% else %}
                                 <span class="badge bg-danger">{{ manutencao[7] }}</span>
                             {% endif %}
@@ -137,17 +158,60 @@
                                         onclick="editarManutencao('{{ manutencao[0] }}')">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                {% if manutencao[7] == 'Agendada' %}
-                                <button class="btn btn-sm btn-outline-success iniciar-whatsapp" 
-                                        title="Iniciar e Notificar via WhatsApp"
-                                        onclick="iniciarViaWhatsApp(this)">
-                                    <i class="fab fa-whatsapp"></i> Iniciar
-                                </button>
-                                {% elif manutencao[7] == 'Em Andamento' %}
-                                <button class="btn btn-sm btn-outline-success" title="Finalizar"
-                                        onclick="finalizarManutencao('{{ manutencao[0] }}')">
-                                    <i class="fas fa-check"></i>
-                                </button>
+                                {% if is_servico %}
+                                    {# Ações para modo SERVICO #}
+                                    {% if manutencao[7] == 'RASCUNHO' %}
+                                    <button class="btn btn-sm btn-outline-primary" title="Gerar Orçamento"
+                                            onclick="gerarOrcamento('{{ manutencao[0] }}')">
+                                        <i class="fas fa-file-invoice-dollar"></i>
+                                    </button>
+                                    {% elif manutencao[7] == 'ORCAMENTO' %}
+                                    <button class="btn btn-sm btn-outline-success" title="Aprovar Orçamento"
+                                            onclick="aprovarOrcamento('{{ manutencao[0] }}')">
+                                        <i class="fas fa-check-circle"></i> Aprovar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-info" title="PDF Orçamento"
+                                            onclick="baixarOrcamentoPDF('{{ manutencao[0] }}')">
+                                        <i class="fas fa-file-pdf"></i>
+                                    </button>
+                                    {% elif manutencao[7] == 'APROVADO' %}
+                                    <button class="btn btn-sm btn-outline-info" title="Iniciar Execução"
+                                            onclick="iniciarExecucao('{{ manutencao[0] }}')">
+                                        <i class="fas fa-play"></i> Iniciar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
+                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                        <i class="fas fa-file-alt"></i> OS
+                                    </button>
+                                    {% elif manutencao[7] == 'EM_EXECUCAO' %}
+                                    <button class="btn btn-sm btn-outline-success" title="Finalizar"
+                                            onclick="finalizarServico('{{ manutencao[0] }}')">
+                                        <i class="fas fa-flag-checkered"></i> Finalizar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
+                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                        <i class="fas fa-file-alt"></i> OS
+                                    </button>
+                                    {% elif manutencao[7] == 'FINALIZADO' %}
+                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
+                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                        <i class="fas fa-file-alt"></i> OS
+                                    </button>
+                                    {% endif %}
+                                {% else %}
+                                    {# Ações para modo FROTA #}
+                                    {% if manutencao[7] == 'Agendada' %}
+                                    <button class="btn btn-sm btn-outline-success iniciar-whatsapp" 
+                                            title="Iniciar e Notificar via WhatsApp"
+                                            onclick="iniciarViaWhatsApp(this)">
+                                        <i class="fab fa-whatsapp"></i> Iniciar
+                                    </button>
+                                    {% elif manutencao[7] == 'Em Andamento' %}
+                                    <button class="btn btn-sm btn-outline-success" title="Finalizar"
+                                            onclick="finalizarManutencao('{{ manutencao[0] }}')">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    {% endif %}
                                 {% endif %}
                             </div>
                         </td>
@@ -245,6 +309,25 @@
                                    step="0.01" placeholder="0.00">
                         </div>
                     </div>
+                    
+                    {% if is_servico %}
+                    <!-- Seção Serviços Prestados (modo SERVICO) -->
+                    <hr class="my-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0"><i class="fas fa-tools text-primary"></i> Serviços Prestados</h6>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="adicionarItemServico('nova')">
+                            <i class="fas fa-plus"></i> Adicionar Serviço
+                        </button>
+                    </div>
+                    <div id="nova-servicos-container">
+                        <!-- Itens serão adicionados aqui via JS -->
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12 text-end">
+                            <strong>Total de Serviços: <span id="nova-total-servicos" class="text-success">R$ 0,00</span></strong>
+                        </div>
+                    </div>
+                    {% endif %}
                 </form>
             </div>
             <div class="modal-footer">
@@ -310,10 +393,19 @@
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Status *</label>
                             <select class="form-select" id="edit-status" name="status" required>
+                                {% if is_servico %}
+                                <option value="RASCUNHO">📝 Rascunho</option>
+                                <option value="ORCAMENTO">📋 Orçamento</option>
+                                <option value="APROVADO">✅ Aprovado</option>
+                                <option value="EM_EXECUCAO">⚙️ Em Execução</option>
+                                <option value="FINALIZADO">🏁 Finalizado</option>
+                                <option value="CANCELADO">❌ Cancelado</option>
+                                {% else %}
                                 <option value="Agendada">Agendada</option>
                                 <option value="Em Andamento">Em Andamento</option>
                                 <option value="Concluída">Concluída</option>
                                 <option value="Cancelada">Cancelada</option>
+                                {% endif %}
                             </select>
                         </div>
                         <div class="col-md-4 mb-3">
@@ -345,6 +437,29 @@
                         </div>
                     </div>
                 </form>
+                
+                {% if is_servico %}
+                <!-- Seção Serviços Prestados (modo SERVICO) -->
+                <hr class="my-4">
+                <div class="servicos-section">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0"><i class="fas fa-tools text-primary"></i> Serviços Prestados</h6>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="adicionarItemServico('edit')">
+                            <i class="fas fa-plus"></i> Adicionar Serviço
+                        </button>
+                    </div>
+                    <div id="edit-servicos-container">
+                        <!-- Itens serão carregados via JS -->
+                    </div>
+                    <div class="mt-3 p-3 bg-info bg-opacity-10 rounded">
+                        <div class="row">
+                            <div class="col-12 text-end">
+                                <strong>Total de Serviços: <span id="edit-total-servicos" class="text-primary fs-5">R$ 0,00</span></strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 
                 <!-- Seção de Peças -->
                 <hr class="my-4">
@@ -578,6 +693,11 @@ function editarManutencao(manutencaoId) {
                 // Carregar peças da manutenção
                 carregarPecasEdicao(manutencao.id);
                 
+                // Carregar serviços da manutenção (modo SERVICO)
+                if (typeof carregarServicosManutencao === 'function') {
+                    carregarServicosManutencao(manutencao.id);
+                }
+                
                 const modal = new bootstrap.Modal(document.getElementById('editarManutencaoModal'));
                 modal.show();
             } else {
@@ -597,39 +717,48 @@ function salvarEdicaoManutencao() {
     // Calcular custo total (mão de obra + peças)
     const custoMaoObra = parseFloat(document.getElementById('edit-custo').value) || 0;
     const totalPecasText = document.getElementById('edit-total-pecas').textContent;
-    const totalPecas = parseFloat(totalPecasText.replace('R$', '').replace(',', '.').trim()) || 0;
-    const custoTotal = custoMaoObra + totalPecas;
+    const totalPecas = parseFloat(totalPecasText.replace('R$', '').replace('.', '').replace(',', '.').trim()) || 0;
     
-    console.log('Custo Mão de Obra:', custoMaoObra, 'Total Peças:', totalPecas, 'Custo Total:', custoTotal);
+    // Adicionar total de serviços se existir
+    const totalServicosEl = document.getElementById('edit-total-servicos');
+    let totalServicos = 0;
+    if (totalServicosEl) {
+        totalServicos = parseFloat(totalServicosEl.textContent.replace('R$', '').replace('.', '').replace(',', '.').trim()) || 0;
+    }
     
-    const formData = new FormData();
-    formData.append('veiculo_id', document.getElementById('edit-veiculo').value);
-    formData.append('tipo', document.getElementById('edit-tipo').value);
-    formData.append('descricao', document.getElementById('edit-descricao').value);
-    formData.append('data_agendada', document.getElementById('edit-data-agendada').value);
-    formData.append('data_realizada', document.getElementById('edit-data-realizada').value);
-    formData.append('custo', custoTotal.toFixed(2)); // Enviar custo total
-    formData.append('status', document.getElementById('edit-status').value);
-    formData.append('tecnico', document.getElementById('edit-tecnico').value);
+    const custoTotal = custoMaoObra + totalPecas + totalServicos;
+    
+    console.log('Custo Mão de Obra:', custoMaoObra, 'Total Peças:', totalPecas, 'Total Serviços:', totalServicos, 'Custo Total:', custoTotal);
     
     const manutencaoId = document.getElementById('edit-manutencao-id').value;
+    
+    // Coletar dados do formulário
+    const dados = {
+        veiculo_id: document.getElementById('edit-veiculo').value,
+        tipo: document.getElementById('edit-tipo').value,
+        descricao: document.getElementById('edit-descricao').value,
+        data_agendada: document.getElementById('edit-data-agendada').value,
+        data_realizada: document.getElementById('edit-data-realizada').value,
+        custo: custoTotal.toFixed(2),
+        status: document.getElementById('edit-status').value,
+        tecnico: document.getElementById('edit-tecnico').value
+    };
+    
+    // Coletar serviços (modo SERVICO)
+    if (typeof coletarServicos === 'function') {
+        dados.servicos = coletarServicos('edit');
+    }
+    
     console.log('ID da manutenção:', manutencaoId);
     
     // Validar campos obrigatórios
-    if (!document.getElementById('edit-veiculo').value || 
-        !document.getElementById('edit-tipo').value || 
-        !document.getElementById('edit-descricao').value || 
-        !document.getElementById('edit-data-agendada').value ||
-        !document.getElementById('edit-status').value) {
+    if (!dados.veiculo_id || !dados.tipo || !dados.descricao || !dados.data_agendada || !dados.status) {
         alert('Por favor, preencha todos os campos obrigatórios!');
         return;
     }
     
     // Validar data realizada se status for Concluída
-    const status = document.getElementById('edit-status').value;
-    const dataRealizada = document.getElementById('edit-data-realizada').value;
-    
-    if (status === 'Concluída' && !dataRealizada) {
+    if (dados.status === 'Concluída' && !dados.data_realizada) {
         alert('⚠️ Para concluir uma manutenção, é obrigatório informar a Data Realizada!');
         document.getElementById('edit-data-realizada').focus();
         return;
@@ -638,9 +767,10 @@ function salvarEdicaoManutencao() {
     fetch(`/manutencao/edit/${manutencaoId}`, {
         method: 'POST',
         headers: {
+            'Content-Type': 'application/json',
             'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
         },
-        body: formData
+        body: JSON.stringify(dados)
     })
     .then(response => {
         console.log('Response status:', response.status);
@@ -779,6 +909,124 @@ function finalizarManutencao(manutencaoId) {
             console.error(error);
         });
     }
+}
+
+// =============================================
+// FUNÇÕES PARA ORÇAMENTO E ORDEM DE SERVIÇO
+// =============================================
+
+// Gerar Orçamento (muda status para ORCAMENTO)
+function gerarOrcamento(manutencaoId) {
+    if (confirm('Deseja gerar um orçamento para esta manutenção?')) {
+        fetch(`/api/manutencao/${manutencaoId}/gerar-orcamento`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Orçamento gerado com sucesso!');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao gerar orçamento');
+            console.error(error);
+        });
+    }
+}
+
+// Aprovar Orçamento
+function aprovarOrcamento(manutencaoId) {
+    if (confirm('Deseja aprovar este orçamento?\n\nO cliente confirmou a autorização do serviço?')) {
+        fetch(`/api/manutencao/${manutencaoId}/aprovar-orcamento`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Orçamento aprovado! Você pode iniciar a execução.');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao aprovar orçamento');
+            console.error(error);
+        });
+    }
+}
+
+// Iniciar Execução
+function iniciarExecucao(manutencaoId) {
+    if (confirm('Deseja iniciar a execução deste serviço?')) {
+        fetch(`/api/manutencao/${manutencaoId}/iniciar-execucao`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Execução iniciada!');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao iniciar execução');
+            console.error(error);
+        });
+    }
+}
+
+// Finalizar Serviço (modo SERVICO)
+function finalizarServico(manutencaoId) {
+    if (confirm('Deseja finalizar este serviço?\n\nIsso marcará o serviço como FINALIZADO.')) {
+        fetch(`/api/manutencao/${manutencaoId}/finalizar-servico`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Serviço finalizado com sucesso!');
+                location.reload();
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Erro ao finalizar serviço');
+            console.error(error);
+        });
+    }
+}
+
+// Baixar PDF de Orçamento
+function baixarOrcamentoPDF(manutencaoId) {
+    window.open(`/api/manutencao/${manutencaoId}/pdf-orcamento`, '_blank');
+}
+
+// Baixar PDF de Ordem de Serviço
+function baixarOrdemServicoPDF(manutencaoId) {
+    window.open(`/api/manutencao/${manutencaoId}/pdf-ordem-servico`, '_blank');
 }
 
 // Variáveis globais para controle de peças
@@ -1505,6 +1753,148 @@ function formatarMoedaBR(valor) {
         style: 'currency',
         currency: 'BRL'
     }).format(valor || 0);
+}
+
+// =============================================
+// GESTÃO DE SERVIÇOS PRESTADOS (MODO SERVICO)
+// =============================================
+
+let servicoContadorNova = 0;
+let servicoContadorEdit = 0;
+
+function adicionarItemServico(modal, dados = null) {
+    const container = document.getElementById(modal + '-servicos-container');
+    if (!container) return;
+    
+    const contador = modal === 'nova' ? ++servicoContadorNova : ++servicoContadorEdit;
+    const id = modal + '-servico-' + contador;
+    
+    const nome = dados ? dados.nome_servico : '';
+    const quantidade = dados ? dados.quantidade : 1;
+    const valorUnitario = dados ? dados.valor_unitario : '';
+    const itemId = dados ? dados.id : '';
+    
+    const html = `
+        <div class="card mb-2 servico-item" id="${id}">
+            <div class="card-body py-2 px-3">
+                <div class="row align-items-center">
+                    <div class="col-md-5">
+                        <input type="text" class="form-control form-control-sm" 
+                               placeholder="Nome do serviço..." 
+                               name="servico_nome_${contador}"
+                               value="${nome}"
+                               data-item-id="${itemId}"
+                               onchange="calcularTotalServicos('${modal}')" required>
+                    </div>
+                    <div class="col-md-2">
+                        <input type="number" class="form-control form-control-sm" 
+                               placeholder="Qtd" min="0.01" step="0.01"
+                               name="servico_qtd_${contador}"
+                               value="${quantidade}"
+                               onchange="calcularTotalServicos('${modal}')">
+                    </div>
+                    <div class="col-md-3">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">R$</span>
+                            <input type="number" class="form-control" 
+                                   placeholder="0,00" min="0" step="0.01"
+                                   name="servico_valor_${contador}"
+                                   value="${valorUnitario}"
+                                   onchange="calcularTotalServicos('${modal}')">
+                        </div>
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removerItemServico('${id}', '${modal}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', html);
+    calcularTotalServicos(modal);
+}
+
+function removerItemServico(id, modal) {
+    const item = document.getElementById(id);
+    if (item) {
+        item.remove();
+        calcularTotalServicos(modal);
+    }
+}
+
+function calcularTotalServicos(modal) {
+    const container = document.getElementById(modal + '-servicos-container');
+    const totalEl = document.getElementById(modal + '-total-servicos');
+    if (!container || !totalEl) return;
+    
+    let total = 0;
+    const items = container.querySelectorAll('.servico-item');
+    
+    items.forEach((item, index) => {
+        const qtd = parseFloat(item.querySelector('input[name^="servico_qtd"]')?.value) || 0;
+        const valor = parseFloat(item.querySelector('input[name^="servico_valor"]')?.value) || 0;
+        total += qtd * valor;
+    });
+    
+    totalEl.textContent = formatarMoedaBR(total);
+    
+    // Atualizar custo estimado se existir
+    const custoEstimado = document.querySelector(`#${modal === 'nova' ? 'novaManutencaoForm' : 'editarManutencaoForm'} [name="custo_estimado"], #${modal === 'nova' ? 'novaManutencaoForm' : 'editarManutencaoForm'} [name="custo"]`);
+    if (custoEstimado && modal === 'nova') {
+        custoEstimado.value = total.toFixed(2);
+    }
+}
+
+function coletarServicos(modal) {
+    const container = document.getElementById(modal + '-servicos-container');
+    if (!container) return [];
+    
+    const servicos = [];
+    const items = container.querySelectorAll('.servico-item');
+    
+    items.forEach(item => {
+        const nomeInput = item.querySelector('input[name^="servico_nome"]');
+        const qtdInput = item.querySelector('input[name^="servico_qtd"]');
+        const valorInput = item.querySelector('input[name^="servico_valor"]');
+        
+        const nome = nomeInput?.value?.trim();
+        const quantidade = parseFloat(qtdInput?.value) || 1;
+        const valor = parseFloat(valorInput?.value) || 0;
+        const itemId = nomeInput?.dataset?.itemId || null;
+        
+        if (nome) {
+            servicos.push({
+                id: itemId || null,
+                nome_servico: nome,
+                quantidade: quantidade,
+                valor_unitario: valor
+            });
+        }
+    });
+    
+    return servicos;
+}
+
+function carregarServicosManutencao(manutencaoId) {
+    fetch(`/manutencao/${manutencaoId}/servicos`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const container = document.getElementById('edit-servicos-container');
+                if (container) {
+                    container.innerHTML = '';
+                    servicoContadorEdit = 0;
+                    
+                    data.servicos.forEach(servico => {
+                        adicionarItemServico('edit', servico);
+                    });
+                }
+            }
+        })
+        .catch(error => console.error('Erro ao carregar serviços:', error));
 }
 </script>
 

@@ -255,6 +255,98 @@ def init_db():
         db_manager.insert_sample_data()
     return success
 
+
+# =============================================
+# LANÇAMENTO FINANCEIRO AUTOMÁTICO
+# =============================================
+
+def lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode):
+    """
+    Lança registro financeiro automaticamente para uma manutenção.
+    
+    REGRA DE OURO:
+    - FROTA → DESPESA (custo)
+    - SERVICO → ENTRADA (receita)
+    
+    Args:
+        manutencao_id: ID da manutenção
+        cursor: Cursor do banco de dados (já aberto)
+        empresa_id: ID da empresa
+        is_servico_mode: True se empresa é SERVICO, False se FROTA
+    
+    Returns:
+        dict com success e message
+    """
+    try:
+        # Verificar idempotência - já foi lançado?
+        cursor.execute("""
+            SELECT financeiro_lancado_em, financeiro_tipo, status, custo_total, valor_total_servicos
+            FROM manutencoes WHERE id = %s
+        """, (manutencao_id,))
+        manut = cursor.fetchone()
+        
+        if not manut:
+            return {'success': False, 'message': 'Manutenção não encontrada'}
+        
+        # Se já foi lançado, não lançar novamente (idempotência)
+        if manut[0] is not None:
+            print(f"   ⚠️ Financeiro já lançado em {manut[0]} como {manut[1]}")
+            return {'success': True, 'message': 'Lançamento já realizado anteriormente', 'already_done': True}
+        
+        status = manut[2]
+        custo_total = float(manut[3] or 0)
+        valor_servicos = float(manut[4] or 0)
+        
+        # Determinar tipo de lançamento e valor
+        if is_servico_mode:
+            tipo_lancamento = 'ENTRADA'
+            # Para SERVICO, calcular valor dos serviços prestados
+            cursor.execute("""
+                SELECT COALESCE(SUM(subtotal), 0) FROM manutencao_servicos WHERE manutencao_id = %s
+            """, (manutencao_id,))
+            valor = float(cursor.fetchone()[0] or 0)
+            
+            # Atualizar valor_total_servicos na manutenção
+            cursor.execute("""
+                UPDATE manutencoes SET valor_total_servicos = %s WHERE id = %s
+            """, (valor, manutencao_id))
+            
+            # Atualizar OS com status FATURADO
+            cursor.execute("""
+                UPDATE ordens_servico 
+                SET status = 'FATURADO', data_faturamento = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE manutencao_id = %s
+            """, (manutencao_id,))
+        else:
+            tipo_lancamento = 'DESPESA'
+            valor = custo_total
+        
+        if valor <= 0:
+            print(f"   ⚠️ Valor zero, lançamento registrado mas sem valor")
+        
+        # Marcar como lançado (IDEMPOTÊNCIA)
+        cursor.execute("""
+            UPDATE manutencoes 
+            SET financeiro_lancado_em = CURRENT_TIMESTAMP, 
+                financeiro_tipo = %s
+            WHERE id = %s
+        """, (tipo_lancamento, manutencao_id))
+        
+        print(f"   ✅ Lançamento financeiro: {tipo_lancamento} de R$ {valor:.2f} para manutenção #{manutencao_id}")
+        
+        return {
+            'success': True, 
+            'message': f'Lançamento {tipo_lancamento} registrado',
+            'tipo': tipo_lancamento,
+            'valor': valor
+        }
+        
+    except Exception as e:
+        print(f"   ❌ Erro ao lançar financeiro: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'message': str(e)}
+
 # =============================================
 # ROTAS DE SISTEMA (SEM AUTENTICAÇÃO)
 # =============================================
@@ -551,78 +643,134 @@ def alterar_minha_senha():
 @app.route('/minha-empresa')
 @login_required
 def minha_empresa():
-    """Página de configurações da empresa"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Página de configurações da empresa - Atualizada para PostgreSQL e planos SaaS"""
+    from empresa_helpers import is_servico, get_empresa_id, get_plano, get_info_plano, contar_recursos_usados
     
-    # Buscar empresa do usuário
-    cursor.execute('''
-        SELECT e.* FROM empresas e
-        JOIN usuarios u ON u.empresa_id = e.id
-        WHERE u.id = ?
-    ''', (current_user.id,))
+    empresa_id = get_empresa_id()
     
-    row = cursor.fetchone()
-    if not row:
-        flash('Empresa não encontrada.', 'warning')
-        conn.close()
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Buscar empresa do usuário
+            cursor.execute('''
+                SELECT e.* FROM empresas e
+                WHERE e.id = %s
+            ''', (empresa_id,))
+            
+            empresa = cursor.fetchone()
+            if not empresa:
+                flash('Empresa não encontrada.', 'warning')
+                cursor.close()
+                conn.close()
+                return redirect(url_for('dashboard'))
+            
+            # Contar recursos usados
+            recursos = contar_recursos_usados(cursor, empresa_id)
+            
+            # Estatísticas adicionais
+            cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s', (empresa_id,))
+            manutencoes = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = %s', (empresa_id,))
+            pecas = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = %s', (empresa_id,))
+            fornecedores = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s', (empresa_id,))
+            tecnicos = cursor.fetchone()[0]
+            
+            cursor.close()
+            conn.close()
+            
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Buscar empresa do usuário
+            cursor.execute('''
+                SELECT e.* FROM empresas e
+                JOIN usuarios u ON u.empresa_id = e.id
+                WHERE u.id = ?
+            ''', (current_user.id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                flash('Empresa não encontrada.', 'warning')
+                conn.close()
+                return redirect(url_for('dashboard'))
+            
+            cols = [desc[0] for desc in cursor.description]
+            empresa = dict(zip(cols, row))
+            
+            # Contar recursos
+            cursor.execute('SELECT COUNT(*) FROM veiculos WHERE empresa_id = ? AND ativo = 1', (empresa_id,))
+            recursos = {
+                'veiculos': cursor.fetchone()[0],
+                'clientes': 0,
+                'usuarios': 0
+            }
+            
+            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1', (empresa_id,))
+            recursos['usuarios'] = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ?', (empresa_id,))
+            manutencoes = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = ?', (empresa_id,))
+            pecas = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = ?', (empresa_id,))
+            fornecedores = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ?', (empresa_id,))
+            tecnicos = cursor.fetchone()[0]
+            
+            conn.close()
+        
+        # Montar stats
+        stats = {
+            'veiculos': recursos.get('veiculos', 0),
+            'clientes': recursos.get('clientes', 0),
+            'usuarios': recursos.get('usuarios', 0),
+            'manutencoes': manutencoes,
+            'pecas': pecas,
+            'fornecedores': fornecedores,
+            'tecnicos': tecnicos
+        }
+        
+        # Informações do plano
+        info_plano = get_info_plano()
+        
+        return render_template('minha_empresa.html', 
+                               empresa=empresa, 
+                               stats=stats, 
+                               info_plano=info_plano,
+                               is_servico=is_servico())
+        
+    except Exception as e:
+        print(f"Erro ao carregar minha empresa: {e}")
+        traceback.print_exc()
+        flash('Erro ao carregar informações da empresa.', 'danger')
         return redirect(url_for('dashboard'))
-    
-    cols = [desc[0] for desc in cursor.description]
-    empresa = dict(zip(cols, row))
-    
-    # Estatísticas da empresa
-    empresa_id = empresa['id']
-    
-    cursor.execute('SELECT COUNT(*) FROM veiculos WHERE empresa_id = ?', (empresa_id,))
-    veiculos = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ?', (empresa_id,))
-    manutencoes = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = ?', (empresa_id,))
-    pecas = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = ?', (empresa_id,))
-    fornecedores = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ?', (empresa_id,))
-    tecnicos = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM usuarios WHERE empresa_id = ?', (empresa_id,))
-    usuarios = cursor.fetchone()[0]
-    
-    conn.close()
-    
-    stats = {
-        'veiculos': veiculos,
-        'manutencoes': manutencoes,
-        'pecas': pecas,
-        'fornecedores': fornecedores,
-        'tecnicos': tecnicos,
-        'usuarios': usuarios
-    }
-    
-    return render_template('minha_empresa.html', empresa=empresa, stats=stats)
 
 
 @app.route('/atualizar_minha_empresa', methods=['POST'])
 @login_required
 def atualizar_minha_empresa():
     """Atualizar dados da empresa do usuário logado"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    from empresa_helpers import get_empresa_id, is_admin
     
-    # Verificar empresa do usuário
-    cursor.execute('SELECT empresa_id FROM usuarios WHERE id = ?', (current_user.id,))
-    row = cursor.fetchone()
+    # Apenas ADMIN pode editar dados da empresa
+    if not is_admin():
+        flash('Apenas administradores podem editar dados da empresa.', 'warning')
+        return redirect(url_for('minha_empresa'))
     
-    if not row or not row[0]:
-        flash('Empresa não encontrada.', 'danger')
-        conn.close()
-        return redirect(url_for('dashboard'))
-    
-    empresa_id = row[0]
+    empresa_id = get_empresa_id()
     
     nome = request.form.get('nome', '').strip()
     cnpj = request.form.get('cnpj', '').strip()
@@ -633,16 +781,41 @@ def atualizar_minha_empresa():
     estado = request.form.get('estado', '').strip()
     cep = request.form.get('cep', '').strip()
     
-    cursor.execute('''
-        UPDATE empresas 
-        SET nome = ?, cnpj = ?, telefone = ?, email = ?, endereco = ?, cidade = ?, estado = ?, cep = ?
-        WHERE id = ?
-    ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE empresas 
+                SET nome = %s, cnpj = %s, telefone = %s, email = %s, 
+                    endereco = %s, cidade = %s, estado = %s, cep = %s
+                WHERE id = %s
+            ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE empresas 
+                SET nome = ?, cnpj = ?, telefone = ?, email = ?, endereco = ?, cidade = ?, estado = ?, cep = ?
+                WHERE id = ?
+            ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
+            
+            conn.commit()
+            conn.close()
+        
+        flash('Dados da empresa atualizados com sucesso!', 'success')
+    except Exception as e:
+        print(f"Erro ao atualizar empresa: {e}")
+        traceback.print_exc()
+        flash('Erro ao atualizar dados da empresa.', 'danger')
     
-    conn.commit()
-    conn.close()
-    
-    flash('Dados da empresa atualizados com sucesso!', 'success')
     return redirect(url_for('minha_empresa'))
 
 
@@ -856,7 +1029,7 @@ def detalhes_veiculo(veiculo_id):
 @login_required
 def criar_veiculo():
     """Criar novo veículo"""
-    from empresa_helpers import is_servico, get_empresa_id
+    from empresa_helpers import is_servico, get_empresa_id, verificar_limite_veiculos
     
     try:
         data = request.json
@@ -878,6 +1051,16 @@ def criar_veiculo():
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
+            
+            # Verificar limite de veículos do plano
+            pode_criar, msg_limite = verificar_limite_veiculos(cursor, empresa_id)
+            if not pode_criar:
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': msg_limite
+                }), 403
             
             # Validar placa única na empresa
             cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND empresa_id = %s", 
@@ -1306,18 +1489,88 @@ def manutencao():
 @app.route('/api/manutencao', methods=['POST'])
 @login_required
 def criar_manutencao():
+    from empresa_helpers import is_servico, get_empresa_id
+    
     data = request.json
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    servicos_items = data.get('servicos', [])
+    empresa_id = get_empresa_id()
     
-    cursor.execute('''
-        INSERT INTO manutencoes (veiculo_id, tipo, descricao, data_agendada, tecnico, status)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], data['tecnico'], 'Agendada'))
+    # Status inicial baseado no modo da empresa
+    status_inicial = 'RASCUNHO' if is_servico() else 'Agendada'
     
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Inserir manutenção
+            cursor.execute('''
+                INSERT INTO manutencoes (veiculo_id, tipo, descricao, data_agendada, tecnico, status, custo_estimado)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
+                  data.get('tecnico'), status_inicial, data.get('custo_estimado')))
+            
+            manutencao_id = cursor.fetchone()[0]
+            
+            # Se é empresa SERVICO, processar itens de serviço
+            if is_servico() and servicos_items:
+                for item in servicos_items:
+                    nome_servico = item.get('nome_servico', '').strip()
+                    quantidade = float(item.get('quantidade', 1))
+                    valor_unitario = float(item.get('valor_unitario', 0))
+                    
+                    if not nome_servico:
+                        continue
+                    
+                    # Catálogo Passivo: verificar se serviço existe, criar se não
+                    cursor.execute("""
+                        SELECT id FROM servicos 
+                        WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
+                    """, (empresa_id, nome_servico))
+                    servico_row = cursor.fetchone()
+                    
+                    if servico_row:
+                        servico_id = servico_row[0]
+                    else:
+                        # Criar serviço no catálogo passivo
+                        cursor.execute("""
+                            INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
+                            VALUES (%s, %s, %s, %s, true)
+                            RETURNING id
+                        """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
+                        servico_id = cursor.fetchone()[0]
+                    
+                    # Inserir item de serviço na manutenção
+                    cursor.execute("""
+                        INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            # SQLite (desenvolvimento local)
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO manutencoes (veiculo_id, tipo, descricao, data_agendada, tecnico, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
+                  data.get('tecnico'), 'Agendada'))
+            
+            conn.commit()
+            conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Erro ao criar manutenção: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # Rota para obter dados de uma manutenção específica
 @app.route('/manutencao/get/<int:manutencao_id>')
@@ -1383,6 +1636,571 @@ def get_manutencao(manutencao_id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+# Rota para obter serviços de uma manutenção (MODO SERVICO)
+@app.route('/manutencao/<int:manutencao_id>/servicos')
+@login_required
+def get_manutencao_servicos(manutencao_id):
+    """Retorna os itens de serviço de uma manutenção - apenas para empresas SERVICO"""
+    from empresa_helpers import is_servico
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso não disponível'}), 403
+    
+    try:
+        servicos_lista = []
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT id, servico_id, nome_servico, quantidade, valor_unitario, subtotal
+                FROM manutencao_servicos
+                WHERE manutencao_id = %s
+                ORDER BY id
+            """, (manutencao_id,))
+            servicos_lista = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+        else:
+            # SQLite - retornar lista vazia pois tabela pode não existir
+            pass
+        
+        return jsonify({'success': True, 'servicos': servicos_lista})
+    except Exception as e:
+        print(f"Erro ao carregar serviços da manutenção: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# =============================================
+# ROTAS DE ORÇAMENTO E ORDEM DE SERVIÇO
+# =============================================
+
+@app.route('/api/manutencao/<int:manutencao_id>/gerar-orcamento', methods=['POST'])
+@login_required
+def gerar_orcamento(manutencao_id):
+    """Gera orçamento - muda status para ORCAMENTO"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE manutencoes SET status = 'ORCAMENTO', updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (manutencao_id,))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Orçamento gerado com sucesso'})
+    except Exception as e:
+        print(f"Erro ao gerar orçamento: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/aprovar-orcamento', methods=['POST'])
+@login_required
+def aprovar_orcamento(manutencao_id):
+    """Aprova orçamento - muda status para APROVADO e registra data/hora"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se status atual é ORCAMENTO
+            cursor.execute("SELECT status FROM manutencoes WHERE id = %s", (manutencao_id,))
+            row = cursor.fetchone()
+            if not row or row[0] != 'ORCAMENTO':
+                return jsonify({'success': False, 'message': 'Apenas orçamentos pendentes podem ser aprovados'}), 400
+            
+            # Atualizar status
+            cursor.execute("""
+                UPDATE manutencoes SET status = 'APROVADO', updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (manutencao_id,))
+            
+            # Buscar dados para criar registro em ordens_servico
+            cursor.execute("""
+                SELECT m.id, v.cliente_id, 
+                       COALESCE(SUM(ms.subtotal), 0) as valor_servicos
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.id = %s
+                GROUP BY m.id, v.cliente_id
+            """, (manutencao_id,))
+            manut_data = cursor.fetchone()
+            
+            if manut_data and manut_data[1]:  # Se tem cliente_id
+                cliente_id = manut_data[1]
+                valor_servicos = manut_data[2] or 0
+                
+                # Gerar número da OS
+                cursor.execute("""
+                    SELECT COALESCE(MAX(CAST(SUBSTRING(numero_os FROM 'OS-([0-9]+)') AS INTEGER)), 0) + 1
+                    FROM ordens_servico WHERE empresa_id = %s
+                """, (empresa_id,))
+                prox_num = cursor.fetchone()[0]
+                numero_os = f"OS-{prox_num:06d}"
+                
+                # Verificar se já existe OS para esta manutenção
+                cursor.execute("SELECT id FROM ordens_servico WHERE manutencao_id = %s", (manutencao_id,))
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        INSERT INTO ordens_servico (empresa_id, manutencao_id, cliente_id, numero_os, status, valor_servicos, data_aprovacao)
+                        VALUES (%s, %s, %s, %s, 'APROVADO', %s, CURRENT_TIMESTAMP)
+                    """, (empresa_id, manutencao_id, cliente_id, numero_os, valor_servicos))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Orçamento aprovado com sucesso'})
+    except Exception as e:
+        print(f"Erro ao aprovar orçamento: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/iniciar-execucao', methods=['POST'])
+@login_required
+def iniciar_execucao(manutencao_id):
+    """Inicia execução - muda status para EM_EXECUCAO"""
+    from empresa_helpers import is_servico
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE manutencoes SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (manutencao_id,))
+            
+            # Atualizar OS também
+            cursor.execute("""
+                UPDATE ordens_servico SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
+                WHERE manutencao_id = %s
+            """, (manutencao_id,))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Execução iniciada'})
+    except Exception as e:
+        print(f"Erro ao iniciar execução: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/finalizar-servico', methods=['POST'])
+@login_required
+def finalizar_servico(manutencao_id):
+    """Finaliza serviço - muda status para FINALIZADO e lança financeiro (ENTRADA)"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            empresa_id = get_empresa_id()
+            
+            cursor.execute("""
+                UPDATE manutencoes SET status = 'FINALIZADO', data_realizada = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (manutencao_id,))
+            
+            # Atualizar OS também
+            cursor.execute("""
+                UPDATE ordens_servico SET status = 'FINALIZADO', data_conclusao = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE manutencao_id = %s
+            """, (manutencao_id,))
+            
+            # LANÇAMENTO FINANCEIRO AUTOMÁTICO (ENTRADA para SERVICO)
+            resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode=True)
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Serviço finalizado'})
+    except Exception as e:
+        print(f"Erro ao finalizar serviço: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/pdf-orcamento')
+@login_required
+def pdf_orcamento(manutencao_id):
+    """Gera PDF de Orçamento"""
+    from empresa_helpers import is_servico, get_empresa_id
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from datetime import datetime
+    import io
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        empresa_id = get_empresa_id()
+        dados = {}
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Dados da empresa
+            cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
+            dados['empresa'] = cursor.fetchone()
+            
+            # Dados da manutenção
+            cursor.execute("""
+                SELECT m.id, m.descricao, m.data_agendada, m.status,
+                       v.placa, v.modelo, v.marca, v.ano,
+                       c.nome as cliente_nome, c.documento, c.telefone as cliente_telefone, c.email as cliente_email, c.endereco as cliente_endereco
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE m.id = %s
+            """, (manutencao_id,))
+            dados['manutencao'] = cursor.fetchone()
+            
+            # Serviços
+            cursor.execute("""
+                SELECT nome_servico, quantidade, valor_unitario, subtotal
+                FROM manutencao_servicos
+                WHERE manutencao_id = %s
+            """, (manutencao_id,))
+            dados['servicos'] = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+        
+        # Gerar PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Título
+        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=1, spaceAfter=20)
+        elements.append(Paragraph("ORÇAMENTO", title_style))
+        
+        # Dados da empresa
+        emp = dados.get('empresa', {})
+        if emp:
+            elements.append(Paragraph(f"<b>{emp.get('nome', 'Empresa')}</b>", styles['Normal']))
+            if emp.get('cnpj'):
+                elements.append(Paragraph(f"CNPJ: {emp.get('cnpj')}", styles['Normal']))
+            if emp.get('telefone'):
+                elements.append(Paragraph(f"Tel: {emp.get('telefone')}", styles['Normal']))
+            if emp.get('email'):
+                elements.append(Paragraph(f"Email: {emp.get('email')}", styles['Normal']))
+        elements.append(Spacer(1, 10))
+        
+        # Linha divisória
+        elements.append(Paragraph("_" * 80, styles['Normal']))
+        elements.append(Spacer(1, 10))
+        
+        # Dados do cliente
+        m = dados.get('manutencao', {})
+        if m:
+            elements.append(Paragraph("<b>CLIENTE</b>", styles['Heading3']))
+            elements.append(Paragraph(f"Nome: {m.get('cliente_nome', 'N/A')}", styles['Normal']))
+            if m.get('documento'):
+                elements.append(Paragraph(f"CPF/CNPJ: {m.get('documento')}", styles['Normal']))
+            if m.get('cliente_telefone'):
+                elements.append(Paragraph(f"Telefone: {m.get('cliente_telefone')}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            
+            # Dados do veículo
+            elements.append(Paragraph("<b>VEÍCULO</b>", styles['Heading3']))
+            elements.append(Paragraph(f"Placa: {m.get('placa', 'N/A')} | Modelo: {m.get('modelo', 'N/A')} | Marca: {m.get('marca', 'N/A')} | Ano: {m.get('ano', 'N/A')}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            
+            # Descrição
+            elements.append(Paragraph("<b>DESCRIÇÃO DO SERVIÇO</b>", styles['Heading3']))
+            elements.append(Paragraph(m.get('descricao', ''), styles['Normal']))
+        
+        elements.append(Spacer(1, 15))
+        
+        # Tabela de serviços
+        elements.append(Paragraph("<b>SERVIÇOS</b>", styles['Heading3']))
+        servicos = dados.get('servicos', [])
+        if servicos:
+            table_data = [['Serviço', 'Qtd', 'Valor Unit.', 'Subtotal']]
+            total = 0
+            for s in servicos:
+                subtotal = float(s.get('subtotal', 0))
+                total += subtotal
+                table_data.append([
+                    s.get('nome_servico', ''),
+                    str(s.get('quantidade', 1)),
+                    f"R$ {float(s.get('valor_unitario', 0)):.2f}",
+                    f"R$ {subtotal:.2f}"
+                ])
+            table_data.append(['', '', 'TOTAL:', f"R$ {total:.2f}"])
+            
+            table = Table(table_data, colWidths=[250, 40, 80, 80])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0d6efd')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('GRID', (0, 0), (-1, -2), 0.5, colors.grey),
+                ('FONTNAME', (2, -1), (-1, -1), 'Helvetica-Bold'),
+            ]))
+            elements.append(table)
+        else:
+            elements.append(Paragraph("Nenhum serviço adicionado.", styles['Normal']))
+        
+        elements.append(Spacer(1, 30))
+        
+        # Data e validade
+        elements.append(Paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y')}", styles['Normal']))
+        elements.append(Paragraph("Validade: 15 dias", styles['Normal']))
+        
+        elements.append(Spacer(1, 40))
+        
+        # Assinatura
+        elements.append(Paragraph("_" * 40, styles['Normal']))
+        elements.append(Paragraph("Assinatura do Cliente", styles['Normal']))
+        
+        doc.build(elements)
+        
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'orcamento_{manutencao_id}.pdf'
+        )
+    except Exception as e:
+        print(f"Erro ao gerar PDF orçamento: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/pdf-ordem-servico')
+@login_required
+def pdf_ordem_servico(manutencao_id):
+    """Gera PDF de Ordem de Serviço"""
+    from empresa_helpers import is_servico, get_empresa_id
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from datetime import datetime
+    import io
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        empresa_id = get_empresa_id()
+        dados = {}
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Dados da empresa
+            cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
+            dados['empresa'] = cursor.fetchone()
+            
+            # Dados da OS
+            cursor.execute("""
+                SELECT os.numero_os, os.status as os_status, os.data_aprovacao, os.valor_servicos,
+                       m.id, m.descricao, m.data_agendada, m.status, m.tecnico,
+                       v.placa, v.modelo, v.marca, v.ano,
+                       c.nome as cliente_nome, c.documento, c.telefone as cliente_telefone, c.email as cliente_email
+                FROM ordens_servico os
+                JOIN manutencoes m ON os.manutencao_id = m.id
+                JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON os.cliente_id = c.id
+                WHERE os.manutencao_id = %s AND os.empresa_id = %s
+            """, (manutencao_id, empresa_id))
+            dados['os'] = cursor.fetchone()
+            
+            # Serviços
+            cursor.execute("""
+                SELECT nome_servico, quantidade, valor_unitario, subtotal
+                FROM manutencao_servicos
+                WHERE manutencao_id = %s
+            """, (manutencao_id,))
+            dados['servicos'] = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+        
+        if not dados.get('os'):
+            return jsonify({'success': False, 'message': 'Ordem de serviço não encontrada. Aprove o orçamento primeiro.'}), 404
+        
+        # Gerar PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Título
+        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=1, spaceAfter=10)
+        elements.append(Paragraph("ORDEM DE SERVIÇO", title_style))
+        
+        os_data = dados.get('os', {})
+        elements.append(Paragraph(f"<b>Nº {os_data.get('numero_os', 'N/A')}</b>", ParagraphStyle('Center', parent=styles['Normal'], alignment=1)))
+        elements.append(Spacer(1, 15))
+        
+        # Dados da empresa
+        emp = dados.get('empresa', {})
+        if emp:
+            elements.append(Paragraph(f"<b>{emp.get('nome', 'Empresa')}</b>", styles['Normal']))
+            if emp.get('cnpj'):
+                elements.append(Paragraph(f"CNPJ: {emp.get('cnpj')}", styles['Normal']))
+            if emp.get('telefone'):
+                elements.append(Paragraph(f"Tel: {emp.get('telefone')}", styles['Normal']))
+        elements.append(Spacer(1, 10))
+        
+        elements.append(Paragraph("_" * 80, styles['Normal']))
+        elements.append(Spacer(1, 10))
+        
+        # Dados do cliente
+        if os_data:
+            elements.append(Paragraph("<b>CLIENTE</b>", styles['Heading3']))
+            elements.append(Paragraph(f"Nome: {os_data.get('cliente_nome', 'N/A')}", styles['Normal']))
+            if os_data.get('documento'):
+                elements.append(Paragraph(f"CPF/CNPJ: {os_data.get('documento')}", styles['Normal']))
+            if os_data.get('cliente_telefone'):
+                elements.append(Paragraph(f"Telefone: {os_data.get('cliente_telefone')}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            
+            # Dados do veículo
+            elements.append(Paragraph("<b>VEÍCULO</b>", styles['Heading3']))
+            elements.append(Paragraph(f"Placa: {os_data.get('placa', 'N/A')} | Modelo: {os_data.get('modelo', 'N/A')} | Marca: {os_data.get('marca', 'N/A')} | Ano: {os_data.get('ano', 'N/A')}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            
+            # Status e Técnico
+            elements.append(Paragraph("<b>INFORMAÇÕES DO SERVIÇO</b>", styles['Heading3']))
+            elements.append(Paragraph(f"Status: {os_data.get('os_status', 'N/A')}", styles['Normal']))
+            if os_data.get('tecnico'):
+                elements.append(Paragraph(f"Técnico Responsável: {os_data.get('tecnico')}", styles['Normal']))
+            if os_data.get('data_aprovacao'):
+                data_aprov = os_data.get('data_aprovacao')
+                if hasattr(data_aprov, 'strftime'):
+                    data_aprov = data_aprov.strftime('%d/%m/%Y %H:%M')
+                elements.append(Paragraph(f"Data de Aprovação: {data_aprov}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            
+            # Descrição
+            elements.append(Paragraph("<b>DESCRIÇÃO</b>", styles['Heading3']))
+            elements.append(Paragraph(os_data.get('descricao', ''), styles['Normal']))
+        
+        elements.append(Spacer(1, 15))
+        
+        # Tabela de serviços
+        elements.append(Paragraph("<b>SERVIÇOS A EXECUTAR</b>", styles['Heading3']))
+        servicos = dados.get('servicos', [])
+        if servicos:
+            table_data = [['Serviço', 'Qtd', 'Valor Unit.', 'Subtotal']]
+            total = 0
+            for s in servicos:
+                subtotal = float(s.get('subtotal', 0))
+                total += subtotal
+                table_data.append([
+                    s.get('nome_servico', ''),
+                    str(s.get('quantidade', 1)),
+                    f"R$ {float(s.get('valor_unitario', 0)):.2f}",
+                    f"R$ {subtotal:.2f}"
+                ])
+            table_data.append(['', '', 'TOTAL:', f"R$ {total:.2f}"])
+            
+            table = Table(table_data, colWidths=[250, 40, 80, 80])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#198754')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('GRID', (0, 0), (-1, -2), 0.5, colors.grey),
+                ('FONTNAME', (2, -1), (-1, -1), 'Helvetica-Bold'),
+            ]))
+            elements.append(table)
+        
+        elements.append(Spacer(1, 30))
+        
+        # Data de emissão
+        elements.append(Paragraph(f"Data de Emissão: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+        
+        elements.append(Spacer(1, 40))
+        
+        # Assinaturas
+        sig_table = Table([
+            ['_' * 30, '_' * 30],
+            ['Cliente', 'Responsável Técnico']
+        ], colWidths=[200, 200])
+        sig_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(sig_table)
+        
+        doc.build(elements)
+        
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'ordem_servico_{manutencao_id}.pdf'
+        )
+    except Exception as e:
+        print(f"Erro ao gerar PDF OS: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # Rota para atualizar status da manutenção
 @app.route('/manutencao/status/<int:manutencao_id>', methods=['PUT'])
 @login_required
@@ -1414,63 +2232,165 @@ def atualizar_status_manutencao(manutencao_id):
 @app.route('/manutencao/edit/<int:manutencao_id>', methods=['POST'])
 @login_required
 def edit_manutencao(manutencao_id):
+    from empresa_helpers import is_servico, get_empresa_id
+    
     try:
-        veiculo_id = request.form['veiculo_id']
-        tipo = request.form['tipo']
-        descricao = request.form['descricao']
-        data_agendada = request.form['data_agendada']
-        data_realizada = request.form.get('data_realizada', None)
-        custo = request.form.get('custo', None)
-        status = request.form['status']
-        tecnico = request.form['tecnico']
+        # Aceitar JSON ou FormData
+        if request.is_json:
+            data = request.json
+            veiculo_id = data.get('veiculo_id')
+            tipo = data.get('tipo')
+            descricao = data.get('descricao')
+            data_agendada = data.get('data_agendada')
+            data_realizada = data.get('data_realizada') or None
+            custo = data.get('custo')
+            status = data.get('status')
+            tecnico = data.get('tecnico')
+            servicos_items = data.get('servicos', [])
+        else:
+            veiculo_id = request.form['veiculo_id']
+            tipo = request.form['tipo']
+            descricao = request.form['descricao']
+            data_agendada = request.form['data_agendada']
+            data_realizada = request.form.get('data_realizada', None)
+            custo = request.form.get('custo', None)
+            status = request.form['status']
+            tecnico = request.form['tecnico']
+            servicos_items = []
         
         # Converter campos vazios para None
         if data_realizada == '':
             data_realizada = None
-        if custo == '':
+        if custo == '' or custo is None:
             custo = None
         else:
             custo = float(custo) if custo else None
         
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+        empresa_id = get_empresa_id()
         
-        # Verificar se a manutenção foi concluída e tem custo
-        cursor.execute('SELECT status, custo FROM manutencoes WHERE id = ?', (manutencao_id,))
-        manutencao_atual = cursor.fetchone()
-        
-        cursor.execute('''
-            UPDATE manutencoes 
-            SET veiculo_id=?, tipo=?, descricao=?, data_agendada=?, data_realizada=?, custo=?, status=?, tecnico=?
-            WHERE id=?
-        ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo, status, tecnico, manutencao_id))
-        
-        # Gerar despesa automática se manutenção foi concluída com custo
-        if status == 'Concluída' and custo and custo > 0:
-            # Verificar se já existe despesa para esta manutenção
-            cursor.execute('SELECT id FROM despesas WHERE manutencao_id = ?', (manutencao_id,))
-            despesa_existente = cursor.fetchone()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
             
-            if not despesa_existente:
-                # Buscar categoria "Manutenção"
-                cursor.execute('SELECT id FROM categorias_despesa WHERE nome = ?', ('Manutenção',))
-                categoria_manutencao = cursor.fetchone()
-                categoria_id = categoria_manutencao[0] if categoria_manutencao else None
+            # Buscar status anterior para verificar se está finalizando
+            cursor.execute("SELECT status, financeiro_lancado_em FROM manutencoes WHERE id = %s", (manutencao_id,))
+            status_anterior_row = cursor.fetchone()
+            status_anterior = status_anterior_row[0] if status_anterior_row else None
+            ja_lancado = status_anterior_row[1] if status_anterior_row else None
+            
+            # Atualizar custo_total se informado
+            custo_update = custo if custo is not None else None
+            
+            # Atualizar manutenção
+            cursor.execute('''
+                UPDATE manutencoes 
+                SET veiculo_id=%s, tipo=%s, descricao=%s, data_agendada=%s, data_realizada=%s, 
+                    custo_total=%s, status=%s, tecnico=%s, updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_update, status, tecnico, manutencao_id))
+            
+            # Se é empresa SERVICO, processar itens de serviço
+            if is_servico():
+                # Remover itens anteriores
+                cursor.execute("DELETE FROM manutencao_servicos WHERE manutencao_id = %s", (manutencao_id,))
                 
-                # Criar despesa automática
-                data_despesa = data_realizada if data_realizada else data_agendada
-                descricao_despesa = f"Manutenção {tipo}: {descricao}"
+                # Inserir novos itens
+                for item in servicos_items:
+                    nome_servico = item.get('nome_servico', '').strip()
+                    quantidade = float(item.get('quantidade', 1))
+                    valor_unitario = float(item.get('valor_unitario', 0))
+                    
+                    if not nome_servico:
+                        continue
+                    
+                    # Catálogo Passivo: verificar se serviço existe, criar se não
+                    cursor.execute("""
+                        SELECT id FROM servicos 
+                        WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
+                    """, (empresa_id, nome_servico))
+                    servico_row = cursor.fetchone()
+                    
+                    if servico_row:
+                        servico_id = servico_row[0]
+                    else:
+                        # Criar serviço no catálogo passivo
+                        cursor.execute("""
+                            INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
+                            VALUES (%s, %s, %s, %s, true)
+                            RETURNING id
+                        """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
+                        servico_id = cursor.fetchone()[0]
+                    
+                    # Inserir item de serviço na manutenção
+                    cursor.execute("""
+                        INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
+            
+            # LANÇAMENTO FINANCEIRO AUTOMÁTICO (quando status muda para finalizado)
+            status_finalizacao_servico = ['FINALIZADO', 'FATURADO']
+            status_finalizacao_frota = ['Concluída']
+            
+            deve_lancar = False
+            if is_servico() and status in status_finalizacao_servico and not ja_lancado:
+                deve_lancar = True
+                is_servico_mode = True
+            elif not is_servico() and status in status_finalizacao_frota and not ja_lancado:
+                deve_lancar = True
+                is_servico_mode = False
+            
+            if deve_lancar:
+                resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode)
+                print(f"   Resultado financeiro: {resultado_financeiro}")
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            # SQLite (desenvolvimento local)
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Verificar se a manutenção foi concluída e tem custo
+            cursor.execute('SELECT status, custo FROM manutencoes WHERE id = ?', (manutencao_id,))
+            manutencao_atual = cursor.fetchone()
+            
+            cursor.execute('''
+                UPDATE manutencoes 
+                SET veiculo_id=?, tipo=?, descricao=?, data_agendada=?, data_realizada=?, custo=?, status=?, tecnico=?
+                WHERE id=?
+            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo, status, tecnico, manutencao_id))
+            
+            # Gerar despesa automática se manutenção foi concluída com custo
+            if status == 'Concluída' and custo and custo > 0:
+                # Verificar se já existe despesa para esta manutenção
+                cursor.execute('SELECT id FROM despesas WHERE manutencao_id = ?', (manutencao_id,))
+                despesa_existente = cursor.fetchone()
                 
-                cursor.execute('''
-                    INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (descricao_despesa, custo, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
-        
-        conn.commit()
-        conn.close()
+                if not despesa_existente:
+                    # Buscar categoria "Manutenção"
+                    cursor.execute('SELECT id FROM categorias_despesa WHERE nome = ?', ('Manutenção',))
+                    categoria_manutencao = cursor.fetchone()
+                    categoria_id = categoria_manutencao[0] if categoria_manutencao else None
+                    
+                    # Criar despesa automática
+                    data_despesa = data_realizada if data_realizada else data_agendada
+                    descricao_despesa = f"Manutenção {tipo}: {descricao}"
+                    
+                    cursor.execute('''
+                        INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (descricao_despesa, custo, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
+            
+            conn.commit()
+            conn.close()
         
         return jsonify({'success': True, 'message': 'Manutenção atualizada com sucesso!'})
     except Exception as e:
+        print(f"Erro ao editar manutenção: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)})
 
 # Rota para deletar manutenção
@@ -2248,7 +3168,7 @@ def clientes():
 @login_required
 def criar_cliente():
     """Criar novo cliente"""
-    from empresa_helpers import is_servico, get_empresa_id
+    from empresa_helpers import is_servico, get_empresa_id, verificar_limite_clientes
     
     if not is_servico():
         return jsonify({'success': False, 'message': 'Recurso não disponível para sua empresa'}), 403
@@ -2265,6 +3185,13 @@ def criar_cliente():
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
+            
+            # Verificar limite de clientes do plano
+            pode_criar, msg_limite = verificar_limite_clientes(cursor, empresa_id)
+            if not pode_criar:
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'message': msg_limite}), 403
             
             cursor.execute("""
                 INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
@@ -2963,172 +3890,611 @@ def relatorios():
                          veiculo_id=veiculo_id)
 
 # =============================================
+# ROTAS DE RELATÓRIOS - APIs
+# =============================================
+
+@app.route('/api/relatorios/financeiro')
+@login_required
+def api_relatorio_financeiro():
+    """
+    API de relatório financeiro com comportamento dinâmico por tipo_operacao.
+    SERVICO: faturamento, serviços, ticket médio, lista por cliente
+    FROTA: despesas, manutenções, lista por veículo
+    """
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
+    
+    # Obter filtros
+    data_inicio = request.args.get('data_inicio', '')
+    data_fim = request.args.get('data_fim', '')
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Construir condições de filtro
+            where_date = ""
+            params = [empresa_id]
+            
+            if is_servico():
+                # ========== RELATÓRIO SERVICO ==========
+                base_where = "v.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
+                
+                if data_inicio:
+                    base_where += " AND m.financeiro_lancado_em >= %s"
+                    params.append(data_inicio)
+                if data_fim:
+                    base_where += " AND m.financeiro_lancado_em <= %s"
+                    params.append(data_fim)
+                
+                # Faturamento total
+                cursor.execute(f"""
+                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE {base_where}
+                """, params)
+                faturamento_total = float(cursor.fetchone()['total'] or 0)
+                
+                # Quantidade de serviços
+                cursor.execute(f"""
+                    SELECT COUNT(DISTINCT m.id) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                """, params)
+                qtd_servicos = cursor.fetchone()['total'] or 0
+                
+                # Ticket médio
+                ticket_medio = faturamento_total / qtd_servicos if qtd_servicos > 0 else 0
+                
+                # Lista por cliente
+                cursor.execute(f"""
+                    SELECT c.nome as cliente_nome, 
+                           COALESCE(SUM(ms.subtotal), 0) as total_faturado,
+                           COUNT(DISTINCT m.id) as qtd_servicos
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN clientes c ON v.cliente_id = c.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE {base_where}
+                    GROUP BY c.id, c.nome
+                    ORDER BY total_faturado DESC
+                """, params)
+                lista_por_cliente = [dict(row) for row in cursor.fetchall()]
+                
+                cursor.close()
+                conn.close()
+                
+                return jsonify({
+                    'success': True,
+                    'tipo_operacao': 'SERVICO',
+                    'data_inicio': data_inicio,
+                    'data_fim': data_fim,
+                    'faturamento_total': faturamento_total,
+                    'qtd_servicos': qtd_servicos,
+                    'ticket_medio': round(ticket_medio, 2),
+                    'lista_por_cliente': lista_por_cliente
+                })
+                
+            else:
+                # ========== RELATÓRIO FROTA ==========
+                base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
+                
+                if data_inicio:
+                    base_where += " AND m.data_realizada >= %s"
+                    params.append(data_inicio)
+                if data_fim:
+                    base_where += " AND m.data_realizada <= %s"
+                    params.append(data_fim)
+                
+                # Despesas total
+                cursor.execute(f"""
+                    SELECT COALESCE(SUM(m.custo_total), 0) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                """, params)
+                despesas_total = float(cursor.fetchone()['total'] or 0)
+                
+                # Quantidade de manutenções
+                cursor.execute(f"""
+                    SELECT COUNT(*) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                """, params)
+                qtd_manutencoes = cursor.fetchone()['total'] or 0
+                
+                # Lista por veículo
+                cursor.execute(f"""
+                    SELECT v.placa, v.modelo, 
+                           COALESCE(SUM(m.custo_total), 0) as total_gasto,
+                           COUNT(m.id) as qtd_manutencoes
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                    GROUP BY v.id, v.placa, v.modelo
+                    ORDER BY total_gasto DESC
+                """, params)
+                lista_por_veiculo = [dict(row) for row in cursor.fetchall()]
+                
+                cursor.close()
+                conn.close()
+                
+                return jsonify({
+                    'success': True,
+                    'tipo_operacao': 'FROTA',
+                    'data_inicio': data_inicio,
+                    'data_fim': data_fim,
+                    'despesas_total': despesas_total,
+                    'qtd_manutencoes': qtd_manutencoes,
+                    'lista_por_veiculo': lista_por_veiculo
+                })
+        else:
+            # SQLite fallback
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'FROTA',
+                'despesas_total': 0,
+                'qtd_manutencoes': 0,
+                'lista_por_veiculo': []
+            })
+            
+    except Exception as e:
+        print(f"Erro no relatório financeiro: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/relatorios/manutencoes')
+@login_required
+def api_relatorio_manutencoes():
+    """
+    API de relatório de manutenções/serviços com lista detalhada.
+    Retorna: data, veículo, cliente (se SERVICO), valor, status
+    """
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
+    
+    # Obter filtros
+    data_inicio = request.args.get('data_inicio', '')
+    data_fim = request.args.get('data_fim', '')
+    status_filter = request.args.get('status', '')
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            params = [empresa_id]
+            
+            if is_servico():
+                # Query para SERVICO - inclui cliente
+                base_where = "v.empresa_id = %s"
+                
+                if data_inicio:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicio)
+                if data_fim:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_fim)
+                if status_filter:
+                    base_where += " AND m.status = %s"
+                    params.append(status_filter)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        c.nome as cliente_nome,
+                        COALESCE(m.valor_total_servicos, 0) as valor,
+                        m.status,
+                        m.tipo,
+                        m.descricao
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                    LIMIT 500
+                """, params)
+                
+            else:
+                # Query para FROTA - sem cliente
+                base_where = "v.empresa_id = %s"
+                
+                if data_inicio:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicio)
+                if data_fim:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_fim)
+                if status_filter:
+                    base_where += " AND m.status = %s"
+                    params.append(status_filter)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        COALESCE(m.custo_total, 0) as valor,
+                        m.status,
+                        m.tipo,
+                        m.descricao
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                    LIMIT 500
+                """, params)
+            
+            registros = [dict(row) for row in cursor.fetchall()]
+            
+            # Formatar datas
+            for reg in registros:
+                if reg.get('data'):
+                    reg['data'] = str(reg['data'])
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'SERVICO' if is_servico() else 'FROTA',
+                'data_inicio': data_inicio,
+                'data_fim': data_fim,
+                'total_registros': len(registros),
+                'registros': registros
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'FROTA',
+                'registros': []
+            })
+            
+    except Exception as e:
+        print(f"Erro no relatório de manutenções: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# =============================================
 # ROTAS DE EXPORTAÇÃO DE RELATÓRIOS
 # =============================================
 
 @app.route('/exportar/excel')
 @login_required
 def exportar_excel():
-    """Exporta relatório completo em formato CSV (compatível com Excel)"""
+    """Exporta relatório completo em formato XLSX (Excel real) com comportamento dinâmico"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'error': 'Empresa não encontrada'}), 403
+    
     try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
         # Obter filtros
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
-        veiculo_id = request.args.get('veiculo_id', '')
         
-        # Construir WHERE clause
-        where_conditions = ["m.data_realizada IS NOT NULL"]
-        params = []
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            params = [empresa_id]
+            
+            if is_servico():
+                # Query SERVICO - inclui cliente e valor_total_servicos
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        c.nome as cliente,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.valor_total_servicos, 0) as valor,
+                        m.status
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                headers = ['ID', 'Data', 'Placa', 'Modelo', 'Cliente', 'Tipo', 'Descrição', 'Valor (R$)', 'Status']
+                
+            else:
+                # Query FROTA - sem cliente, usa custo_total
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.custo_total, 0) as valor,
+                        m.status,
+                        m.tecnico
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                headers = ['ID', 'Data', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Custo (R$)', 'Status', 'Técnico']
+            
+            # Calcular total
+            total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
+            
+            cursor.close()
+            conn.close()
+        else:
+            registros = []
+            headers = ['ID', 'Data', 'Placa', 'Modelo', 'Tipo', 'Valor', 'Status']
+            total_valor = 0
         
-        if data_inicial:
-            where_conditions.append("m.data_realizada >= ?")
-            params.append(data_inicial)
+        # Criar Excel usando openpyxl
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         
-        if data_final:
-            where_conditions.append("m.data_realizada <= ?")
-            params.append(data_final)
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Relatório"
         
-        if veiculo_id:
-            where_conditions.append("m.veiculo_id = ?")
-            params.append(veiculo_id)
+        # Estilos
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="0066CC", end_color="0066CC", fill_type="solid")
+        total_fill = PatternFill(start_color="28A745", end_color="28A745", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
         
-        where_clause = " AND ".join(where_conditions)
+        # Título
+        tipo_relatorio = "Faturamento" if is_servico() else "Despesas"
+        ws.merge_cells('A1:I1')
+        ws['A1'] = f"RELATÓRIO DE {tipo_relatorio.upper()}"
+        ws['A1'].font = Font(bold=True, size=14)
+        ws['A1'].alignment = Alignment(horizontal='center')
         
-        # Buscar todas as manutenções
-        cursor.execute(f'''
-            SELECT 
-                m.id,
-                v.placa,
-                v.modelo,
-                m.tipo,
-                m.descricao,
-                m.data_realizada,
-                m.custo,
-                m.status,
-                m.tecnico
-            FROM manutencoes m
-            LEFT JOIN veiculos v ON m.veiculo_id = v.id
-            WHERE {where_clause}
-            ORDER BY m.data_realizada DESC
-        ''', params)
+        # Período
+        ws.merge_cells('A2:I2')
+        periodo = f"Período: {data_inicial or 'Início'} até {data_final or 'Hoje'}"
+        ws['A2'] = periodo
+        ws['A2'].alignment = Alignment(horizontal='center')
         
-        manutencoes = cursor.fetchall()
-        conn.close()
-        
-        # Criar CSV com UTF-8 BOM para Excel
-        output = BytesIO()
-        # Adicionar BOM UTF-8 para que Excel reconheça a codificação
-        output.write('\ufeff'.encode('utf-8'))
-        
-        # Escrever CSV
-        wrapper = codecs.getwriter('utf-8')(output)
-        writer = csv.writer(wrapper, delimiter=';', lineterminator='\n')
-        
-        # Cabeçalho
-        writer.writerow(['ID', 'Placa', 'Modelo', 'Tipo', 'Descricao', 'Data', 'Custo (R$)', 'Status', 'Tecnico'])
+        # Cabeçalhos (linha 4)
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin_border
         
         # Dados
-        for m in manutencoes:
-            writer.writerow([
-                m[0],  # ID
-                m[1] if m[1] else '',  # Placa
-                m[2] if m[2] else '',  # Modelo
-                m[3] if m[3] else '',  # Tipo
-                m[4] if m[4] else '',  # Descrição
-                m[5] if m[5] else '',  # Data
-                f"{m[6]:.2f}".replace('.', ',') if m[6] else '0,00',  # Custo
-                m[7] if m[7] else '',  # Status
-                m[8] if m[8] else 'N/A'  # Técnico
-            ])
+        for row_num, registro in enumerate(registros, 5):
+            if is_servico():
+                values = [
+                    registro.get('id'),
+                    str(registro.get('data', '')) if registro.get('data') else '',
+                    registro.get('placa', ''),
+                    registro.get('modelo', ''),
+                    registro.get('cliente', ''),
+                    registro.get('tipo', ''),
+                    registro.get('descricao', ''),
+                    float(registro.get('valor', 0) or 0),
+                    registro.get('status', '')
+                ]
+            else:
+                values = [
+                    registro.get('id'),
+                    str(registro.get('data', '')) if registro.get('data') else '',
+                    registro.get('placa', ''),
+                    registro.get('modelo', ''),
+                    registro.get('tipo', ''),
+                    registro.get('descricao', ''),
+                    float(registro.get('valor', 0) or 0),
+                    registro.get('status', ''),
+                    registro.get('tecnico', '') or ''
+                ]
+            
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row_num, column=col, value=value)
+                cell.border = thin_border
+                if col == (8 if is_servico() else 7):  # Coluna de valor
+                    cell.number_format = 'R$ #,##0.00'
         
-        # Preparar resposta
+        # Linha de total
+        total_row = len(registros) + 5
+        ws.merge_cells(f'A{total_row}:F{total_row}' if not is_servico() else f'A{total_row}:G{total_row}')
+        ws.cell(row=total_row, column=1, value="TOTAL").font = Font(bold=True, color="FFFFFF")
+        ws.cell(row=total_row, column=1).fill = total_fill
+        
+        valor_col = 8 if is_servico() else 7
+        ws.cell(row=total_row, column=valor_col, value=total_valor)
+        ws.cell(row=total_row, column=valor_col).font = Font(bold=True, color="FFFFFF")
+        ws.cell(row=total_row, column=valor_col).fill = total_fill
+        ws.cell(row=total_row, column=valor_col).number_format = 'R$ #,##0.00'
+        
+        # Ajustar largura das colunas
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            ws.column_dimensions[column].width = min(max_length + 2, 40)
+        
+        # Salvar em buffer
+        output = BytesIO()
+        wb.save(output)
         output.seek(0)
         
-        filename = f"relatorio_manutencoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"relatorio_{tipo_relatorio.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
         return Response(
             output.getvalue(),
-            mimetype='text/csv; charset=utf-8',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             headers={
-                'Content-Disposition': f'attachment; filename={filename}',
-                'Content-Type': 'text/csv; charset=utf-8'
+                'Content-Disposition': f'attachment; filename={filename}'
             }
         )
         
     except Exception as e:
-        print(f"Erro na exportação Excel: {str(e)}")  # Debug
+        print(f"Erro na exportação Excel: {str(e)}")
         import traceback
-        traceback.print_exc()  # Mostra stack trace completo
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/exportar/pdf-completo')
 @login_required
 def exportar_pdf_completo():
-    """Exporta relatório COMPLETO com todas as manutenções em PDF"""
+    """Exporta relatório COMPLETO com todas as manutenções em PDF - dinâmico por tipo_operacao"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'error': 'Empresa não encontrada'}), 403
+    
     try:
         from io import BytesIO
-        
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
         
         # Obter filtros
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
-        veiculo_id = request.args.get('veiculo_id', '')
         
-        # Construir WHERE clause
-        where_conditions = ["m.data_realizada IS NOT NULL"]
-        params = []
-        
-        if data_inicial:
-            where_conditions.append("m.data_realizada >= ?")
-            params.append(data_inicial)
-        
-        if data_final:
-            where_conditions.append("m.data_realizada <= ?")
-            params.append(data_final)
-        
-        if veiculo_id:
-            where_conditions.append("m.veiculo_id = ?")
-            params.append(veiculo_id)
-        
-        where_clause = " AND ".join(where_conditions)
-        
-        # Buscar TODAS as manutenções
-        cursor.execute(f'''
-            SELECT 
-                m.id,
-                v.placa,
-                v.modelo,
-                m.tipo,
-                m.descricao,
-                m.data_realizada,
-                m.custo,
-                m.status,
-                m.tecnico
-            FROM manutencoes m
-            LEFT JOIN veiculos v ON m.veiculo_id = v.id
-            WHERE {where_clause}
-            ORDER BY m.data_realizada DESC
-        ''', params)
-        
-        manutencoes = cursor.fetchall()
-        
-        # Buscar estatísticas
-        cursor.execute(f'''
-            SELECT 
-                COALESCE(SUM(custo), 0) as total,
-                COALESCE(AVG(custo), 0) as media,
-                COUNT(*) as quantidade
-            FROM manutencoes m
-            WHERE {where_clause}
-        ''', params)
-        stats = cursor.fetchone()
-        
-        conn.close()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            params = [empresa_id]
+            
+            if is_servico():
+                # Query SERVICO
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        c.nome as cliente,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.valor_total_servicos, 0) as valor,
+                        m.status
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                titulo = "RELATÓRIO DE FATURAMENTO - SERVIÇOS"
+                col_valor = "Valor"
+                headers = ['ID', 'Placa', 'Cliente', 'Tipo', 'Descrição', 'Data', 'Valor', 'Status']
+                
+            else:
+                # Query FROTA
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.custo_total, 0) as valor,
+                        m.status
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                titulo = "RELATÓRIO DE DESPESAS - MANUTENÇÕES"
+                col_valor = "Custo"
+                headers = ['ID', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Data', 'Custo', 'Status']
+            
+            # Calcular totais
+            total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
+            media_valor = total_valor / len(registros) if registros else 0
+            
+            cursor.close()
+            conn.close()
+        else:
+            registros = []
+            titulo = "RELATÓRIO"
+            headers = ['ID', 'Placa', 'Tipo', 'Data', 'Valor', 'Status']
+            total_valor = 0
+            media_valor = 0
         
         # Criar PDF
         buffer = BytesIO()
@@ -3140,90 +4506,85 @@ def exportar_pdf_completo():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=20,
-            textColor=colors.HexColor('#0066cc'),
+            fontSize=18,
+            textColor=colors.HexColor('#0066cc') if not is_servico() else colors.HexColor('#28a745'),
             spaceAfter=20,
-            alignment=1  # Center
+            alignment=1
         )
-        elements.append(Paragraph('RELATÓRIO COMPLETO DE MANUTENÇÕES', title_style))
+        elements.append(Paragraph(titulo, title_style))
         elements.append(Spacer(1, 0.2*inch))
         
-        # Período e filtros
-        periodo_texto = "Período: "
-        if data_inicial and data_final:
-            periodo_texto += f"{data_inicial} até {data_final}"
-        elif data_inicial:
-            periodo_texto += f"A partir de {data_inicial}"
-        elif data_final:
-            periodo_texto += f"Até {data_final}"
-        else:
-            periodo_texto += "Todos os registros"
-        
-        if veiculo_id:
-            # Buscar info do veículo
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('SELECT placa, modelo FROM veiculos WHERE id = ?', (veiculo_id,))
-            veiculo_info = cursor.fetchone()
-            conn.close()
-            if veiculo_info:
-                periodo_texto += f" | Veículo: {veiculo_info[0]} - {veiculo_info[1]}"
-        
+        # Período
+        periodo_texto = f"Período: {data_inicial or 'Início'} até {data_final or 'Hoje'}"
         elements.append(Paragraph(periodo_texto, styles['Normal']))
         elements.append(Spacer(1, 0.2*inch))
         
-        # Resumo Financeiro
+        # Resumo
         resumo_style = ParagraphStyle(
             'Resumo',
             parent=styles['Normal'],
             fontSize=11,
-            textColor=colors.HexColor('#28a745'),
+            textColor=colors.HexColor('#28a745') if is_servico() else colors.HexColor('#dc3545'),
             spaceAfter=5
         )
         
-        total_formatado = f'R$ {stats[0]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
-        media_formatada = f'R$ {stats[1]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        total_formatado = f'R$ {total_valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        media_formatada = f'R$ {media_valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        label_total = "Total Faturado" if is_servico() else "Total Gasto"
         
-        elements.append(Paragraph(f'<b>Total Gasto:</b> {total_formatado} | <b>Média:</b> {media_formatada} | <b>Quantidade:</b> {stats[2]}', resumo_style))
+        elements.append(Paragraph(f'<b>{label_total}:</b> {total_formatado} | <b>Média:</b> {media_formatada} | <b>Quantidade:</b> {len(registros)}', resumo_style))
         elements.append(Spacer(1, 0.2*inch))
         
-        # Tabela de Manutenções
-        data_table = [['ID', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Data', 'Custo', 'Status']]
+        # Tabela
+        data_table = [headers]
         
-        for m in manutencoes:
-            custo_formatado = f'R$ {m[6]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.') if m[6] else 'R$ 0,00'
-            descricao = m[4][:30] + '...' if m[4] and len(m[4]) > 30 else (m[4] if m[4] else '-')
+        for r in registros:
+            valor_formatado = f'R$ {float(r.get("valor", 0) or 0):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+            descricao = r.get('descricao', '') or '-'
+            if len(descricao) > 25:
+                descricao = descricao[:25] + '...'
             
-            data_table.append([
-                str(m[0]),
-                m[1] if m[1] else '-',
-                m[2] if m[2] else '-',
-                m[3] if m[3] else '-',
-                descricao,
-                m[5] if m[5] else '-',
-                custo_formatado,
-                m[7] if m[7] else '-'
-            ])
+            if is_servico():
+                data_table.append([
+                    str(r.get('id', '')),
+                    r.get('placa', '-'),
+                    (r.get('cliente', '') or '-')[:15],
+                    r.get('tipo', '-'),
+                    descricao,
+                    str(r.get('data', '-')),
+                    valor_formatado,
+                    r.get('status', '-')
+                ])
+            else:
+                data_table.append([
+                    str(r.get('id', '')),
+                    r.get('placa', '-'),
+                    r.get('modelo', '-'),
+                    r.get('tipo', '-'),
+                    descricao,
+                    str(r.get('data', '-')),
+                    valor_formatado,
+                    r.get('status', '-')
+                ])
         
         # Criar tabela com larguras ajustadas
-        col_widths = [0.4*inch, 0.9*inch, 1.2*inch, 0.9*inch, 1.8*inch, 0.9*inch, 0.9*inch, 0.9*inch]
+        col_widths = [0.4*inch, 0.8*inch, 0.9*inch, 0.8*inch, 1.5*inch, 0.9*inch, 0.9*inch, 0.8*inch]
         table = Table(data_table, colWidths=col_widths, repeatRows=1)
         
+        header_color = colors.HexColor('#28a745') if is_servico() else colors.HexColor('#0066cc')
+        
         table.setStyle(TableStyle([
-            # Cabeçalho
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0066cc')),
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 8),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             ('TOPPADDING', (0, 0), (-1, 0), 8),
-            
-            # Corpo
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-            ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # ID
-            ('ALIGN', (6, 1), (6, -1), 'RIGHT'),   # Custo
+            ('ALIGN', (0, 1), (0, -1), 'CENTER'),
+            ('ALIGN', (6, 1), (6, -1), 'RIGHT'),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 7),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
@@ -3236,15 +4597,15 @@ def exportar_pdf_completo():
         
         # Rodapé
         elements.append(Paragraph(
-            f'Relatório completo gerado em: {datetime.now().strftime("%d/%m/%Y às %H:%M")} | Total de manutenções: {len(manutencoes)}',
+            f'Relatório gerado em: {datetime.now().strftime("%d/%m/%Y às %H:%M")} | Total de registros: {len(registros)}',
             styles['Italic']
         ))
         
-        # Construir PDF
         doc.build(elements)
         buffer.seek(0)
         
-        filename = f"relatorio_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        tipo_arquivo = "faturamento" if is_servico() else "despesas"
+        filename = f"relatorio_{tipo_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         
         return send_file(
             buffer,
@@ -3262,59 +4623,126 @@ def exportar_pdf_completo():
 @app.route('/exportar/pdf')
 @login_required
 def exportar_pdf():
-    """Exporta resumo executivo em PDF"""
+    """Exporta resumo executivo em PDF - dinâmico por tipo_operacao"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'error': 'Empresa não encontrada'}), 403
+    
     try:
         from io import BytesIO
-        
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
         
         # Obter filtros
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
-        veiculo_id = request.args.get('veiculo_id', '')
         
-        # Construir WHERE clause
-        where_conditions = []
-        params = []
-        
-        if data_inicial:
-            where_conditions.append("data_realizada >= ?")
-            params.append(data_inicial)
-        
-        if data_final:
-            where_conditions.append("data_realizada <= ?")
-            params.append(data_final)
-        
-        if veiculo_id:
-            where_conditions.append("veiculo_id = ?")
-            params.append(veiculo_id)
-        
-        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
-        
-        # Estatísticas
-        cursor.execute(f'''
-            SELECT 
-                COALESCE(SUM(custo), 0) as total,
-                COALESCE(AVG(custo), 0) as media,
-                COUNT(*) as quantidade
-            FROM manutencoes
-            WHERE {where_clause}
-        ''', params)
-        stats = cursor.fetchone()
-        
-        # Top 5 veículos
-        cursor.execute(f'''
-            SELECT v.placa, v.modelo, COUNT(m.id) as total, COALESCE(SUM(m.custo), 0) as custo_total
-            FROM veiculos v
-            LEFT JOIN manutencoes m ON v.id = m.veiculo_id AND {where_clause}
-            GROUP BY v.id
-            ORDER BY total DESC
-            LIMIT 5
-        ''', params)
-        top_veiculos = cursor.fetchall()
-        
-        conn.close()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            params = [empresa_id]
+            
+            if is_servico():
+                # Estatísticas SERVICO
+                base_where = "v.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
+                if data_inicial:
+                    base_where += " AND m.financeiro_lancado_em >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND m.financeiro_lancado_em <= %s"
+                    params.append(data_final)
+                
+                # Total faturado
+                cursor.execute(f"""
+                    SELECT 
+                        COALESCE(SUM(ms.subtotal), 0) as total,
+                        COUNT(DISTINCT m.id) as quantidade
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE {base_where}
+                """, params)
+                stats = cursor.fetchone()
+                total = float(stats['total'] or 0)
+                quantidade = stats['quantidade'] or 0
+                media = total / quantidade if quantidade > 0 else 0
+                
+                # Top 5 clientes
+                cursor.execute(f"""
+                    SELECT c.nome, COUNT(DISTINCT m.id) as total_servicos, 
+                           COALESCE(SUM(ms.subtotal), 0) as faturamento
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN clientes c ON v.cliente_id = c.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE {base_where}
+                    GROUP BY c.id, c.nome
+                    ORDER BY faturamento DESC
+                    LIMIT 5
+                """, params)
+                top_lista = cursor.fetchall()
+                
+                titulo = "RESUMO EXECUTIVO - FATURAMENTO"
+                label_total = "Total Faturado"
+                label_top = "TOP 5 CLIENTES"
+                col_headers = ['Cliente', 'Serviços', 'Faturamento']
+                
+            else:
+                # Estatísticas FROTA
+                base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
+                if data_inicial:
+                    base_where += " AND m.data_realizada >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND m.data_realizada <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        COALESCE(SUM(m.custo_total), 0) as total,
+                        COALESCE(AVG(m.custo_total), 0) as media,
+                        COUNT(*) as quantidade
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                """, params)
+                stats = cursor.fetchone()
+                total = float(stats['total'] or 0)
+                media = float(stats['media'] or 0)
+                quantidade = stats['quantidade'] or 0
+                
+                # Top 5 veículos
+                cursor.execute(f"""
+                    SELECT v.placa, v.modelo, COUNT(m.id) as total_manut, 
+                           COALESCE(SUM(m.custo_total), 0) as custo_total
+                    FROM veiculos v
+                    JOIN manutencoes m ON v.id = m.veiculo_id
+                    WHERE {base_where}
+                    GROUP BY v.id, v.placa, v.modelo
+                    ORDER BY custo_total DESC
+                    LIMIT 5
+                """, params)
+                top_lista = cursor.fetchall()
+                
+                titulo = "RESUMO EXECUTIVO - DESPESAS"
+                label_total = "Total Gasto"
+                label_top = "TOP 5 VEÍCULOS"
+                col_headers = ['Placa', 'Manutenções', 'Custo Total']
+            
+            cursor.close()
+            conn.close()
+        else:
+            total = 0
+            media = 0
+            quantidade = 0
+            top_lista = []
+            titulo = "RESUMO EXECUTIVO"
+            label_total = "Total"
+            label_top = "TOP 5"
+            col_headers = ['Item', 'Qtd', 'Valor']
         
         # Criar PDF
         buffer = BytesIO()
@@ -3326,39 +4754,31 @@ def exportar_pdf():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#0066cc'),
+            fontSize=22,
+            textColor=colors.HexColor('#28a745') if is_servico() else colors.HexColor('#0066cc'),
             spaceAfter=30,
-            alignment=1  # Center
+            alignment=1
         )
-        elements.append(Paragraph('RESUMO EXECUTIVO - MANUTENÇÕES', title_style))
+        elements.append(Paragraph(titulo, title_style))
         elements.append(Spacer(1, 0.3*inch))
         
         # Período
-        periodo_texto = "Período: "
-        if data_inicial and data_final:
-            periodo_texto += f"{data_inicial} até {data_final}"
-        elif data_inicial:
-            periodo_texto += f"A partir de {data_inicial}"
-        elif data_final:
-            periodo_texto += f"Até {data_final}"
-        else:
-            periodo_texto += "Todos os registros"
-        
+        periodo_texto = f"Período: {data_inicial or 'Início'} até {data_final or 'Hoje'}"
         elements.append(Paragraph(periodo_texto, styles['Normal']))
         elements.append(Spacer(1, 0.3*inch))
         
         # Estatísticas
         data_stats = [
             ['ESTATÍSTICAS GERAIS', ''],
-            ['Total Gasto', f'R$ {stats[0]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')],
-            ['Custo Médio', f'R$ {stats[1]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')],
-            ['Quantidade de Manutenções', str(stats[2])]
+            [label_total, f'R$ {total:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')],
+            ['Ticket Médio' if is_servico() else 'Custo Médio', f'R$ {media:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')],
+            ['Quantidade de Serviços' if is_servico() else 'Quantidade de Manutenções', str(quantidade)]
         ]
         
         table_stats = Table(data_stats, colWidths=[3*inch, 2*inch])
+        header_color = colors.HexColor('#28a745') if is_servico() else colors.HexColor('#0066cc')
         table_stats.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0066cc')),
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -3371,18 +4791,22 @@ def exportar_pdf():
         elements.append(table_stats)
         elements.append(Spacer(1, 0.5*inch))
         
-        # Top 5 veículos
-        elements.append(Paragraph('TOP 5 VEÍCULOS COM MAIS MANUTENÇÕES', styles['Heading2']))
+        # Top lista
+        elements.append(Paragraph(label_top, styles['Heading2']))
         elements.append(Spacer(1, 0.2*inch))
         
-        data_veiculos = [['Placa', 'Modelo', 'Manutenções', 'Custo Total']]
-        for v in top_veiculos:
-            custo_formatado = f'R$ {v[3]:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
-            data_veiculos.append([v[0], v[1], str(v[2]), custo_formatado])
+        data_top = [col_headers]
+        for item in top_lista:
+            if is_servico():
+                valor_formatado = f'R$ {float(item.get("faturamento", 0)):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+                data_top.append([item.get('nome', '-'), str(item.get('total_servicos', 0)), valor_formatado])
+            else:
+                valor_formatado = f'R$ {float(item.get("custo_total", 0)):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+                data_top.append([f"{item.get('placa', '-')} - {item.get('modelo', '')}", str(item.get('total_manut', 0)), valor_formatado])
         
-        table_veiculos = Table(data_veiculos, colWidths=[1.5*inch, 2*inch, 1.2*inch, 1.5*inch])
-        table_veiculos.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#28a745')),
+        table_top = Table(data_top, colWidths=[2.5*inch, 1.2*inch, 1.5*inch])
+        table_top.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -3392,7 +4816,7 @@ def exportar_pdf():
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         
-        elements.append(table_veiculos)
+        elements.append(table_top)
         elements.append(Spacer(1, 0.5*inch))
         
         # Rodapé
@@ -3401,11 +4825,11 @@ def exportar_pdf():
             styles['Italic']
         ))
         
-        # Construir PDF
         doc.build(elements)
         buffer.seek(0)
         
-        filename = f"resumo_executivo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        tipo_arquivo = "faturamento" if is_servico() else "despesas"
+        filename = f"resumo_{tipo_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         
         return send_file(
             buffer,
@@ -3415,85 +4839,126 @@ def exportar_pdf():
         )
         
     except Exception as e:
+        print(f"Erro na exportação PDF: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/exportar/csv')
 @login_required
 def exportar_csv():
-    """Exporta dados brutos em CSV"""
+    """Exporta dados brutos em CSV - dinâmico por tipo_operacao"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'error': 'Empresa não encontrada'}), 403
+    
     try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
         # Obter filtros
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
-        veiculo_id = request.args.get('veiculo_id', '')
         
-        # Construir WHERE clause
-        where_conditions = []
-        params = []
-        
-        if data_inicial:
-            where_conditions.append("m.data_realizada >= ?")
-            params.append(data_inicial)
-        
-        if data_final:
-            where_conditions.append("m.data_realizada <= ?")
-            params.append(data_final)
-        
-        if veiculo_id:
-            where_conditions.append("m.veiculo_id = ?")
-            params.append(veiculo_id)
-        
-        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
-        
-        # Buscar dados brutos
-        cursor.execute(f'''
-            SELECT 
-                m.id,
-                m.data_realizada,
-                v.placa,
-                v.modelo,
-                v.tipo as tipo_veiculo,
-                m.tipo as tipo_manutencao,
-                m.custo,
-                m.status
-            FROM manutencoes m
-            LEFT JOIN veiculos v ON m.veiculo_id = v.id
-            WHERE {where_clause}
-            ORDER BY m.data_realizada DESC
-        ''', params)
-        
-        dados = cursor.fetchall()
-        conn.close()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            params = [empresa_id]
+            
+            if is_servico():
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        c.nome as cliente,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.valor_total_servicos, 0) as valor,
+                        m.status
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    LEFT JOIN clientes c ON v.cliente_id = c.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                headers = ['id', 'data', 'placa', 'modelo', 'cliente', 'tipo', 'descricao', 'valor', 'status']
+                
+            else:
+                base_where = "v.empresa_id = %s"
+                if data_inicial:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                    params.append(data_inicial)
+                if data_final:
+                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                    params.append(data_final)
+                
+                cursor.execute(f"""
+                    SELECT 
+                        m.id,
+                        COALESCE(m.data_realizada, m.data_agendada) as data,
+                        v.placa,
+                        v.modelo,
+                        m.tipo,
+                        m.descricao,
+                        COALESCE(m.custo_total, 0) as custo,
+                        m.status,
+                        m.tecnico
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {base_where}
+                    ORDER BY data DESC
+                """, params)
+                
+                registros = cursor.fetchall()
+                headers = ['id', 'data', 'placa', 'modelo', 'tipo', 'descricao', 'custo', 'status', 'tecnico']
+            
+            cursor.close()
+            conn.close()
+        else:
+            registros = []
+            headers = ['id', 'data', 'placa', 'modelo', 'tipo', 'valor', 'status']
         
         # Criar CSV com UTF-8 BOM
         output = BytesIO()
-        # Adicionar BOM UTF-8
         output.write('\ufeff'.encode('utf-8'))
         
-        # Escrever CSV
         wrapper = codecs.getwriter('utf-8')(output)
         writer = csv.writer(wrapper, lineterminator='\n')
         
         # Cabeçalho
-        writer.writerow(['id', 'data', 'placa', 'modelo', 'tipo_veiculo', 'tipo_manutencao', 'custo', 'status'])
+        writer.writerow(headers)
         
-        # Dados - tratar None values
-        for d in dados:
+        # Dados
+        for registro in registros:
             row = []
-            for value in d:
+            for header in headers:
+                value = registro.get(header, '')
                 if value is None:
                     row.append('')
+                elif isinstance(value, float):
+                    row.append(f"{value:.2f}")
                 else:
                     row.append(str(value))
             writer.writerow(row)
         
-        # Preparar resposta
         output.seek(0)
         
-        filename = f"dados_brutos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        tipo_arquivo = "servicos" if is_servico() else "manutencoes"
+        filename = f"dados_{tipo_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         
         return Response(
             output.getvalue(),
@@ -3505,10 +4970,11 @@ def exportar_csv():
         )
         
     except Exception as e:
-        print(f"Erro na exportação CSV: {str(e)}")  # Debug
+        print(f"Erro na exportação CSV: {str(e)}")
         import traceback
-        traceback.print_exc()  # Mostra stack trace completo
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 def gerar_catalogo_pdf():
     """Gera um PDF detalhado com todas as peças do catálogo"""
@@ -3798,6 +5264,309 @@ def chatbot():
         resposta += "❓ O que você precisa?"
         
         return jsonify({'resposta': resposta})
+
+# =============================================
+# ROTAS DE MÉTRICAS DO DASHBOARD
+# =============================================
+
+@app.route('/api/dashboard/metrics')
+@login_required
+def dashboard_metrics():
+    """
+    Retorna métricas do dashboard baseadas no tipo_operacao da empresa.
+    FROTA: despesas, manutenções concluídas, top veículos por custo
+    SERVICO: faturamento, serviços finalizados, top clientes, ticket médio
+    """
+    from empresa_helpers import is_servico, is_frota, get_empresa_id
+    from datetime import datetime, timedelta
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Primeiro dia do mês atual
+            hoje = datetime.now()
+            primeiro_dia_mes = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            if is_servico():
+                # ========== MÉTRICAS PARA SERVICO ==========
+                
+                # Faturamento do mês atual (serviços finalizados/faturados)
+                cursor.execute("""
+                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                    FROM manutencoes m
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status IN ('FINALIZADO', 'FATURADO')
+                    AND m.financeiro_lancado_em >= %s
+                """, (empresa_id, primeiro_dia_mes))
+                faturamento_mes = float(cursor.fetchone()['total'] or 0)
+                
+                # Faturamento últimos 30 dias
+                cursor.execute("""
+                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                    FROM manutencoes m
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status IN ('FINALIZADO', 'FATURADO')
+                    AND m.financeiro_lancado_em >= CURRENT_DATE - INTERVAL '30 days'
+                """, (empresa_id,))
+                faturamento_30_dias = float(cursor.fetchone()['total'] or 0)
+                
+                # Serviços finalizados no mês
+                cursor.execute("""
+                    SELECT COUNT(*) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status IN ('FINALIZADO', 'FATURADO')
+                    AND m.data_realizada >= %s
+                """, (empresa_id, primeiro_dia_mes.date()))
+                servicos_finalizados_mes = cursor.fetchone()['total'] or 0
+                
+                # Ticket médio
+                ticket_medio = faturamento_mes / servicos_finalizados_mes if servicos_finalizados_mes > 0 else 0
+                
+                # Top 5 clientes por faturamento (mês atual)
+                cursor.execute("""
+                    SELECT c.nome, COALESCE(SUM(ms.subtotal), 0) as faturamento
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN clientes c ON v.cliente_id = c.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status IN ('FINALIZADO', 'FATURADO')
+                    AND m.financeiro_lancado_em >= %s
+                    GROUP BY c.id, c.nome
+                    ORDER BY faturamento DESC
+                    LIMIT 5
+                """, (empresa_id, primeiro_dia_mes))
+                top_clientes = [dict(row) for row in cursor.fetchall()]
+                
+                # Serviços pendentes
+                cursor.execute("""
+                    SELECT COUNT(*) FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s AND m.status IN ('RASCUNHO', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
+                """, (empresa_id,))
+                servicos_pendentes = cursor.fetchone()['count'] or 0
+                
+                cursor.close()
+                conn.close()
+                
+                return jsonify({
+                    'success': True,
+                    'tipo_operacao': 'SERVICO',
+                    'faturamento_mes_atual': faturamento_mes,
+                    'faturamento_30_dias': faturamento_30_dias,
+                    'servicos_finalizados_mes': servicos_finalizados_mes,
+                    'servicos_pendentes': servicos_pendentes,
+                    'ticket_medio': round(ticket_medio, 2),
+                    'top_clientes': top_clientes
+                })
+                
+            else:
+                # ========== MÉTRICAS PARA FROTA ==========
+                
+                # Despesas do mês atual (custo_total de manutenções concluídas)
+                cursor.execute("""
+                    SELECT COALESCE(SUM(m.custo_total), 0) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status = 'Concluída'
+                    AND m.data_realizada >= %s
+                """, (empresa_id, primeiro_dia_mes.date()))
+                despesas_mes = float(cursor.fetchone()['total'] or 0)
+                
+                # Despesas últimos 30 dias
+                cursor.execute("""
+                    SELECT COALESCE(SUM(m.custo_total), 0) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status = 'Concluída'
+                    AND m.data_realizada >= CURRENT_DATE - INTERVAL '30 days'
+                """, (empresa_id,))
+                despesas_30_dias = float(cursor.fetchone()['total'] or 0)
+                
+                # Manutenções concluídas no mês
+                cursor.execute("""
+                    SELECT COUNT(*) as total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status = 'Concluída'
+                    AND m.data_realizada >= %s
+                """, (empresa_id, primeiro_dia_mes.date()))
+                manutencoes_mes = cursor.fetchone()['total'] or 0
+                
+                # Manutenções pendentes
+                cursor.execute("""
+                    SELECT COUNT(*) FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s AND m.status IN ('Agendada', 'Em Andamento')
+                """, (empresa_id,))
+                manutencoes_pendentes = cursor.fetchone()['count'] or 0
+                
+                # Top 5 veículos por custo (mês atual)
+                cursor.execute("""
+                    SELECT v.placa, v.modelo, COALESCE(SUM(m.custo_total), 0) as custo_total
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status = 'Concluída'
+                    AND m.data_realizada >= %s
+                    GROUP BY v.id, v.placa, v.modelo
+                    ORDER BY custo_total DESC
+                    LIMIT 5
+                """, (empresa_id, primeiro_dia_mes.date()))
+                top_veiculos = [dict(row) for row in cursor.fetchall()]
+                
+                cursor.close()
+                conn.close()
+                
+                return jsonify({
+                    'success': True,
+                    'tipo_operacao': 'FROTA',
+                    'despesas_mes_atual': despesas_mes,
+                    'despesas_30_dias': despesas_30_dias,
+                    'manutencoes_concluidas_mes': manutencoes_mes,
+                    'manutencoes_pendentes': manutencoes_pendentes,
+                    'top_veiculos': top_veiculos
+                })
+        else:
+            # SQLite - métricas básicas para desenvolvimento local
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'FROTA',
+                'despesas_mes_atual': 0,
+                'despesas_30_dias': 0,
+                'manutencoes_concluidas_mes': 0,
+                'manutencoes_pendentes': 0,
+                'top_veiculos': []
+            })
+            
+    except Exception as e:
+        print(f"Erro ao buscar métricas do dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/dashboard/timeseries')
+@login_required
+def dashboard_timeseries():
+    """
+    Retorna série temporal dos últimos 14 dias para gráfico.
+    FROTA: soma de despesas por dia
+    SERVICO: soma de faturamento por dia
+    """
+    from empresa_helpers import is_servico, get_empresa_id
+    from datetime import datetime, timedelta
+    
+    empresa_id = get_empresa_id()
+    if not empresa_id:
+        return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Gerar últimos 14 dias
+            hoje = datetime.now().date()
+            data_inicio = hoje - timedelta(days=13)
+            
+            labels = []
+            for i in range(14):
+                d = data_inicio + timedelta(days=i)
+                labels.append(d.strftime('%d/%m'))
+            
+            if is_servico():
+                # Faturamento por dia (soma dos serviços finalizados)
+                cursor.execute("""
+                    SELECT DATE(m.financeiro_lancado_em) as dia, 
+                           COALESCE(SUM(ms.subtotal), 0) as valor
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status IN ('FINALIZADO', 'FATURADO')
+                    AND m.financeiro_lancado_em >= %s
+                    GROUP BY DATE(m.financeiro_lancado_em)
+                    ORDER BY dia
+                """, (empresa_id, data_inicio))
+                
+                dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
+                tipo = 'faturamento'
+                label = 'Faturamento (R$)'
+                cor = 'rgb(25, 135, 84)'  # verde
+                
+            else:
+                # Despesas por dia (custo das manutenções concluídas)
+                cursor.execute("""
+                    SELECT m.data_realizada as dia, 
+                           COALESCE(SUM(m.custo_total), 0) as valor
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE v.empresa_id = %s 
+                    AND m.status = 'Concluída'
+                    AND m.data_realizada >= %s
+                    GROUP BY m.data_realizada
+                    ORDER BY dia
+                """, (empresa_id, data_inicio))
+                
+                dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
+                tipo = 'despesas'
+                label = 'Despesas (R$)'
+                cor = 'rgb(220, 53, 69)'  # vermelho
+            
+            # Preencher valores para todos os dias (0 se não houver dados)
+            values = []
+            for i in range(14):
+                d = data_inicio + timedelta(days=i)
+                values.append(dados_raw.get(str(d), 0))
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'tipo': tipo,
+                'labels': labels,
+                'values': values,
+                'dataset_label': label,
+                'cor': cor
+            })
+        else:
+            # SQLite - dados vazios para desenvolvimento local
+            return jsonify({
+                'success': True,
+                'tipo': 'despesas',
+                'labels': [],
+                'values': [],
+                'dataset_label': 'Dados',
+                'cor': 'rgb(100, 100, 100)'
+            })
+            
+    except Exception as e:
+        print(f"Erro ao buscar timeseries do dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 # =============================================
 # ROTAS DO MÓDULO FINANCEIRO

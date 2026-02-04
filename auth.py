@@ -7,6 +7,7 @@ from flask_bcrypt import Bcrypt
 from functools import wraps
 from flask import redirect, url_for, flash
 import sqlite3
+import os
 
 # Inicializar extensões
 login_manager = LoginManager()
@@ -17,21 +18,36 @@ class User(UserMixin):
         self.id = id
         self.username = username
         self.password = password
-        self.role = role
+        self.role = role or 'OPERADOR'  # Default para OPERADOR
         self.empresa_id = empresa_id
 
 @login_manager.user_loader
 def load_user(user_id):
-    """Carregar usuário do banco de dados"""
-    conn = sqlite3.connect('database/frota.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = ?', (user_id,))
-    user_data = cursor.fetchone()
-    conn.close()
+    """Carregar usuário do banco de dados - Suporta PostgreSQL e SQLite"""
+    from config import Config
     
-    if user_data:
-        return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
-    return None
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = %s', (user_id,))
+            user_data = cursor.fetchone()
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = ?', (user_id,))
+            user_data = cursor.fetchone()
+            conn.close()
+        
+        if user_data:
+            return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
+        return None
+    except Exception as e:
+        print(f"Erro ao carregar usuário: {e}")
+        return None
 
 def init_auth_tables(conn):
     """Inicializar tabelas de autenticação"""
@@ -66,13 +82,24 @@ def init_auth_tables(conn):
     conn.commit()
 
 def authenticate_user(username, password):
-    """Autenticar usuário"""
+    """Autenticar usuário - Suporta PostgreSQL e SQLite"""
+    from config import Config
+    
     try:
-        conn = sqlite3.connect('database/frota.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = ? AND ativo = 1', (username,))
-        user_data = cursor.fetchone()
-        conn.close()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = %s AND ativo = true', (username,))
+            user_data = cursor.fetchone()
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect('database/frota.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = ? AND ativo = 1', (username,))
+            user_data = cursor.fetchone()
+            conn.close()
         
         if not user_data:
             return None, 'Usuário não encontrado ou inativo'

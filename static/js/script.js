@@ -199,6 +199,11 @@ function agendarManutencao() {
         return;
     }
     
+    // Coletar serviços prestados (modo SERVICO)
+    if (typeof coletarServicos === 'function') {
+        data.servicos = coletarServicos('nova');
+    }
+    
     // Enviar para o backend
     fetch('/api/manutencao', {
         method: 'POST',
@@ -218,9 +223,13 @@ function agendarManutencao() {
             modal.hide();
             form.reset();
             
+            // Limpar container de serviços se existir
+            const servicosContainer = document.getElementById('nova-servicos-container');
+            if (servicosContainer) servicosContainer.innerHTML = '';
+            
             setTimeout(() => location.reload(), 1500);
         } else {
-            showAlert('Erro ao agendar manutenção. Tente novamente.', 'error');
+            showAlert('Erro ao agendar manutenção: ' + (result.message || 'Tente novamente.'), 'error');
         }
     })
     .catch(error => {

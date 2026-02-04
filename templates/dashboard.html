@@ -105,6 +105,196 @@
         </div>
     </div>
 
+    <!-- Seção de Métricas Financeiras por Tipo Operação -->
+    <div class="row mb-4" id="secaoMetricasFinanceiras">
+        {% if is_servico %}
+        <!-- Métricas SERVICO -->
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-success border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Faturamento Mês</div>
+                            <div class="fs-2 fw-bold text-success mb-0" id="faturamentoMes">R$ --</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-calendar me-1"></i>Mês atual
+                            </div>
+                        </div>
+                        <div class="bg-success bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-dollar-sign text-success fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-info border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Serviços Finalizados</div>
+                            <div class="fs-2 fw-bold text-info mb-0" id="servicosFinalizados">--</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-check-circle me-1"></i>Este mês
+                            </div>
+                        </div>
+                        <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-clipboard-check text-info fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-primary border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Ticket Médio</div>
+                            <div class="fs-2 fw-bold text-primary mb-0" id="ticketMedio">R$ --</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-receipt me-1"></i>Por serviço
+                            </div>
+                        </div>
+                        <div class="bg-primary bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-chart-bar text-primary fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-warning border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Serviços Pendentes</div>
+                            <div class="fs-2 fw-bold text-warning mb-0" id="servicosPendentes">--</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-hourglass-half me-1"></i>Em andamento
+                            </div>
+                        </div>
+                        <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-clock text-warning fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Métricas FROTA -->
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Despesas Mês</div>
+                            <div class="fs-2 fw-bold text-danger mb-0" id="despesasMes">R$ --</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-calendar me-1"></i>Mês atual
+                            </div>
+                        </div>
+                        <div class="bg-danger bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-money-bill-wave text-danger fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-info border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Manutenções Concluídas</div>
+                            <div class="fs-2 fw-bold text-info mb-0" id="manutencoesConcluidas">--</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-check-circle me-1"></i>Este mês
+                            </div>
+                        </div>
+                        <div class="bg-info bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-wrench text-info fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-secondary border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Despesas 30 Dias</div>
+                            <div class="fs-2 fw-bold text-secondary mb-0" id="despesas30Dias">R$ --</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-history me-1"></i>Últimos 30 dias
+                            </div>
+                        </div>
+                        <div class="bg-secondary bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-chart-line text-secondary fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-warning border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fs-6 text-muted fw-semibold text-uppercase mb-1">Manutenções Pendentes</div>
+                            <div class="fs-2 fw-bold text-warning mb-0" id="manutencoesPendentes">--</div>
+                            <div class="fs-7 text-muted">
+                                <i class="fas fa-hourglass-half me-1"></i>Agendadas
+                            </div>
+                        </div>
+                        <div class="bg-warning bg-opacity-10 rounded-3 p-3">
+                            <i class="fas fa-clock text-warning fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Top Ranking por Tipo Operação -->
+    <div class="row mb-4">
+        <div class="col-xl-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        {% if is_servico %}
+                        <i class="fas fa-users text-success me-2"></i>Top Clientes (Faturamento)
+                        {% else %}
+                        <i class="fas fa-car text-danger me-2"></i>Top Veículos (Custo)
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="topRankingList">
+                        <div class="text-center py-4 text-muted">
+                            <i class="fas fa-spinner fa-spin me-2"></i>Carregando...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-xl-6 mb-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-0 pb-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="fas fa-chart-area text-primary me-2"></i>Tendência (Últimos 14 Dias)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="graficoTendencia" height="180"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Seção Principal - Layout Avançado -->
     <div class="row mb-4">
         <!-- Gráficos e Análises -->
@@ -466,14 +656,210 @@
 <script>
 // Variáveis globais
 let graficoManutencoes;
+let graficoTendencia;
+const IS_SERVICO = {{ 'true' if is_servico else 'false' }};
 
 // Inicialização do Dashboard
 document.addEventListener('DOMContentLoaded', function() {
     atualizarUltimaAtualizacao();
     inicializarGraficos();
     calcularDiasRestantes();
+    carregarMetricasFinanceiras();
+    carregarGraficoTendencia();
     setInterval(atualizarUltimaAtualizacao, 60000); // Atualizar a cada minuto
 });
+
+// Formatar valor em reais
+function formatarMoeda(valor) {
+    return new Intl.NumberFormat('pt-BR', { 
+        style: 'currency', 
+        currency: 'BRL' 
+    }).format(valor);
+}
+
+// Carregar métricas financeiras da API
+async function carregarMetricasFinanceiras() {
+    try {
+        const response = await fetch('/api/dashboard/metrics');
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.error('Erro ao carregar métricas:', data.message);
+            return;
+        }
+        
+        if (IS_SERVICO) {
+            // Atualizar cards de SERVICO
+            document.getElementById('faturamentoMes').textContent = formatarMoeda(data.faturamento_mes_atual);
+            document.getElementById('servicosFinalizados').textContent = data.servicos_finalizados_mes;
+            document.getElementById('ticketMedio').textContent = formatarMoeda(data.ticket_medio);
+            document.getElementById('servicosPendentes').textContent = data.servicos_pendentes;
+            
+            // Renderizar top clientes
+            renderizarTopClientes(data.top_clientes);
+        } else {
+            // Atualizar cards de FROTA
+            document.getElementById('despesasMes').textContent = formatarMoeda(data.despesas_mes_atual);
+            document.getElementById('manutencoesConcluidas').textContent = data.manutencoes_concluidas_mes;
+            document.getElementById('despesas30Dias').textContent = formatarMoeda(data.despesas_30_dias);
+            document.getElementById('manutencoesPendentes').textContent = data.manutencoes_pendentes;
+            
+            // Renderizar top veículos
+            renderizarTopVeiculos(data.top_veiculos);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar métricas:', error);
+    }
+}
+
+// Renderizar lista de top clientes (SERVICO)
+function renderizarTopClientes(clientes) {
+    const container = document.getElementById('topRankingList');
+    
+    if (!clientes || clientes.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-users fs-2 mb-2"></i>
+                <p class="mb-0">Nenhum cliente faturado este mês</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '<div class="list-group list-group-flush">';
+    clientes.forEach((cliente, index) => {
+        const medalha = index === 0 ? 'text-warning' : index === 1 ? 'text-secondary' : index === 2 ? 'text-bronze' : 'text-muted';
+        html += `
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-light ${medalha} me-3 fs-6">#${index + 1}</span>
+                    <div>
+                        <div class="fw-semibold">${cliente.nome}</div>
+                    </div>
+                </div>
+                <span class="badge bg-success bg-opacity-20 text-success fs-6">${formatarMoeda(cliente.faturamento)}</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// Renderizar lista de top veículos (FROTA)
+function renderizarTopVeiculos(veiculos) {
+    const container = document.getElementById('topRankingList');
+    
+    if (!veiculos || veiculos.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-car fs-2 mb-2"></i>
+                <p class="mb-0">Nenhum custo registrado este mês</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '<div class="list-group list-group-flush">';
+    veiculos.forEach((veiculo, index) => {
+        const medalha = index === 0 ? 'text-warning' : index === 1 ? 'text-secondary' : index === 2 ? 'text-bronze' : 'text-muted';
+        html += `
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-light ${medalha} me-3 fs-6">#${index + 1}</span>
+                    <div>
+                        <div class="fw-semibold">${veiculo.placa}</div>
+                        <small class="text-muted">${veiculo.modelo || ''}</small>
+                    </div>
+                </div>
+                <span class="badge bg-danger bg-opacity-20 text-danger fs-6">${formatarMoeda(veiculo.custo_total)}</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// Carregar gráfico de tendência da API
+async function carregarGraficoTendencia() {
+    try {
+        const response = await fetch('/api/dashboard/timeseries');
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.error('Erro ao carregar timeseries:', data.message);
+            return;
+        }
+        
+        const ctx = document.getElementById('graficoTendencia');
+        if (!ctx) return;
+        
+        if (graficoTendencia) {
+            graficoTendencia.destroy();
+        }
+        
+        graficoTendencia = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: data.dataset_label,
+                    data: data.values,
+                    borderColor: data.cor,
+                    backgroundColor: data.cor.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 10
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return formatarMoeda(context.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(0,0,0,0.1)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return 'R$ ' + value.toLocaleString('pt-BR');
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                },
+                elements: {
+                    point: {
+                        radius: 3,
+                        hoverRadius: 5
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao carregar gráfico de tendência:', error);
+    }
+}
 
 // Atualizar timestamp da última atualização
 function atualizarUltimaAtualizacao() {
@@ -567,8 +953,11 @@ function atualizarDashboard() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Atualizando...';
     btn.disabled = true;
     
-    // Simular atualização
-    setTimeout(() => {
+    // Recarregar dados da API
+    Promise.all([
+        carregarMetricasFinanceiras(),
+        carregarGraficoTendencia()
+    ]).then(() => {
         btn.innerHTML = iconOriginal;
         btn.disabled = false;
         atualizarUltimaAtualizacao();
@@ -584,7 +973,11 @@ function atualizarDashboard() {
         document.body.appendChild(alert);
         
         setTimeout(() => alert.remove(), 3000);
-    }, 2000);
+    }).catch(error => {
+        btn.innerHTML = iconOriginal;
+        btn.disabled = false;
+        console.error('Erro ao atualizar dashboard:', error);
+    });
 }
 
 // Funções para ações específicas

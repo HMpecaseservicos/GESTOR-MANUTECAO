@@ -8,6 +8,13 @@
         <h2><i class="fas fa-building text-primary"></i> Minha Empresa</h2>
         <p class="text-muted">Visualize e edite os dados da sua empresa</p>
     </div>
+    <div>
+        {% if empresa.tipo_operacao == 'SERVICO' %}
+        <span class="badge bg-success fs-6"><i class="fas fa-tools me-1"></i>Prestação de Serviços</span>
+        {% else %}
+        <span class="badge bg-primary fs-6"><i class="fas fa-truck me-1"></i>Gestão de Frota</span>
+        {% endif %}
+    </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -97,57 +104,103 @@
     
     <!-- Informações do Plano -->
     <div class="col-md-4 mb-4">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0"><i class="fas fa-crown me-2"></i>Seu Plano</h5>
+        <div class="card border-{{ info_plano.cor if info_plano else 'secondary' }}">
+            <div class="card-header bg-{{ info_plano.cor if info_plano else 'secondary' }} text-white">
+                <h5 class="mb-0"><i class="bi {{ info_plano.icone if info_plano else 'bi-box' }} me-2"></i>Seu Plano</h5>
             </div>
             <div class="card-body text-center">
                 <div class="mb-3">
-                    {% if empresa.plano == 'enterprise' %}
-                    <i class="fas fa-rocket fa-4x text-warning mb-3"></i>
-                    <h3 class="text-warning">Enterprise</h3>
-                    {% elif empresa.plano == 'profissional' %}
+                    {% set plano = empresa.plano|default('BASICO')|upper %}
+                    {% if plano == 'ENTERPRISE' %}
+                    <i class="fas fa-rocket fa-4x text-success mb-3"></i>
+                    <h3 class="text-success">Enterprise</h3>
+                    <p class="text-muted">Recursos ilimitados</p>
+                    {% elif plano == 'PROFISSIONAL' %}
                     <i class="fas fa-briefcase fa-4x text-primary mb-3"></i>
                     <h3 class="text-primary">Profissional</h3>
+                    <p class="text-muted">Para empresas em crescimento</p>
                     {% else %}
-                    <i class="fas fa-seedling fa-4x text-success mb-3"></i>
-                    <h3 class="text-success">Básico</h3>
+                    <i class="fas fa-seedling fa-4x text-secondary mb-3"></i>
+                    <h3 class="text-secondary">Básico</h3>
+                    <p class="text-muted">Plano inicial</p>
                     {% endif %}
                 </div>
                 
                 <hr>
                 
                 <div class="text-start">
+                    <!-- Limite de Veículos -->
                     <p class="mb-2">
                         <i class="fas fa-car text-primary me-2"></i>
                         <strong>Veículos:</strong> 
-                        <span class="float-end">{{ stats.veiculos }}/{{ empresa.limite_veiculos or 'Ilimitado' }}</span>
+                        <span class="float-end">
+                            {{ stats.veiculos }}/{% if empresa.limite_veiculos %}{{ empresa.limite_veiculos }}{% else %}∞{% endif %}
+                        </span>
                     </p>
+                    {% if empresa.limite_veiculos %}
+                    {% set pct_veiculos = (stats.veiculos / empresa.limite_veiculos) * 100 %}
                     <div class="progress mb-3" style="height: 8px;">
-                        {% set pct_veiculos = (stats.veiculos / (empresa.limite_veiculos or 999)) * 100 %}
-                        <div class="progress-bar bg-primary" style="width: {{ pct_veiculos }}%"></div>
+                        <div class="progress-bar {% if pct_veiculos >= 90 %}bg-danger{% elif pct_veiculos >= 70 %}bg-warning{% else %}bg-primary{% endif %}" 
+                             style="width: {{ pct_veiculos }}%"></div>
                     </div>
+                    {% else %}
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar bg-success" style="width: 100%"></div>
+                    </div>
+                    {% endif %}
                     
+                    <!-- Limite de Clientes (apenas SERVICO) -->
+                    {% if is_servico %}
+                    <p class="mb-2">
+                        <i class="fas fa-user-tie text-info me-2"></i>
+                        <strong>Clientes:</strong> 
+                        <span class="float-end">
+                            {{ stats.clientes }}/{% if empresa.limite_clientes %}{{ empresa.limite_clientes }}{% else %}∞{% endif %}
+                        </span>
+                    </p>
+                    {% if empresa.limite_clientes %}
+                    {% set pct_clientes = (stats.clientes / empresa.limite_clientes) * 100 %}
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar {% if pct_clientes >= 90 %}bg-danger{% elif pct_clientes >= 70 %}bg-warning{% else %}bg-info{% endif %}" 
+                             style="width: {{ pct_clientes }}%"></div>
+                    </div>
+                    {% else %}
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar bg-success" style="width: 100%"></div>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                    
+                    <!-- Limite de Usuários -->
                     <p class="mb-2">
                         <i class="fas fa-users text-success me-2"></i>
                         <strong>Usuários:</strong> 
-                        <span class="float-end">{{ stats.usuarios }}/{{ empresa.limite_usuarios or 'Ilimitado' }}</span>
+                        <span class="float-end">
+                            {{ stats.usuarios }}/{% if empresa.limite_usuarios %}{{ empresa.limite_usuarios }}{% else %}∞{% endif %}
+                        </span>
                     </p>
+                    {% if empresa.limite_usuarios %}
+                    {% set pct_usuarios = (stats.usuarios / empresa.limite_usuarios) * 100 %}
                     <div class="progress mb-3" style="height: 8px;">
-                        {% set pct_usuarios = (stats.usuarios / (empresa.limite_usuarios or 999)) * 100 %}
-                        <div class="progress-bar bg-success" style="width: {{ pct_usuarios }}%"></div>
+                        <div class="progress-bar {% if pct_usuarios >= 90 %}bg-danger{% elif pct_usuarios >= 70 %}bg-warning{% else %}bg-success{% endif %}" 
+                             style="width: {{ pct_usuarios }}%"></div>
                     </div>
+                    {% else %}
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar bg-success" style="width: 100%"></div>
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <hr>
                 
                 <p class="text-muted small mb-2">
                     <i class="fas fa-calendar me-1"></i>
-                    Criada em: {{ empresa.data_criacao[:10] if empresa.data_criacao else 'N/A' }}
+                    Criada em: {{ empresa.data_criacao[:10] if empresa.data_criacao else (empresa.created_at[:10] if empresa.created_at else 'N/A') }}
                 </p>
                 
-                {% if empresa.plano != 'enterprise' %}
-                <a href="#" class="btn btn-warning btn-sm mt-2" onclick="alert('Entre em contato para fazer upgrade do plano!')">
+                {% if plano != 'ENTERPRISE' %}
+                <a href="#" class="btn btn-warning btn-sm mt-2" onclick="alert('Entre em contato para fazer upgrade do plano!\n\nWhatsApp: (XX) XXXXX-XXXX\nEmail: comercial@sistema.com')">
                     <i class="fas fa-arrow-up me-1"></i>Fazer Upgrade
                 </a>
                 {% endif %}
@@ -164,6 +217,12 @@
                     <span><i class="fas fa-car me-2"></i>Veículos</span>
                     <strong>{{ stats.veiculos }}</strong>
                 </div>
+                {% if is_servico %}
+                <div class="d-flex justify-content-between mb-2">
+                    <span><i class="fas fa-user-tie me-2"></i>Clientes</span>
+                    <strong>{{ stats.clientes }}</strong>
+                </div>
+                {% endif %}
                 <div class="d-flex justify-content-between mb-2">
                     <span><i class="fas fa-wrench me-2"></i>Manutenções</span>
                     <strong>{{ stats.manutencoes }}</strong>
@@ -173,12 +232,16 @@
                     <strong>{{ stats.pecas }}</strong>
                 </div>
                 <div class="d-flex justify-content-between mb-2">
-                    <span><i class="fas fa-users me-2"></i>Fornecedores</span>
+                    <span><i class="fas fa-truck me-2"></i>Fornecedores</span>
                     <strong>{{ stats.fornecedores }}</strong>
                 </div>
-                <div class="d-flex justify-content-between">
+                <div class="d-flex justify-content-between mb-2">
                     <span><i class="fas fa-user-cog me-2"></i>Técnicos</span>
                     <strong>{{ stats.tecnicos }}</strong>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span><i class="fas fa-users me-2"></i>Usuários</span>
+                    <strong>{{ stats.usuarios }}</strong>
                 </div>
             </div>
         </div>

@@ -5,51 +5,41 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h1 class="display-6">Relatórios e Análises</h1>
-        <p class="text-muted">Acompanhe o desempenho e custos da sua frota</p>
+        <h1 class="display-6">
+            <i class="fas fa-chart-bar me-2"></i>Relatórios e Análises
+        </h1>
+        <p class="text-muted">
+            {% if is_servico %}
+            Análise de faturamento e performance comercial
+            {% else %}
+            Controle de custos e manutenções da frota
+            {% endif %}
+        </p>
     </div>
 </div>
 
 <!-- Filtros de Período -->
 <div class="card mb-4">
-    <div class="card-header bg-secondary text-white">
+    <div class="card-header bg-primary text-white">
         <h6 class="mb-0">
             <i class="fas fa-filter"></i> Filtros de Período
-            {% if data_inicial or data_final or veiculo_id %}
-            <span class="badge bg-warning text-dark ms-2">
-                <i class="fas fa-check"></i> Filtros Ativos
-            </span>
-            {% endif %}
         </h6>
     </div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <label class="form-label">Data Inicial</label>
-                <input type="date" class="form-control" id="dataInicial" value="{{ data_inicial }}">
+                <input type="date" class="form-control" id="dataInicial">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <label class="form-label">Data Final</label>
-                <input type="date" class="form-control" id="dataFinal" value="{{ data_final }}">
+                <input type="date" class="form-control" id="dataFinal">
             </div>
-            <div class="col-md-3">
-                <label class="form-label">Veículo</label>
-                <select class="form-select" id="filtroVeiculo">
-                    <option value="">Todos os veículos</option>
-                    {% for veiculo in veiculos %}
-                    <option value="{{ veiculo[0] }}" {% if veiculo_id == veiculo[0]|string %}selected{% endif %}>
-                        {{ veiculo[1] }} - {{ veiculo[2] }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
-                <button class="btn btn-primary w-100" onclick="aplicarFiltros()">
-                    <i class="fas fa-search"></i> Aplicar
+            <div class="col-md-4 d-flex align-items-end gap-2">
+                <button class="btn btn-primary flex-grow-1" onclick="carregarRelatorios()">
+                    <i class="fas fa-search"></i> Gerar Relatório
                 </button>
-            </div>
-            <div class="col-md-1 d-flex align-items-end">
-                <button class="btn btn-secondary w-100" onclick="limparFiltros()" title="Limpar Filtros">
+                <button class="btn btn-outline-secondary" onclick="limparFiltros()" title="Limpar">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -57,14 +47,54 @@
     </div>
 </div>
 
-<!-- Resumo Financeiro (DADOS REAIS) -->
-<div class="row mb-4">
+<!-- Resumo Financeiro Dinâmico -->
+<div class="row mb-4" id="resumoFinanceiro">
+    {% if is_servico %}
+    <!-- Cards SERVICO -->
     <div class="col-md-3">
         <div class="card text-white bg-success">
             <div class="card-body text-center">
                 <i class="fas fa-dollar-sign fa-2x mb-2"></i>
-                <h6>Custo Total (12 meses)</h6>
-                <h4>R$ {{ "{:,.2f}".format(custo_total_ano).replace(',', 'X').replace('.', ',').replace('X', '.') }}</h4>
+                <h6>Faturamento Total</h6>
+                <h4 id="totalValor">R$ --</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body text-center">
+                <i class="fas fa-receipt fa-2x mb-2"></i>
+                <h6>Ticket Médio</h6>
+                <h4 id="ticketMedio">R$ --</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body text-center">
+                <i class="fas fa-clipboard-check fa-2x mb-2"></i>
+                <h6>Serviços Realizados</h6>
+                <h4 id="totalQuantidade">--</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-2x mb-2"></i>
+                <h6>Clientes Atendidos</h6>
+                <h4 id="totalClientes">--</h4>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Cards FROTA -->
+    <div class="col-md-3">
+        <div class="card text-white bg-danger">
+            <div class="card-body text-center">
+                <i class="fas fa-money-bill-wave fa-2x mb-2"></i>
+                <h6>Despesas Total</h6>
+                <h4 id="totalValor">R$ --</h4>
             </div>
         </div>
     </div>
@@ -72,8 +102,8 @@
         <div class="card text-white bg-info">
             <div class="card-body text-center">
                 <i class="fas fa-chart-line fa-2x mb-2"></i>
-                <h6>Média Mensal</h6>
-                <h4>R$ {{ "{:,.2f}".format(media_mensal).replace(',', 'X').replace('.', ',').replace('X', '.') }}</h4>
+                <h6>Custo Médio</h6>
+                <h4 id="custoMedio">R$ --</h4>
             </div>
         </div>
     </div>
@@ -82,76 +112,56 @@
             <div class="card-body text-center">
                 <i class="fas fa-wrench fa-2x mb-2"></i>
                 <h6>Manutenções Realizadas</h6>
-                <h4>{{ total_manutencoes }}</h4>
+                <h4 id="totalQuantidade">--</h4>
             </div>
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card text-white bg-danger">
+        <div class="card text-white bg-secondary">
             <div class="card-body text-center">
-                <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
-                <h6>Manutenções Emergenciais</h6>
-                <h4>{{ manutencoes_emergenciais }}</h4>
+                <i class="fas fa-car fa-2x mb-2"></i>
+                <h6>Veículos Atendidos</h6>
+                <h4 id="totalVeiculos">--</h4>
             </div>
         </div>
     </div>
-</div>
-
-<!-- Gráficos -->
-<div class="row mb-4">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h6 class="mb-0"><i class="fas fa-chart-bar"></i> Custos de Manutenção por Mês</h6>
-            </div>
-            <div class="card-body">
-                <canvas id="custosMensaisChart" height="100"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-header bg-info text-white">
-                <h6 class="mb-0"><i class="fas fa-chart-pie"></i> Tipos de Manutenção</h6>
-            </div>
-            <div class="card-body">
-                <canvas id="tiposManutencaoChart"></canvas>
-            </div>
-        </div>
-    </div>
+    {% endif %}
 </div>
 
 <!-- Tabelas de Análise -->
-<div class="row">
-    <div class="col-md-6">
+<div class="row mb-4">
+    <!-- Lista Detalhada -->
+    <div class="col-md-7">
         <div class="card">
-            <div class="card-header bg-warning text-dark">
-                <h6 class="mb-0"><i class="fas fa-truck"></i> Veículos com Mais Manutenções</h6>
+            <div class="card-header {% if is_servico %}bg-success{% else %}bg-primary{% endif %} text-white">
+                <h6 class="mb-0">
+                    <i class="fas fa-list"></i> 
+                    {% if is_servico %}Top Clientes por Faturamento{% else %}Top Veículos por Custo{% endif %}
+                </h6>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
                             <tr>
+                                {% if is_servico %}
+                                <th>Cliente</th>
+                                <th>Serviços</th>
+                                <th class="text-end">Faturamento</th>
+                                {% else %}
                                 <th>Placa</th>
                                 <th>Modelo</th>
                                 <th>Manutenções</th>
-                                <th>Custo Total</th>
+                                <th class="text-end">Custo Total</th>
+                                {% endif %}
                             </tr>
                         </thead>
-                        <tbody>
-                            {% for placa, modelo, total in veiculos_mais_manutencoes %}
+                        <tbody id="tabelaRanking">
                             <tr>
-                                <td><strong>{{ placa }}</strong></td>
-                                <td>{{ modelo }}</td>
-                                <td>
-                                    <span class="badge bg-warning">{{ total }}</span>
-                                </td>
-                                <td>
-                                    <span class="text-success">R$ {{ (total * 450)|round(2) }}</span>
+                                <td colspan="4" class="text-center text-muted py-4">
+                                    <i class="fas fa-search me-2"></i>Clique em "Gerar Relatório" para carregar os dados
                                 </td>
                             </tr>
-                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
@@ -159,450 +169,277 @@
         </div>
     </div>
     
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h6 class="mb-0"><i class="fas fa-calendar-alt"></i> Histórico de Custos Mensais</h6>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Mês</th>
-                                <th>Total Gasto</th>
-                                <th>Manutenções</th>
-                                <th>Média</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for mes, total in custos_mensais %}
-                            {% if total %}
-                            <tr>
-                                <td><strong>{{ mes }}</strong></td>
-                                <td>
-                                    <span class="text-success">R$ {{ "%.2f"|format(total) }}</span>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info">{{ (total / 250)|round(0)|int }}</span>
-                                </td>
-                                <td>
-                                    <span class="text-muted">R$ {{ "%.2f"|format(total / ((total / 250)|round(0)|int)) }}</span>
-                                </td>
-                            </tr>
-                            {% endif %}
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Relatórios para Download -->
-<div class="row mt-4">
-    <div class="col-12">
+    <!-- Exportação -->
+    <div class="col-md-5">
         <div class="card">
             <div class="card-header bg-secondary text-white">
                 <h6 class="mb-0"><i class="fas fa-download"></i> Exportar Relatórios</h6>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-2 mb-2">
-                        <button class="btn btn-outline-success w-100" onclick="exportarExcel()" title="Exportar lista completa em Excel/CSV">
-                            <i class="fas fa-file-excel"></i> Excel
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-2">
-                        <button class="btn btn-outline-danger w-100" onclick="exportarPDFCompleto()" title="Exportar lista completa em PDF">
-                            <i class="fas fa-file-pdf"></i> Relatório Completo (PDF)
-                        </button>
-                    </div>
-                    <div class="col-md-2 mb-2">
-                        <button class="btn btn-outline-warning w-100" onclick="exportarPDF()" title="Resumo executivo em PDF">
-                            <i class="fas fa-chart-line"></i> Resumo
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-2">
-                        <button class="btn btn-outline-primary w-100" onclick="exportarGraficos()" title="Exportar gráficos como imagem">
-                            <i class="fas fa-chart-bar"></i> Gráficos (PNG)
-                        </button>
-                    </div>
-                    <div class="col-md-2 mb-2">
-                        <button class="btn btn-outline-info w-100" onclick="exportarCSV()" title="Dados brutos para análise">
-                            <i class="fas fa-file-csv"></i> CSV
-                        </button>
-                    </div>
+                <p class="text-muted mb-3">Exporte os dados do período selecionado:</p>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-danger" onclick="exportarPDF()">
+                        <i class="fas fa-file-pdf me-2"></i>Relatório Completo (PDF)
+                    </button>
+                    <button class="btn btn-success" onclick="exportarExcel()">
+                        <i class="fas fa-file-excel me-2"></i>Planilha Excel (.xlsx)
+                    </button>
+                    <button class="btn btn-info" onclick="exportarCSV()">
+                        <i class="fas fa-file-csv me-2"></i>Dados Brutos (CSV)
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="exportarResumo()">
+                        <i class="fas fa-chart-pie me-2"></i>Resumo Executivo (PDF)
+                    </button>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Info do Período -->
+        <div class="card mt-3">
+            <div class="card-body">
+                <h6 class="text-muted mb-2"><i class="fas fa-info-circle me-1"></i> Período Atual</h6>
+                <p class="mb-0" id="infoPeriodo">Selecione as datas e clique em "Gerar Relatório"</p>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Indicadores de Performance -->
-<div class="row mt-4">
+<!-- Lista de Registros -->
+<div class="row">
     <div class="col-12">
         <div class="card">
-            <div class="card-header bg-dark text-white">
-                <h6 class="mb-0"><i class="fas fa-tachometer-alt"></i> Indicadores de Performance (KPIs)</h6>
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="fas fa-table me-2"></i>
+                    {% if is_servico %}Serviços Realizados{% else %}Manutenções Realizadas{% endif %}
+                </h6>
+                <span class="badge bg-light text-dark" id="badgeTotal">0 registros</span>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">Disponibilidade da Frota</h6>
-                            <h4 class="text-success">94.2%</h4>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">Custo/km Médio</h6>
-                            <h4 class="text-info">R$ 0,85</h4>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">MTBF (horas)</h6>
-                            <h4 class="text-warning">420h</h4>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">MTTR (horas)</h6>
-                            <h4 class="text-danger">8.5h</h4>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">Economia Preventiva</h6>
-                            <h4 class="text-success">32%</h4>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="text-center">
-                            <h6 class="text-muted">Satisfação Técnicos</h6>
-                            <h4 class="text-primary">8.7/10</h4>
-                        </div>
-                    </div>
-                </div>
-                <hr>
-                <div class="row">
-                    <div class="col-12">
-                        <small class="text-muted">
-                            <strong>MTBF:</strong> Mean Time Between Failures (Tempo Médio Entre Falhas) |
-                            <strong>MTTR:</strong> Mean Time To Repair (Tempo Médio Para Reparo)
-                        </small>
-                    </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Data</th>
+                                <th>Placa</th>
+                                {% if is_servico %}<th>Cliente</th>{% endif %}
+                                <th>Tipo</th>
+                                <th>Descrição</th>
+                                <th class="text-end">{% if is_servico %}Valor{% else %}Custo{% endif %}</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaRegistros">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <i class="fas fa-search me-2"></i>Selecione o período e clique em "Gerar Relatório"
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Scripts para gráficos -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Dados reais do banco de dados
-    const custosReais = {{ custos_mensais | safe }};
-    const veiculosReais = {{ veiculos_mais_manutencoes | safe }};
+const IS_SERVICO = {{ 'true' if is_servico else 'false' }};
 
-// Processar dados de custos mensais do banco
-const mesesLabels = [];
-const custosData = [];
-
-console.log('Custos reais recebidos:', custosReais);
-
-// Preencher arrays com dados reais
-if (custosReais && custosReais.length > 0) {
-    custosReais.reverse().forEach((item, index) => {
-        console.log(`Item ${index}:`, item, 'Tipo item[0]:', typeof item[0], 'item[0]:', item[0]);
-        // Verificar se o item tem os dados necessários
-        if (item && item[0] && typeof item[0] === 'string' && item[0].includes('-')) {
-            const [ano, mes] = item[0].split('-');
-            const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            const mesLabel = meses[parseInt(mes) - 1] + '/' + ano.substring(2);
-            console.log('Adicionando ao gráfico:', mesLabel, item[1]);
-            mesesLabels.push(mesLabel);
-            custosData.push(item[1] || 0);
-        }
-    });
+// Formatar moeda
+function formatarMoeda(valor) {
+    return new Intl.NumberFormat('pt-BR', { 
+        style: 'currency', 
+        currency: 'BRL' 
+    }).format(valor);
 }
 
-// Se não há dados válidos após o processamento, adicionar dados padrão
-if (mesesLabels.length === 0) {
-    mesesLabels.push('Sem dados');
-    custosData.push(0);
-}
-
-console.log('Dados finais para gráfico de custos:');
-console.log('Labels:', mesesLabels);
-console.log('Data:', custosData);
-
-// Gráfico de Custos Mensais (DADOS REAIS)
-const canvas1 = document.getElementById('custosMensaisChart');
-console.log('Canvas custos encontrado:', canvas1);
-const ctx1 = canvas1.getContext('2d');
-console.log('Context custos obtido:', ctx1);
-const custosMensaisChart = new Chart(ctx1, {
-    type: 'bar',
-    data: {
-        labels: mesesLabels,
-        datasets: [{
-            label: 'Custos Reais (R$)',
-            data: custosData,
-            backgroundColor: 'rgba(54, 162, 235, 0.6)',
-            borderColor: 'rgba(54, 162, 235, 1)',
-            borderWidth: 1
-        }]
-    },
-    options: {
-        responsive: true,
-        scales: {
-            y: {
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return 'R$ ' + value.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-                    }
-                }
-            }
-        },
-        plugins: {
-            title: {
-                display: true,
-                text: 'Custos Mensais - Dados Reais do Banco de Dados'
-            },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        return 'Custo: R$ ' + context.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-                    }
-                }
-            }
-        }
-    }
-});
-
-// Gráfico de Tipos de Manutenção (DADOS REAIS)
-const tiposReais = {{ tipos_manutencao | safe }};
-const tiposLabels = [];
-const tiposData = [];
-
-console.log('Tipos reais recebidos:', tiposReais);
-
-// Processar dados reais
-if (tiposReais && tiposReais.length > 0) {
-    tiposReais.forEach((item, index) => {
-        console.log(`Tipo ${index}:`, item, 'item[0]:', item[0], 'item[1]:', item[1]);
-        if (item && item[0] && item[1] !== undefined) {
-            console.log('Adicionando tipo ao gráfico:', item[0], item[1]);
-            tiposLabels.push(item[0]);
-            tiposData.push(item[1]);
-        }
-    });
-}
-
-// Se não há dados válidos, adicionar dados padrão
-if (tiposLabels.length === 0) {
-    tiposLabels.push('Sem dados');
-    tiposData.push(0);
-}
-
-console.log('Dados finais para gráfico de tipos:');
-console.log('Labels:', tiposLabels);
-console.log('Data:', tiposData);
-
-const canvas2 = document.getElementById('tiposManutencaoChart');
-console.log('Canvas tipos encontrado:', canvas2);
-const ctx2 = canvas2.getContext('2d');
-console.log('Context tipos obtido:', ctx2);
-const tiposManutencaoChart = new Chart(ctx2, {
-    type: 'doughnut',
-    data: {
-        labels: tiposLabels,
-        datasets: [{
-            data: tiposData,
-            backgroundColor: [
-                'rgba(75, 192, 192, 0.8)',
-                'rgba(255, 206, 86, 0.8)',
-                'rgba(255, 99, 132, 0.8)',
-                'rgba(153, 102, 255, 0.8)',
-                'rgba(54, 162, 235, 0.8)'
-            ]
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                position: 'bottom'
-            },
-            title: {
-                display: true,
-                text: 'Distribuição por Tipo - Dados Reais'
-            },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        const label = context.label || '';
-                        const value = context.parsed || 0;
-                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                        const percentage = ((value / total) * 100).toFixed(1);
-                        return label + ': ' + value + ' (' + percentage + '%)';
-                    }
-                }
-            }
-        }
-    }
-});
-
-// Função para aplicar filtros
-function aplicarFiltros() {
+// Carregar relatórios
+async function carregarRelatorios() {
     const dataInicial = document.getElementById('dataInicial').value;
     const dataFinal = document.getElementById('dataFinal').value;
-    const veiculoId = document.getElementById('filtroVeiculo').value;
     
-    // Construir URL com parâmetros
-    let url = '/relatorios?';
-    const params = [];
+    // Atualizar info do período
+    const periodoInfo = dataInicial && dataFinal 
+        ? `${dataInicial} até ${dataFinal}`
+        : dataInicial 
+        ? `A partir de ${dataInicial}`
+        : dataFinal 
+        ? `Até ${dataFinal}`
+        : 'Todos os registros';
+    document.getElementById('infoPeriodo').textContent = periodoInfo;
     
-    if (dataInicial) {
-        params.push('data_inicial=' + dataInicial);
+    // Construir URL com filtros
+    let params = [];
+    if (dataInicial) params.push(`data_inicio=${dataInicial}`);
+    if (dataFinal) params.push(`data_fim=${dataFinal}`);
+    const queryString = params.length > 0 ? '?' + params.join('&') : '';
+    
+    try {
+        // Carregar relatório financeiro
+        const respFinanceiro = await fetch(`/api/relatorios/financeiro${queryString}`);
+        const dadosFinanceiro = await respFinanceiro.json();
+        
+        if (dadosFinanceiro.success) {
+            atualizarCardsFinanceiros(dadosFinanceiro);
+            atualizarTabelaRanking(dadosFinanceiro);
+        }
+        
+        // Carregar lista de manutenções
+        const respManutencoes = await fetch(`/api/relatorios/manutencoes${queryString}`);
+        const dadosManutencoes = await respManutencoes.json();
+        
+        if (dadosManutencoes.success) {
+            atualizarTabelaRegistros(dadosManutencoes.registros);
+            document.getElementById('badgeTotal').textContent = `${dadosManutencoes.total_registros} registros`;
+        }
+        
+    } catch (error) {
+        console.error('Erro ao carregar relatórios:', error);
+        alert('Erro ao carregar relatórios. Tente novamente.');
     }
-    
-    if (dataFinal) {
-        params.push('data_final=' + dataFinal);
-    }
-    
-    if (veiculoId) {
-        params.push('veiculo_id=' + veiculoId);
-    }
-    
-    url += params.join('&');
-    
-    // Redirecionar para a página com filtros
-    window.location.href = url;
 }
 
-// Função para limpar filtros
+// Atualizar cards financeiros
+function atualizarCardsFinanceiros(dados) {
+    if (IS_SERVICO) {
+        document.getElementById('totalValor').textContent = formatarMoeda(dados.faturamento_total);
+        document.getElementById('ticketMedio').textContent = formatarMoeda(dados.ticket_medio);
+        document.getElementById('totalQuantidade').textContent = dados.qtd_servicos;
+        document.getElementById('totalClientes').textContent = dados.lista_por_cliente?.length || 0;
+    } else {
+        document.getElementById('totalValor').textContent = formatarMoeda(dados.despesas_total);
+        const custoMedio = dados.qtd_manutencoes > 0 ? dados.despesas_total / dados.qtd_manutencoes : 0;
+        document.getElementById('custoMedio').textContent = formatarMoeda(custoMedio);
+        document.getElementById('totalQuantidade').textContent = dados.qtd_manutencoes;
+        document.getElementById('totalVeiculos').textContent = dados.lista_por_veiculo?.length || 0;
+    }
+}
+
+// Atualizar tabela de ranking
+function atualizarTabelaRanking(dados) {
+    const tbody = document.getElementById('tabelaRanking');
+    
+    if (IS_SERVICO) {
+        const lista = dados.lista_por_cliente || [];
+        if (lista.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Nenhum cliente encontrado</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = lista.slice(0, 10).map(item => `
+            <tr>
+                <td><strong>${item.cliente_nome}</strong></td>
+                <td><span class="badge bg-info">${item.qtd_servicos}</span></td>
+                <td class="text-end text-success fw-bold">${formatarMoeda(item.total_faturado)}</td>
+            </tr>
+        `).join('');
+    } else {
+        const lista = dados.lista_por_veiculo || [];
+        if (lista.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum veículo encontrado</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = lista.slice(0, 10).map(item => `
+            <tr>
+                <td><strong>${item.placa}</strong></td>
+                <td>${item.modelo || '-'}</td>
+                <td><span class="badge bg-warning">${item.qtd_manutencoes}</span></td>
+                <td class="text-end text-danger fw-bold">${formatarMoeda(item.total_gasto)}</td>
+            </tr>
+        `).join('');
+    }
+}
+
+// Atualizar tabela de registros
+function atualizarTabelaRegistros(registros) {
+    const tbody = document.getElementById('tabelaRegistros');
+    
+    if (!registros || registros.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-3">Nenhum registro encontrado</td></tr>`;
+        return;
+    }
+    
+    tbody.innerHTML = registros.map(reg => {
+        const statusClass = getStatusClass(reg.status);
+        return `
+            <tr>
+                <td>${reg.data || '-'}</td>
+                <td><strong>${reg.placa}</strong></td>
+                ${IS_SERVICO ? `<td>${reg.cliente_nome || '-'}</td>` : ''}
+                <td><span class="badge bg-secondary">${reg.tipo || '-'}</span></td>
+                <td>${(reg.descricao || '-').substring(0, 40)}${(reg.descricao?.length > 40) ? '...' : ''}</td>
+                <td class="text-end fw-bold ${IS_SERVICO ? 'text-success' : 'text-danger'}">${formatarMoeda(reg.valor || 0)}</td>
+                <td><span class="badge ${statusClass}">${reg.status || '-'}</span></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Obter classe de cor para status
+function getStatusClass(status) {
+    const statusMap = {
+        'FINALIZADO': 'bg-success',
+        'FATURADO': 'bg-success',
+        'Concluída': 'bg-success',
+        'EM_EXECUCAO': 'bg-primary',
+        'Em Andamento': 'bg-primary',
+        'APROVADO': 'bg-info',
+        'ORCAMENTO': 'bg-warning',
+        'Agendada': 'bg-warning',
+        'RASCUNHO': 'bg-secondary'
+    };
+    return statusMap[status] || 'bg-secondary';
+}
+
+// Limpar filtros
 function limparFiltros() {
-    window.location.href = '/relatorios';
+    document.getElementById('dataInicial').value = '';
+    document.getElementById('dataFinal').value = '';
+    document.getElementById('infoPeriodo').textContent = 'Selecione as datas e clique em "Gerar Relatório"';
 }
 
-// Adicionar listener para Enter nos campos de data
-document.getElementById('dataInicial').addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') {
-        aplicarFiltros();
-    }
-});
-
-document.getElementById('dataFinal').addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') {
-        aplicarFiltros();
-    }
-});
-
-// =============================================
-}); // Fim do DOMContentLoaded
-
-// FUNÇÕES DE EXPORTAÇÃO
-// =============================================
-
-// Função para construir query string com filtros
+// Funções de exportação
 function getFilterParams() {
     const dataInicial = document.getElementById('dataInicial').value;
     const dataFinal = document.getElementById('dataFinal').value;
-    const veiculoId = document.getElementById('filtroVeiculo').value;
     
     const params = [];
-    
-    if (dataInicial) {
-        params.push('data_inicial=' + dataInicial);
-    }
-    
-    if (dataFinal) {
-        params.push('data_final=' + dataFinal);
-    }
-    
-    if (veiculoId) {
-        params.push('veiculo_id=' + veiculoId);
-    }
+    if (dataInicial) params.push('data_inicial=' + dataInicial);
+    if (dataFinal) params.push('data_final=' + dataFinal);
     
     return params.length > 0 ? '?' + params.join('&') : '';
 }
 
-// Exportar relatório completo em Excel (CSV)
-function exportarExcel() {
-    const params = getFilterParams();
-    window.location.href = '/exportar/excel' + params;
-}
-
-// Exportar relatório COMPLETO em PDF (todas as manutenções)
-function exportarPDFCompleto() {
-    const params = getFilterParams();
-    window.location.href = '/exportar/pdf-completo' + params;
-}
-
-// Exportar resumo executivo em PDF
 function exportarPDF() {
-    const params = getFilterParams();
-    window.location.href = '/exportar/pdf' + params;
+    window.location.href = '/exportar/pdf-completo' + getFilterParams();
 }
 
-// Exportar dados brutos em CSV
+function exportarExcel() {
+    window.location.href = '/exportar/excel' + getFilterParams();
+}
+
 function exportarCSV() {
-    const params = getFilterParams();
-    window.location.href = '/exportar/csv' + params;
+    window.location.href = '/exportar/csv' + getFilterParams();
 }
 
-// Exportar gráficos como imagem PNG
-function exportarGraficos() {
-    // Usar html2canvas para capturar os gráficos
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
-    script.onload = function() {
-        // Capturar ambos os gráficos
-        const graficos = document.querySelectorAll('.card canvas');
-        
-        if (graficos.length === 0) {
-            alert('Nenhum gráfico disponível para exportar.');
-            return;
-        }
-        
-        let capturaIndex = 0;
-        
-        function capturarProximo() {
-            if (capturaIndex >= graficos.length) {
-                alert('Gráficos exportados com sucesso!');
-                return;
-            }
-            
-            const grafico = graficos[capturaIndex];
-            const container = grafico.closest('.card');
-            
-            html2canvas(container, {
-                backgroundColor: '#ffffff',
-                scale: 2
-            }).then(canvas => {
-                // Converter para imagem e fazer download
-                const link = document.createElement('a');
-                const timestamp = new Date().getTime();
-                const nomeGrafico = capturaIndex === 0 ? 'custos_mensais' : 'tipos_manutencao';
-                link.download = `grafico_${nomeGrafico}_${timestamp}.png`;
-                link.href = canvas.toDataURL('image/png');
-                link.click();
-                
-                capturaIndex++;
-                setTimeout(capturarProximo, 500); // Delay entre capturas
-            });
-        }
-        
-        capturarProximo();
-    };
-    
-    document.head.appendChild(script);
+function exportarResumo() {
+    window.location.href = '/exportar/pdf' + getFilterParams();
 }
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', function() {
+    // Definir datas padrão (último mês)
+    const hoje = new Date();
+    const mesPassado = new Date(hoje);
+    mesPassado.setMonth(mesPassado.getMonth() - 1);
+    
+    document.getElementById('dataFinal').value = hoje.toISOString().split('T')[0];
+    document.getElementById('dataInicial').value = mesPassado.toISOString().split('T')[0];
+    
+    // Carregar relatórios automaticamente
+    carregarRelatorios();
+});
 </script>
 {% endblock %}
