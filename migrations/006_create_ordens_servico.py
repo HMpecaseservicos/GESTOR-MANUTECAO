@@ -69,14 +69,40 @@ class Migration(BaseMigration):
                         CONSTRAINT fk_ordens_servico_cliente 
                             FOREIGN KEY (cliente_id) 
                             REFERENCES clientes(id) 
-                            ON DELETE RESTRICT,
-                        
-                        -- Garantir que cliente e empresa são compatíveis
-                        CONSTRAINT check_cliente_mesma_empresa 
-                            CHECK (
-                                (SELECT empresa_id FROM clientes WHERE id = cliente_id) = empresa_id
-                            )
+                            ON DELETE RESTRICT
                     )
+                """)
+                
+                # Trigger para validar que cliente pertence à mesma empresa
+                cursor.execute("""
+                    CREATE OR REPLACE FUNCTION validate_ordens_servico_empresa()
+                    RETURNS TRIGGER AS $$
+                    DECLARE
+                        cliente_empresa_id BIGINT;
+                    BEGIN
+                        SELECT empresa_id INTO cliente_empresa_id 
+                        FROM clientes WHERE id = NEW.cliente_id;
+                        
+                        IF cliente_empresa_id IS NULL THEN
+                            RAISE EXCEPTION 'Cliente não encontrado: %', NEW.cliente_id;
+                        END IF;
+                        
+                        IF cliente_empresa_id != NEW.empresa_id THEN
+                            RAISE EXCEPTION 'Cliente % não pertence à empresa %', 
+                                NEW.cliente_id, NEW.empresa_id;
+                        END IF;
+                        
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+                """)
+                
+                cursor.execute("""
+                    DROP TRIGGER IF EXISTS trigger_validate_ordens_servico_empresa ON ordens_servico;
+                    CREATE TRIGGER trigger_validate_ordens_servico_empresa
+                        BEFORE INSERT OR UPDATE ON ordens_servico
+                        FOR EACH ROW
+                        EXECUTE FUNCTION validate_ordens_servico_empresa();
                 """)
                 
                 # Criar índices
