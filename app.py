@@ -1880,6 +1880,396 @@ def excluir_fornecedor(fornecedor_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # =============================================
+# ROTAS DE CLIENTES (MODO SERVICO)
+# =============================================
+
+@app.route('/clientes')
+@login_required
+def clientes():
+    """
+    Listagem de clientes - APENAS para empresas SERVICO
+    """
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        flash('Este recurso está disponível apenas para empresas de Prestação de Serviços.', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    empresa_id = get_empresa_id()
+    clientes_lista = []
+    novos_mes = 0
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT id, nome, documento, tipo_documento, telefone, email, 
+                       endereco, cidade, estado, cep, observacoes, status, created_at
+                FROM clientes 
+                WHERE empresa_id = %s
+                ORDER BY nome
+            """, (empresa_id,))
+            clientes_lista = cursor.fetchall()
+            
+            # Contar novos clientes do mês
+            cursor.execute("""
+                SELECT COUNT(*) as total FROM clientes 
+                WHERE empresa_id = %s 
+                AND created_at >= date_trunc('month', CURRENT_DATE)
+            """, (empresa_id,))
+            novos_mes = cursor.fetchone()['total']
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, nome, documento, tipo_documento, telefone, email, 
+                       endereco, cidade, estado, cep, observacoes, status, created_at
+                FROM clientes 
+                WHERE empresa_id = ?
+                ORDER BY nome
+            """, (empresa_id,))
+            clientes_lista = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.execute("""
+                SELECT COUNT(*) as total FROM clientes 
+                WHERE empresa_id = ? 
+                AND created_at >= date('now', 'start of month')
+            """, (empresa_id,))
+            novos_mes = cursor.fetchone()['total']
+            
+            conn.close()
+            
+    except Exception as e:
+        print(f"Erro ao listar clientes: {e}")
+        traceback.print_exc()
+        flash('Erro ao carregar lista de clientes.', 'danger')
+    
+    return render_template('clientes.html', clientes=clientes_lista, novos_mes=novos_mes)
+
+
+@app.route('/clientes/criar', methods=['POST'])
+@login_required
+def criar_cliente():
+    """Criar novo cliente"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso não disponível para sua empresa'}), 403
+    
+    try:
+        data = request.json
+        empresa_id = get_empresa_id()
+        
+        # Validação
+        if not data.get('nome') or not data.get('nome').strip():
+            return jsonify({'success': False, 'message': 'Nome do cliente é obrigatório'}), 400
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
+                                      endereco, cidade, estado, cep, observacoes, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ATIVO')
+                RETURNING id
+            """, (
+                empresa_id,
+                data.get('nome', '').strip(),
+                data.get('documento', '').strip() or None,
+                data.get('tipo_documento', '').strip() or None,
+                data.get('telefone', '').strip() or None,
+                data.get('email', '').strip() or None,
+                data.get('endereco', '').strip() or None,
+                data.get('cidade', '').strip() or None,
+                data.get('estado', '').strip() or None,
+                data.get('cep', '').strip() or None,
+                data.get('observacoes', '').strip() or None
+            ))
+            
+            cliente_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
+                                      endereco, cidade, estado, cep, observacoes, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ATIVO')
+            """, (
+                empresa_id,
+                data.get('nome', '').strip(),
+                data.get('documento', '').strip() or None,
+                data.get('tipo_documento', '').strip() or None,
+                data.get('telefone', '').strip() or None,
+                data.get('email', '').strip() or None,
+                data.get('endereco', '').strip() or None,
+                data.get('cidade', '').strip() or None,
+                data.get('estado', '').strip() or None,
+                data.get('cep', '').strip() or None,
+                data.get('observacoes', '').strip() or None
+            ))
+            
+            cliente_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Cliente cadastrado com sucesso!',
+            'id': cliente_id
+        })
+        
+    except Exception as e:
+        print(f"Erro ao criar cliente: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Erro ao criar cliente: {str(e)}'}), 500
+
+
+@app.route('/clientes/detalhes/<int:cliente_id>', methods=['GET'])
+@login_required
+def detalhes_cliente(cliente_id):
+    """Obter detalhes de um cliente"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'error': 'Recurso não disponível para sua empresa'}), 403
+    
+    try:
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT id, nome, documento, tipo_documento, telefone, email, 
+                       endereco, cidade, estado, cep, observacoes, status, created_at
+                FROM clientes 
+                WHERE id = %s AND empresa_id = %s
+            """, (cliente_id, empresa_id))
+            cliente = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, nome, documento, tipo_documento, telefone, email, 
+                       endereco, cidade, estado, cep, observacoes, status, created_at
+                FROM clientes 
+                WHERE id = ? AND empresa_id = ?
+            """, (cliente_id, empresa_id))
+            row = cursor.fetchone()
+            cliente = dict(row) if row else None
+            
+            conn.close()
+        
+        if not cliente:
+            return jsonify({'error': 'Cliente não encontrado'}), 404
+        
+        # Converter datetime para string se necessário
+        if cliente.get('created_at'):
+            cliente['created_at'] = str(cliente['created_at'])
+            
+        return jsonify(cliente)
+        
+    except Exception as e:
+        print(f"Erro ao buscar cliente: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/clientes/editar/<int:cliente_id>', methods=['PUT'])
+@login_required
+def editar_cliente(cliente_id):
+    """Editar cliente existente"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso não disponível para sua empresa'}), 403
+    
+    try:
+        data = request.json
+        empresa_id = get_empresa_id()
+        
+        # Validação
+        if not data.get('nome') or not data.get('nome').strip():
+            return jsonify({'success': False, 'message': 'Nome do cliente é obrigatório'}), 400
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se pertence à empresa
+            cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", (cliente_id, empresa_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
+            
+            cursor.execute("""
+                UPDATE clientes SET
+                    nome = %s,
+                    documento = %s,
+                    tipo_documento = %s,
+                    telefone = %s,
+                    email = %s,
+                    endereco = %s,
+                    cidade = %s,
+                    estado = %s,
+                    cep = %s,
+                    observacoes = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND empresa_id = %s
+            """, (
+                data.get('nome', '').strip(),
+                data.get('documento', '').strip() or None,
+                data.get('tipo_documento', '').strip() or None,
+                data.get('telefone', '').strip() or None,
+                data.get('email', '').strip() or None,
+                data.get('endereco', '').strip() or None,
+                data.get('cidade', '').strip() or None,
+                data.get('estado', '').strip() or None,
+                data.get('cep', '').strip() or None,
+                data.get('observacoes', '').strip() or None,
+                cliente_id,
+                empresa_id
+            ))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Verificar se pertence à empresa
+            cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", (cliente_id, empresa_id))
+            if not cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
+            
+            cursor.execute("""
+                UPDATE clientes SET
+                    nome = ?,
+                    documento = ?,
+                    tipo_documento = ?,
+                    telefone = ?,
+                    email = ?,
+                    endereco = ?,
+                    cidade = ?,
+                    estado = ?,
+                    cep = ?,
+                    observacoes = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND empresa_id = ?
+            """, (
+                data.get('nome', '').strip(),
+                data.get('documento', '').strip() or None,
+                data.get('tipo_documento', '').strip() or None,
+                data.get('telefone', '').strip() or None,
+                data.get('email', '').strip() or None,
+                data.get('endereco', '').strip() or None,
+                data.get('cidade', '').strip() or None,
+                data.get('estado', '').strip() or None,
+                data.get('cep', '').strip() or None,
+                data.get('observacoes', '').strip() or None,
+                cliente_id,
+                empresa_id
+            ))
+            
+            conn.commit()
+            conn.close()
+        
+        return jsonify({'success': True, 'message': 'Cliente atualizado com sucesso!'})
+        
+    except Exception as e:
+        print(f"Erro ao editar cliente: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Erro ao editar cliente: {str(e)}'}), 500
+
+
+@app.route('/clientes/toggle-status/<int:cliente_id>', methods=['PUT'])
+@login_required
+def toggle_status_cliente(cliente_id):
+    """Ativar/Inativar cliente"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso não disponível para sua empresa'}), 403
+    
+    try:
+        data = request.json
+        empresa_id = get_empresa_id()
+        novo_status = data.get('status', 'INATIVO')
+        
+        if novo_status not in ['ATIVO', 'INATIVO']:
+            return jsonify({'success': False, 'message': 'Status inválido'}), 400
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE clientes SET status = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND empresa_id = %s
+            """, (novo_status, cliente_id, empresa_id))
+            
+            if cursor.rowcount == 0:
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE clientes SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND empresa_id = ?
+            """, (novo_status, cliente_id, empresa_id))
+            
+            if cursor.rowcount == 0:
+                conn.close()
+                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
+            
+            conn.commit()
+            conn.close()
+        
+        acao = 'ativado' if novo_status == 'ATIVO' else 'inativado'
+        return jsonify({'success': True, 'message': f'Cliente {acao} com sucesso!'})
+        
+    except Exception as e:
+        print(f"Erro ao alterar status do cliente: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Erro: {str(e)}'}), 500
+
+
+# =============================================
 # ROTAS DE TÉCNICOS
 # =============================================
 

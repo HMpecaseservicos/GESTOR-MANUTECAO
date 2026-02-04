@@ -45,6 +45,11 @@
                     <a class="nav-link" href="{{ url_for('fornecedores') }}">
                         <i class="fas fa-users"></i> Fornecedores
                     </a>
+                    {% if is_servico %}
+                    <a class="nav-link" href="{{ url_for('clientes') }}">
+                        <i class="fas fa-user-tie text-info"></i> Clientes
+                    </a>
+                    {% endif %}
                     {% if current_user.role == 'Admin' %}
                     <a class="nav-link" href="{{ url_for('empresas') }}">
                         <i class="fas fa-building text-warning"></i> Empresas

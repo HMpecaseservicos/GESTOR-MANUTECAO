@@ -79,3 +79,18 @@ def is_servico():
     Retorna True apenas se explicitamente configurado como SERVICO.
     """
     return get_tipo_operacao() == 'SERVICO'
+
+
+def servico_required(f):
+    """
+    Decorator que bloqueia acesso a rotas exclusivas do modo SERVICO.
+    Empresas FROTA recebem 403 Forbidden.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(401)
+        if not is_servico():
+            abort(403, description="Este recurso está disponível apenas para empresas de Prestação de Serviços")
+        return f(*args, **kwargs)
+    return decorated_function

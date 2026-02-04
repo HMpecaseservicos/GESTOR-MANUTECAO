@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+
+{% block title %}Clientes{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="display-6">
+            <i class="fas fa-user-tie text-primary"></i> Gestão de Clientes
+        </h1>
+        <p class="text-muted">Gerencie os clientes da sua prestadora de serviços</p>
+    </div>
+</div>
+
+<!-- Barra de Ações -->
+<div class="row mb-3">
+    <div class="col-md-6">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoClienteModal">
+            <i class="fas fa-plus"></i> Novo Cliente
+        </button>
+        <button class="btn btn-outline-success ms-2" onclick="exportarClientes()">
+            <i class="fas fa-file-export"></i> Exportar
+        </button>
+    </div>
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar cliente..." id="searchClientes" onkeyup="filtrarClientes()">
+            <select class="form-select" style="max-width: 150px;" id="filtroStatus" onchange="filtrarClientes()">
+                <option value="">Todos</option>
+                <option value="ATIVO">Ativos</option>
+                <option value="INATIVO">Inativos</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button" onclick="filtrarClientes()">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Estatísticas -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm bg-primary text-white">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-users fa-2x mb-2"></i>
+                <h6 class="mb-1">Total de Clientes</h6>
+                <h3 class="mb-0">{{ clientes|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm bg-success text-white">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-check-circle fa-2x mb-2"></i>
+                <h6 class="mb-1">Ativos</h6>
+                <h3 class="mb-0">{{ clientes|selectattr('status', 'equalto', 'ATIVO')|list|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm bg-secondary text-white">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-pause-circle fa-2x mb-2"></i>
+                <h6 class="mb-1">Inativos</h6>
+                <h3 class="mb-0">{{ clientes|selectattr('status', 'equalto', 'INATIVO')|list|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm bg-info text-white">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-calendar-plus fa-2x mb-2"></i>
+                <h6 class="mb-1">Este Mês</h6>
+                <h3 class="mb-0">{{ novos_mes }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabela de Clientes -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="tabelaClientes">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Documento</th>
+                        <th>Telefone</th>
+                        <th>Email</th>
+                        <th>Cidade/UF</th>
+                        <th>Status</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cliente in clientes %}
+                    <tr class="cliente-row" data-status="{{ cliente.status }}" data-nome="{{ cliente.nome|lower }}">
+                        <td>
+                            <strong>{{ cliente.nome }}</strong>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark">
+                                {{ cliente.tipo_documento or '' }} {{ cliente.documento or 'Não informado' }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if cliente.telefone %}
+                            <a href="https://wa.me/55{{ cliente.telefone|replace('(', '')|replace(')', '')|replace('-', '')|replace(' ', '') }}" 
+                               target="_blank" class="text-success text-decoration-none">
+                                <i class="fab fa-whatsapp"></i> {{ cliente.telefone }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if cliente.email %}
+                            <a href="mailto:{{ cliente.email }}" class="text-decoration-none">
+                                {{ cliente.email }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if cliente.cidade %}
+                            {{ cliente.cidade }}{% if cliente.estado %}/{{ cliente.estado }}{% endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if cliente.status == 'ATIVO' %}
+                            <span class="badge bg-success">Ativo</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary btn-detalhes" data-id="{{ cliente.id }}" title="Detalhes">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-warning btn-editar" data-id="{{ cliente.id }}" title="Editar">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-{{ 'danger' if cliente.status == 'ATIVO' else 'success' }} btn-toggle-status" 
+                                        data-id="{{ cliente.id }}" 
+                                        data-status="{{ cliente.status }}"
+                                        data-nome="{{ cliente.nome }}"
+                                        title="{{ 'Inativar' if cliente.status == 'ATIVO' else 'Ativar' }}">
+                                    <i class="fas fa-{{ 'ban' if cliente.status == 'ATIVO' else 'check' }}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5">
+                            <i class="fas fa-user-tie fa-3x text-muted mb-3"></i>
+                            <p class="text-muted mb-0">Nenhum cliente cadastrado ainda.</p>
+                            <button class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#novoClienteModal">
+                                <i class="fas fa-plus"></i> Cadastrar Primeiro Cliente
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Novo/Editar Cliente -->
+<div class="modal fade" id="novoClienteModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="modalTitulo">
+                    <i class="fas fa-plus"></i> Novo Cliente
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="clienteForm" autocomplete="off">
+                    <input type="hidden" id="clienteId" name="id" value="">
+                    
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label">Nome / Razão Social <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="nome" id="inputNome" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Tipo Documento</label>
+                            <select class="form-select" name="tipo_documento" id="inputTipoDocumento">
+                                <option value="">Selecione</option>
+                                <option value="CPF">CPF</option>
+                                <option value="CNPJ">CNPJ</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Documento (CPF/CNPJ)</label>
+                            <input type="text" class="form-control" name="documento" id="inputDocumento" 
+                                   placeholder="000.000.000-00">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" name="telefone" id="inputTelefone" 
+                                   placeholder="(00) 00000-0000">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" name="email" id="inputEmail">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12 mb-3">
+                            <label class="form-label">Endereço</label>
+                            <input type="text" class="form-control" name="endereco" id="inputEndereco" 
+                                   placeholder="Rua, número, bairro...">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label">Cidade</label>
+                            <input type="text" class="form-control" name="cidade" id="inputCidade">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Estado</label>
+                            <select class="form-select" name="estado" id="inputEstado">
+                                <option value="">UF</option>
+                                <option value="AC">AC</option>
+                                <option value="AL">AL</option>
+                                <option value="AP">AP</option>
+                                <option value="AM">AM</option>
+                                <option value="BA">BA</option>
+                                <option value="CE">CE</option>
+                                <option value="DF">DF</option>
+                                <option value="ES">ES</option>
+                                <option value="GO">GO</option>
+                                <option value="MA">MA</option>
+                                <option value="MT">MT</option>
+                                <option value="MS">MS</option>
+                                <option value="MG">MG</option>
+                                <option value="PA">PA</option>
+                                <option value="PB">PB</option>
+                                <option value="PR">PR</option>
+                                <option value="PE">PE</option>
+                                <option value="PI">PI</option>
+                                <option value="RJ">RJ</option>
+                                <option value="RN">RN</option>
+                                <option value="RS">RS</option>
+                                <option value="RO">RO</option>
+                                <option value="RR">RR</option>
+                                <option value="SC">SC</option>
+                                <option value="SP">SP</option>
+                                <option value="SE">SE</option>
+                                <option value="TO">TO</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">CEP</label>
+                            <input type="text" class="form-control" name="cep" id="inputCep" 
+                                   placeholder="00000-000">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Observações</label>
+                        <textarea class="form-control" name="observacoes" id="inputObservacoes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarCliente()">
+                    <i class="fas fa-save"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Detalhes -->
+<div class="modal fade" id="detalhesClienteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="fas fa-user-tie"></i> Detalhes do Cliente</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detalhesClienteBody">
+                <!-- Preenchido via JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// =============================================
+// CRUD DE CLIENTES
+// =============================================
+
+const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+// Abrir modal para novo cliente
+document.getElementById('novoClienteModal').addEventListener('show.bs.modal', function(event) {
+    if (!event.relatedTarget || !event.relatedTarget.classList.contains('btn-editar')) {
+        // Novo cliente - limpar form
+        document.getElementById('clienteForm').reset();
+        document.getElementById('clienteId').value = '';
+        document.getElementById('modalTitulo').innerHTML = '<i class="fas fa-plus"></i> Novo Cliente';
+    }
+});
+
+// Salvar cliente (criar ou editar)
+function salvarCliente() {
+    const form = document.getElementById('clienteForm');
+    const clienteId = document.getElementById('clienteId').value;
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    
+    // Validação básica
+    if (!data.nome || data.nome.trim() === '') {
+        alert('O nome do cliente é obrigatório!');
+        document.getElementById('inputNome').focus();
+        return;
+    }
+    
+    const url = clienteId ? `/clientes/editar/${clienteId}` : '/clientes/criar';
+    const method = clienteId ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            bootstrap.Modal.getInstance(document.getElementById('novoClienteModal')).hide();
+            alert(result.message);
+            location.reload();
+        } else {
+            alert('Erro: ' + result.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao salvar cliente. Tente novamente.');
+    });
+}
+
+// Buscar detalhes para edição
+document.querySelectorAll('.btn-editar').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const clienteId = this.getAttribute('data-id');
+        
+        fetch(`/clientes/detalhes/${clienteId}`)
+        .then(response => response.json())
+        .then(cliente => {
+            document.getElementById('clienteId').value = cliente.id;
+            document.getElementById('inputNome').value = cliente.nome || '';
+            document.getElementById('inputTipoDocumento').value = cliente.tipo_documento || '';
+            document.getElementById('inputDocumento').value = cliente.documento || '';
+            document.getElementById('inputTelefone').value = cliente.telefone || '';
+            document.getElementById('inputEmail').value = cliente.email || '';
+            document.getElementById('inputEndereco').value = cliente.endereco || '';
+            document.getElementById('inputCidade').value = cliente.cidade || '';
+            document.getElementById('inputEstado').value = cliente.estado || '';
+            document.getElementById('inputCep').value = cliente.cep || '';
+            document.getElementById('inputObservacoes').value = cliente.observacoes || '';
+            
+            document.getElementById('modalTitulo').innerHTML = '<i class="fas fa-edit"></i> Editar Cliente';
+            new bootstrap.Modal(document.getElementById('novoClienteModal')).show();
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao carregar dados do cliente.');
+        });
+    });
+});
+
+// Ver detalhes
+document.querySelectorAll('.btn-detalhes').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const clienteId = this.getAttribute('data-id');
+        
+        fetch(`/clientes/detalhes/${clienteId}`)
+        .then(response => response.json())
+        .then(cliente => {
+            const html = `
+                <div class="mb-3">
+                    <strong class="text-primary">Nome:</strong>
+                    <p class="mb-1">${cliente.nome}</p>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <strong class="text-primary">Documento:</strong>
+                        <p class="mb-1">${cliente.tipo_documento || ''} ${cliente.documento || 'Não informado'}</p>
+                    </div>
+                    <div class="col-6">
+                        <strong class="text-primary">Status:</strong>
+                        <p class="mb-1">
+                            <span class="badge bg-${cliente.status === 'ATIVO' ? 'success' : 'secondary'}">${cliente.status}</span>
+                        </p>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <strong class="text-primary">Telefone:</strong>
+                        <p class="mb-1">${cliente.telefone || 'Não informado'}</p>
+                    </div>
+                    <div class="col-6">
+                        <strong class="text-primary">Email:</strong>
+                        <p class="mb-1">${cliente.email || 'Não informado'}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong class="text-primary">Endereço:</strong>
+                    <p class="mb-1">${cliente.endereco || 'Não informado'}</p>
+                    <p class="mb-1">${cliente.cidade || ''}${cliente.estado ? '/' + cliente.estado : ''} ${cliente.cep ? '- CEP: ' + cliente.cep : ''}</p>
+                </div>
+                ${cliente.observacoes ? `
+                <div class="mb-3">
+                    <strong class="text-primary">Observações:</strong>
+                    <p class="mb-1">${cliente.observacoes}</p>
+                </div>
+                ` : ''}
+                <div class="text-muted small">
+                    Cadastrado em: ${new Date(cliente.created_at).toLocaleDateString('pt-BR')}
+                </div>
+            `;
+            document.getElementById('detalhesClienteBody').innerHTML = html;
+            new bootstrap.Modal(document.getElementById('detalhesClienteModal')).show();
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao carregar detalhes do cliente.');
+        });
+    });
+});
+
+// Toggle status (ativar/inativar)
+document.querySelectorAll('.btn-toggle-status').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const clienteId = this.getAttribute('data-id');
+        const statusAtual = this.getAttribute('data-status');
+        const nomeCliente = this.getAttribute('data-nome');
+        const novoStatus = statusAtual === 'ATIVO' ? 'INATIVO' : 'ATIVO';
+        const acao = novoStatus === 'ATIVO' ? 'ativar' : 'inativar';
+        
+        if (!confirm(`Deseja ${acao} o cliente "${nomeCliente}"?`)) {
+            return;
+        }
+        
+        fetch(`/clientes/toggle-status/${clienteId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ status: novoStatus })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                location.reload();
+            } else {
+                alert('Erro: ' + result.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao alterar status do cliente.');
+        });
+    });
+});
+
+// Filtrar clientes na tabela
+function filtrarClientes() {
+    const searchTerm = document.getElementById('searchClientes').value.toLowerCase();
+    const statusFiltro = document.getElementById('filtroStatus').value;
+    
+    document.querySelectorAll('.cliente-row').forEach(row => {
+        const nome = row.getAttribute('data-nome');
+        const status = row.getAttribute('data-status');
+        
+        const matchNome = nome.includes(searchTerm);
+        const matchStatus = !statusFiltro || status === statusFiltro;
+        
+        row.style.display = (matchNome && matchStatus) ? '' : 'none';
+    });
+}
+
+// Exportar clientes (placeholder)
+function exportarClientes() {
+    alert('Funcionalidade de exportação será implementada em breve.');
+}
+</script>
+{% endblock %}
