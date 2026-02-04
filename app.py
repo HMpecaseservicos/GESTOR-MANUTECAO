@@ -709,6 +709,115 @@ def alterar_minha_senha():
     return redirect(url_for('configuracoes'))
 
 
+# =============================================
+# ROTAS DE PLANOS E MONETIZAÇÃO (ETAPA 15)
+# =============================================
+
+@app.route('/planos')
+def planos():
+    """Página pública de planos e preços"""
+    from empresa_helpers import get_planos_disponiveis, get_plano, get_plano_info, get_plano_upgrade_sugerido
+    
+    planos_lista = get_planos_disponiveis()
+    
+    plano_atual = None
+    plano_upgrade = None
+    
+    # Se usuário estiver logado, mostrar plano atual
+    if current_user.is_authenticated:
+        plano_id = get_plano()
+        plano_atual = get_plano_info(plano_id)
+        plano_upgrade = get_plano_upgrade_sugerido(plano_id)
+    
+    return render_template('planos.html',
+                           planos=planos_lista,
+                           plano_atual=plano_atual,
+                           plano_upgrade=plano_upgrade)
+
+
+@app.route('/api/solicitar-upgrade', methods=['POST'])
+def api_solicitar_upgrade():
+    """
+    API para registrar solicitação de upgrade.
+    Cria notificação interna e pode enviar email futuramente.
+    """
+    from empresa_helpers import create_notification, get_empresa_id
+    
+    data = request.form
+    nome = data.get('nome', '').strip()
+    email = data.get('email', '').strip()
+    telefone = data.get('telefone', '').strip()
+    plano_solicitado = data.get('plano_solicitado', '').strip()
+    mensagem = data.get('mensagem', '').strip()
+    
+    if not nome or not email:
+        return jsonify({'success': False, 'message': 'Nome e email são obrigatórios'}), 400
+    
+    try:
+        # Registrar no log
+        app.logger.info(f"[UPGRADE] Solicitação recebida: {nome} ({email}) -> {plano_solicitado}")
+        
+        # Se usuário logado, criar notificação para admins
+        if current_user.is_authenticated:
+            empresa_id = get_empresa_id()
+            
+            # Criar notificação interna para admins
+            titulo = f"📈 Solicitação de upgrade para {plano_solicitado}"
+            msg = f"Usuário {nome} ({email}) solicitou upgrade.\n"
+            if telefone:
+                msg += f"Telefone: {telefone}\n"
+            if mensagem:
+                msg += f"Mensagem: {mensagem}"
+            
+            create_notification(empresa_id, 'SISTEMA', titulo, msg, link='/planos')
+        
+        # Registrar solicitação no banco (se quiser persistir)
+        if Config.IS_POSTGRES:
+            try:
+                import psycopg2
+                conn = psycopg2.connect(Config.DATABASE_URL)
+                cursor = conn.cursor()
+                
+                # Criar tabela de solicitações se não existir
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS solicitacoes_upgrade (
+                        id BIGSERIAL PRIMARY KEY,
+                        empresa_id BIGINT,
+                        nome VARCHAR(200),
+                        email VARCHAR(200),
+                        telefone VARCHAR(50),
+                        plano_solicitado VARCHAR(50),
+                        mensagem TEXT,
+                        status VARCHAR(20) DEFAULT 'PENDENTE',
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Inserir solicitação
+                cursor.execute("""
+                    INSERT INTO solicitacoes_upgrade (empresa_id, nome, email, telefone, plano_solicitado, mensagem)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    get_empresa_id() if current_user.is_authenticated else None,
+                    nome, email, telefone, plano_solicitado, mensagem
+                ))
+                
+                conn.commit()
+                cursor.close()
+                conn.close()
+            except Exception as e:
+                app.logger.error(f"Erro ao salvar solicitação: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Solicitação enviada com sucesso! Nossa equipe entrará em contato em breve.'
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Erro na solicitação de upgrade: {e}")
+        return jsonify({'success': False, 'message': 'Erro ao processar solicitação'}), 500
+
+
 @app.route('/minha-empresa')
 @login_required
 def minha_empresa():
@@ -812,13 +921,16 @@ def minha_empresa():
             'tecnicos': tecnicos
         }
         
-        # Informações do plano
+        # Informações do plano (ETAPA 15)
+        from empresa_helpers import get_plano_upgrade_sugerido
         info_plano = get_info_plano()
+        plano_upgrade = get_plano_upgrade_sugerido(get_plano())
         
         return render_template('minha_empresa.html', 
                                empresa=empresa, 
                                stats=stats, 
                                info_plano=info_plano,
+                               plano_upgrade=plano_upgrade,
                                is_servico=is_servico())
         
     except Exception as e:

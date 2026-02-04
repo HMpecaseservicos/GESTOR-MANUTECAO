@@ -105,24 +105,22 @@
     <!-- Informações do Plano -->
     <div class="col-md-4 mb-4">
         <div class="card border-{{ info_plano.cor if info_plano else 'secondary' }}">
-            <div class="card-header bg-{{ info_plano.cor if info_plano else 'secondary' }} text-white">
-                <h5 class="mb-0"><i class="bi {{ info_plano.icone if info_plano else 'bi-box' }} me-2"></i>Seu Plano</h5>
+            <div class="card-header bg-{{ info_plano.cor if info_plano else 'secondary' }} text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="{{ info_plano.icone if info_plano else 'fas fa-box' }} me-2"></i>Seu Plano</h5>
+                <a href="{{ url_for('planos') }}" class="text-white small">
+                    <i class="fas fa-external-link-alt"></i>
+                </a>
             </div>
             <div class="card-body text-center">
                 <div class="mb-3">
-                    {% set plano = empresa.plano|default('BASICO')|upper %}
-                    {% if plano == 'ENTERPRISE' %}
-                    <i class="fas fa-rocket fa-4x text-success mb-3"></i>
-                    <h3 class="text-success">Enterprise</h3>
-                    <p class="text-muted">Recursos ilimitados</p>
-                    {% elif plano == 'PROFISSIONAL' %}
-                    <i class="fas fa-briefcase fa-4x text-primary mb-3"></i>
-                    <h3 class="text-primary">Profissional</h3>
-                    <p class="text-muted">Para empresas em crescimento</p>
-                    {% else %}
-                    <i class="fas fa-seedling fa-4x text-secondary mb-3"></i>
-                    <h3 class="text-secondary">Básico</h3>
-                    <p class="text-muted">Plano inicial</p>
+                    <i class="{{ info_plano.icone if info_plano else 'fas fa-box' }} fa-3x text-{{ info_plano.cor if info_plano else 'secondary' }} mb-3"></i>
+                    <h3 class="text-{{ info_plano.cor if info_plano else 'secondary' }}">{{ info_plano.nome if info_plano else 'Básico' }}</h3>
+                    <p class="text-muted">{{ info_plano.descricao if info_plano else 'Plano inicial' }}</p>
+                    
+                    {% if info_plano and info_plano.get('legado') %}
+                    <span class="badge bg-warning text-dark">
+                        <i class="fas fa-exclamation-triangle me-1"></i>Plano Legado
+                    </span>
                     {% endif %}
                 </div>
                 
@@ -143,6 +141,12 @@
                         <div class="progress-bar {% if pct_veiculos >= 90 %}bg-danger{% elif pct_veiculos >= 70 %}bg-warning{% else %}bg-primary{% endif %}" 
                              style="width: {{ pct_veiculos }}%"></div>
                     </div>
+                    {% if pct_veiculos >= 80 %}
+                    <div class="alert alert-{{ 'danger' if pct_veiculos >= 100 else 'warning' }} py-1 px-2 small mb-3">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        {% if pct_veiculos >= 100 %}Limite atingido!{% else %}{{ pct_veiculos|int }}% do limite{% endif %}
+                    </div>
+                    {% endif %}
                     {% else %}
                     <div class="progress mb-3" style="height: 8px;">
                         <div class="progress-bar bg-success" style="width: 100%"></div>
@@ -194,15 +198,23 @@
                 
                 <hr>
                 
-                <p class="text-muted small mb-2">
+                <p class="text-muted small mb-3">
                     <i class="fas fa-calendar me-1"></i>
                     Criada em: {{ empresa.data_criacao[:10] if empresa.data_criacao else (empresa.created_at[:10] if empresa.created_at else 'N/A') }}
                 </p>
                 
-                {% if plano != 'ENTERPRISE' %}
-                <a href="#" class="btn btn-warning btn-sm mt-2" onclick="alert('Entre em contato para fazer upgrade do plano!\n\nWhatsApp: (XX) XXXXX-XXXX\nEmail: comercial@sistema.com')">
-                    <i class="fas fa-arrow-up me-1"></i>Fazer Upgrade
+                {% if plano_upgrade %}
+                <a href="{{ url_for('planos') }}#plano-{{ plano_upgrade.id }}" class="btn btn-warning w-100 mb-2">
+                    <i class="fas fa-arrow-up me-1"></i>Upgrade para {{ plano_upgrade.nome }}
                 </a>
+                <small class="text-muted d-block">
+                    A partir de R$ {{ "%.0f"|format(plano_upgrade.preco_mensal) }}/mês
+                </small>
+                {% else %}
+                <div class="alert alert-success mb-0 py-2">
+                    <i class="fas fa-check-circle me-1"></i>
+                    Você está no melhor plano!
+                </div>
                 {% endif %}
             </div>
         </div>

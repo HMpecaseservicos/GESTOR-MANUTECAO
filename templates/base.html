@@ -108,6 +108,11 @@
                                     <i class="fas fa-building me-2"></i> Minha Empresa
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('planos') }}">
+                                    <i class="fas fa-gem me-2 text-warning"></i> Planos e Preços
+                                </a>
+                            </li>
                             {% if current_user.role in ['ADMIN', 'Admin'] %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('usuarios') }}">

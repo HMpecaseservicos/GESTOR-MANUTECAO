@@ -197,7 +197,7 @@ def verificar_limite_clientes(cursor, empresa_id):
     total = cursor.fetchone()[0]
     
     if total >= limite:
-        return False, f"Limite de {limite} clientes atingido. Faça upgrade do seu plano para cadastrar mais."
+        return False, f"Limite de {limite} clientes atingido. <a href='/planos' class='alert-link'>Faça upgrade</a> para cadastrar mais."
     
     return True, None
 
@@ -219,7 +219,7 @@ def verificar_limite_veiculos(cursor, empresa_id):
     total = cursor.fetchone()[0]
     
     if total >= limite:
-        return False, f"Limite de {limite} veículos atingido. Faça upgrade do seu plano para cadastrar mais."
+        return False, f"Limite de {limite} veículos atingido. <a href='/planos' class='alert-link'>Faça upgrade</a> para cadastrar mais."
     
     return True, None
 
@@ -241,7 +241,7 @@ def verificar_limite_usuarios(cursor, empresa_id):
     total = cursor.fetchone()[0]
     
     if total >= limite:
-        return False, f"Limite de {limite} usuários atingido. Faça upgrade do seu plano para cadastrar mais."
+        return False, f"Limite de {limite} usuários atingido. <a href='/planos' class='alert-link'>Faça upgrade</a> para cadastrar mais."
     
     return True, None
 
@@ -286,29 +286,206 @@ def get_info_plano():
     Retorna dicionário com informações do plano para exibição.
     """
     plano = get_plano()
+    return get_plano_info(plano)
+
+
+# =============================================
+# CATÁLOGO DE PLANOS SaaS (ETAPA 15)
+# =============================================
+
+# Definição completa dos planos comerciais
+PLANOS_CATALOGO = {
+    'STARTER': {
+        'id': 'STARTER',
+        'nome': 'Starter',
+        'cor': 'secondary',
+        'cor_hex': '#6c757d',
+        'icone': 'fas fa-rocket',
+        'descricao': 'Ideal para começar',
+        'descricao_longa': 'Perfeito para microempresas e autônomos que estão começando a organizar sua operação.',
+        'preco_mensal': 49.90,
+        'preco_anual': 478.80,  # 12 meses com 20% desconto
+        'limite_usuarios': 2,
+        'limite_veiculos': 10,
+        'limite_clientes': 20,
+        'features': [
+            'Dashboard básico',
+            'Cadastro de veículos',
+            'Manutenções agendadas',
+            'Relatórios simples',
+            'Suporte por email'
+        ],
+        'features_nao_incluidas': [
+            'Multi-usuário avançado',
+            'Orçamentos e OS',
+            'Relatórios exportáveis',
+            'API de integração',
+            'Suporte prioritário'
+        ],
+        'destaque': False,
+        'ordem': 1
+    },
+    'PRO': {
+        'id': 'PRO',
+        'nome': 'Pro',
+        'cor': 'primary',
+        'cor_hex': '#0d6efd',
+        'icone': 'fas fa-briefcase',
+        'descricao': 'Para empresas em crescimento',
+        'descricao_longa': 'Recursos completos para empresas que precisam de controle profissional de frota ou serviços.',
+        'preco_mensal': 149.90,
+        'preco_anual': 1438.80,  # 12 meses com 20% desconto
+        'limite_usuarios': 5,
+        'limite_veiculos': 50,
+        'limite_clientes': 100,
+        'features': [
+            'Tudo do Starter +',
+            'Até 5 usuários',
+            'Orçamentos e Ordens de Serviço',
+            'Gestão de clientes',
+            'Controle financeiro',
+            'Relatórios em PDF/Excel',
+            'Notificações automáticas',
+            'Suporte prioritário'
+        ],
+        'features_nao_incluidas': [
+            'API de integração',
+            'Usuários ilimitados',
+            'White-label'
+        ],
+        'destaque': True,  # Plano recomendado
+        'ordem': 2
+    },
+    'ENTERPRISE': {
+        'id': 'ENTERPRISE',
+        'nome': 'Enterprise',
+        'cor': 'success',
+        'cor_hex': '#198754',
+        'icone': 'fas fa-building',
+        'descricao': 'Recursos ilimitados',
+        'descricao_longa': 'Solução completa e escalável para grandes operações com necessidades avançadas.',
+        'preco_mensal': 399.90,
+        'preco_anual': 3838.80,  # 12 meses com 20% desconto
+        'limite_usuarios': None,  # Ilimitado
+        'limite_veiculos': None,  # Ilimitado
+        'limite_clientes': None,  # Ilimitado
+        'features': [
+            'Tudo do Pro +',
+            'Usuários ilimitados',
+            'Veículos ilimitados',
+            'Clientes ilimitados',
+            'API REST completa',
+            'Webhooks personalizados',
+            'Relatórios avançados',
+            'Gerente de conta dedicado',
+            'SLA garantido 99.9%',
+            'Treinamento incluso'
+        ],
+        'features_nao_incluidas': [],
+        'destaque': False,
+        'ordem': 3
+    },
+    # Planos legados (manter compatibilidade)
+    'BASICO': {
+        'id': 'BASICO',
+        'nome': 'Básico (Legado)',
+        'cor': 'secondary',
+        'cor_hex': '#6c757d',
+        'icone': 'fas fa-box',
+        'descricao': 'Plano legado - migrar para Starter',
+        'descricao_longa': 'Este plano não está mais disponível para novos clientes.',
+        'preco_mensal': 0,
+        'preco_anual': 0,
+        'limite_usuarios': 3,
+        'limite_veiculos': 50,
+        'limite_clientes': 50,
+        'features': ['Funcionalidades básicas'],
+        'features_nao_incluidas': [],
+        'destaque': False,
+        'ordem': 99,
+        'legado': True
+    },
+    'PROFISSIONAL': {
+        'id': 'PROFISSIONAL',
+        'nome': 'Profissional (Legado)',
+        'cor': 'primary',
+        'cor_hex': '#0d6efd',
+        'icone': 'fas fa-briefcase',
+        'descricao': 'Plano legado - migrar para Pro',
+        'descricao_longa': 'Este plano não está mais disponível para novos clientes.',
+        'preco_mensal': 0,
+        'preco_anual': 0,
+        'limite_usuarios': 10,
+        'limite_veiculos': 200,
+        'limite_clientes': 200,
+        'features': ['Funcionalidades profissionais'],
+        'features_nao_incluidas': [],
+        'destaque': False,
+        'ordem': 99,
+        'legado': True
+    }
+}
+
+
+def get_plano_info(plano_id):
+    """
+    Retorna informações completas de um plano específico.
     
-    info_planos = {
-        'BASICO': {
-            'nome': 'Básico',
-            'cor': 'secondary',
-            'icone': 'bi-box',
-            'descricao': 'Plano inicial para pequenas operações'
-        },
-        'PROFISSIONAL': {
-            'nome': 'Profissional',
-            'cor': 'primary',
-            'icone': 'bi-briefcase',
-            'descricao': 'Para empresas em crescimento'
-        },
-        'ENTERPRISE': {
-            'nome': 'Enterprise',
-            'cor': 'success',
-            'icone': 'bi-building',
-            'descricao': 'Recursos ilimitados para grandes operações'
-        }
+    Args:
+        plano_id: ID do plano (STARTER, PRO, ENTERPRISE, BASICO, PROFISSIONAL)
+    
+    Returns:
+        dict: Informações do plano ou plano STARTER como fallback
+    """
+    plano_upper = (plano_id or 'STARTER').upper()
+    return PLANOS_CATALOGO.get(plano_upper, PLANOS_CATALOGO['STARTER'])
+
+
+def get_planos_disponiveis():
+    """
+    Retorna lista de planos disponíveis para contratação (não legados).
+    Ordenados por ordem de exibição.
+    """
+    planos = [p for p in PLANOS_CATALOGO.values() if not p.get('legado', False)]
+    return sorted(planos, key=lambda x: x.get('ordem', 99))
+
+
+def get_plano_upgrade_sugerido(plano_atual):
+    """
+    Retorna o próximo plano sugerido para upgrade.
+    
+    Args:
+        plano_atual: ID do plano atual
+    
+    Returns:
+        dict ou None: Próximo plano ou None se já for Enterprise
+    """
+    ordem_upgrade = {
+        'BASICO': 'PRO',
+        'STARTER': 'PRO',
+        'PROFISSIONAL': 'ENTERPRISE',
+        'PRO': 'ENTERPRISE',
+        'ENTERPRISE': None
     }
     
-    return info_planos.get(plano, info_planos['BASICO'])
+    proximo = ordem_upgrade.get((plano_atual or 'STARTER').upper())
+    if proximo:
+        return PLANOS_CATALOGO.get(proximo)
+    return None
+
+
+def formatar_limite(valor):
+    """Formata um limite para exibição (None = Ilimitado)"""
+    if valor is None:
+        return 'Ilimitado'
+    return str(valor)
+
+
+def formatar_preco(valor):
+    """Formata um preço para exibição em BRL"""
+    if valor == 0:
+        return 'Grátis'
+    return f'R$ {valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
 # =============================================
