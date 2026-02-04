@@ -135,6 +135,75 @@ if not app.debug:
     app.logger.info('Sistema de Gestão de Frota iniciado')
 
 # =============================================
+# CRON JOBS EM BACKGROUND (ETAPA 14)
+# =============================================
+
+def iniciar_cron_jobs():
+    """
+    Inicia as tarefas automáticas em background.
+    Só executa em produção (PostgreSQL) e apenas uma vez por container.
+    """
+    import threading
+    import time
+    from datetime import datetime
+    
+    # Flag para evitar múltiplas inicializações
+    if hasattr(app, '_cron_iniciado') and app._cron_iniciado:
+        return
+    
+    app._cron_iniciado = True
+    
+    print("🕐 Iniciando scheduler de cron jobs em background...", flush=True)
+    
+    def cron_loop():
+        """Loop principal do cron"""
+        # Aguardar 5 minutos após startup para primeira execução
+        time.sleep(300)
+        
+        ultima_execucao_horaria = None
+        ultima_execucao_diaria = None
+        
+        while True:
+            try:
+                agora = datetime.now()
+                
+                # Tarefa horária (a cada 1 hora)
+                if ultima_execucao_horaria is None or (agora - ultima_execucao_horaria).seconds >= 3600:
+                    print(f"[CRON {agora}] 🚀 Executando tarefas horárias...", flush=True)
+                    try:
+                        from cron_jobs import executar_tarefas_horarias
+                        executar_tarefas_horarias()
+                    except Exception as e:
+                        print(f"[CRON] ❌ Erro nas tarefas horárias: {e}", flush=True)
+                    ultima_execucao_horaria = agora
+                
+                # Tarefa diária (às 06:00)
+                if agora.hour == 6:
+                    if ultima_execucao_diaria is None or ultima_execucao_diaria.date() < agora.date():
+                        print(f"[CRON {agora}] 🚀 Executando tarefas diárias...", flush=True)
+                        try:
+                            from cron_jobs import verificar_limites_proximos
+                            verificar_limites_proximos()
+                        except Exception as e:
+                            print(f"[CRON] ❌ Erro nas tarefas diárias: {e}", flush=True)
+                        ultima_execucao_diaria = agora
+                
+            except Exception as e:
+                print(f"[CRON] ❌ Erro no loop de cron: {e}", flush=True)
+            
+            # Verificar a cada 5 minutos
+            time.sleep(300)
+    
+    # Iniciar thread de cron
+    cron_thread = threading.Thread(target=cron_loop, daemon=True, name="cron_jobs")
+    cron_thread.start()
+    print("✅ Scheduler de cron jobs iniciado com sucesso!", flush=True)
+
+# Iniciar cron jobs apenas em produção (PostgreSQL)
+if Config.IS_POSTGRES and os.environ.get('FLASK_ENV') != 'development':
+    iniciar_cron_jobs()
+
+# =============================================
 # CONTEXTO GLOBAL - EMPRESA DO USUÁRIO LOGADO
 # =============================================
 
@@ -908,6 +977,89 @@ def api_marcar_todas_lidas():
     success = mark_all_notifications_read(empresa_id, usuario_id, admin)
     
     return jsonify({'success': success})
+
+
+# =============================================
+# API DE CRON JOBS (ETAPA 14 - APENAS ADMIN)
+# =============================================
+
+@app.route('/api/cron/executar', methods=['POST'])
+@login_required
+def api_executar_cron():
+    """
+    Executa cron jobs manualmente - APENAS ADMIN.
+    Útil para testes e diagnóstico.
+    
+    Body JSON:
+    - tarefa: 'manutencoes', 'faturamento', 'limites', 'horaria', 'diaria', 'todas'
+    """
+    from empresa_helpers import is_admin
+    
+    if not is_admin():
+        return jsonify({'success': False, 'message': 'Acesso restrito a administradores'}), 403
+    
+    data = request.get_json() or {}
+    tarefa = data.get('tarefa', 'todas')
+    
+    try:
+        from cron_jobs import (
+            verificar_manutencoes_atrasadas,
+            verificar_servicos_sem_faturamento,
+            verificar_limites_proximos,
+            executar_tarefas_horarias,
+            executar_tarefas_diarias,
+            executar_todas_tarefas
+        )
+        
+        resultados = {}
+        
+        if tarefa == 'manutencoes':
+            resultados['manutencoes_atrasadas'] = verificar_manutencoes_atrasadas()
+        elif tarefa == 'faturamento':
+            resultados['servicos_sem_faturamento'] = verificar_servicos_sem_faturamento()
+        elif tarefa == 'limites':
+            resultados['limites_proximos'] = verificar_limites_proximos()
+        elif tarefa == 'horaria':
+            resultados = executar_tarefas_horarias()
+        elif tarefa == 'diaria':
+            resultados = executar_tarefas_diarias()
+        else:  # todas
+            resultados = executar_todas_tarefas()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Tarefa(s) executada(s) com sucesso',
+            'tarefa': tarefa,
+            'resultados': resultados
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/cron/status')
+@login_required
+def api_cron_status():
+    """Retorna status do sistema de cron jobs - APENAS ADMIN"""
+    from empresa_helpers import is_admin
+    
+    if not is_admin():
+        return jsonify({'success': False, 'message': 'Acesso restrito a administradores'}), 403
+    
+    cron_ativo = hasattr(app, '_cron_iniciado') and app._cron_iniciado
+    
+    return jsonify({
+        'success': True,
+        'cron_ativo': cron_ativo,
+        'ambiente': 'produção' if Config.IS_POSTGRES else 'desenvolvimento',
+        'tarefas_disponiveis': [
+            {'id': 'manutencoes', 'nome': 'Manutenções Atrasadas', 'frequencia': 'Horária'},
+            {'id': 'faturamento', 'nome': 'Serviços sem Faturamento', 'frequencia': 'Horária'},
+            {'id': 'limites', 'nome': 'Verificar Limites 80%', 'frequencia': 'Diária'},
+        ]
+    })
 
 
 # =============================================
