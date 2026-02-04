@@ -9,6 +9,10 @@ primary_region = "gru"  # São Paulo, Brasil
   # Usar Dockerfile para build
   dockerfile = "Dockerfile"
 
+[deploy]
+  # Executar migrações ANTES do deploy ficar ativo
+  release_command = "python run_migrations.py"
+
 [env]
   # Variáveis de ambiente (não-sensíveis)
   FLASK_ENV = "production"
@@ -58,7 +62,7 @@ primary_region = "gru"  # São Paulo, Brasil
   cpus = 1
   memory_mb = 256
 
-# Escalonamento automático
+# Escalonamento - fixo em 1 máquina para estabilização
 [scaling]
   min_machines = 1
-  max_machines = 3
+  max_machines = 1

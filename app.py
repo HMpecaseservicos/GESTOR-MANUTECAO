@@ -92,23 +92,29 @@ limiter = Limiter(
 # EXECUÇÃO AUTOMÁTICA DE MIGRAÇÕES (POSTGRESQL)
 # =============================================
 
-if Config.IS_POSTGRES and Config.DATABASE_URL:
-    try:
-        print("🔧 PostgreSQL detectado - Executando migrações automaticamente...")
-        import sys
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'migrations'))
-        from migration_manager import MigrationManager
-        
-        manager = MigrationManager(
-            database_url=Config.DATABASE_URL,
-            migrations_dir=os.path.join(os.path.dirname(__file__), 'migrations')
-        )
-        manager.run_pending_migrations()
-        print("✅ Migrações concluídas com sucesso!")
-    except Exception as e:
-        print(f"⚠️  Erro ao executar migrações: {e}")
-        import traceback
-        traceback.print_exc()
+def run_migrations_on_startup():
+    """Executa migrações pendentes no startup (PostgreSQL apenas)"""
+    import sys as _sys
+    if Config.IS_POSTGRES and Config.DATABASE_URL:
+        try:
+            print("🔧 PostgreSQL detectado - Executando migrações automaticamente...", flush=True)
+            _sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'migrations'))
+            from migration_manager import MigrationManager
+            
+            manager = MigrationManager(database_url=Config.DATABASE_URL)
+            result = manager.run_pending_migrations()
+            if result.get('success'):
+                print(f"✅ Migrações concluídas! {result.get('migrations_run', 0)} aplicada(s)", flush=True)
+            else:
+                print(f"⚠️  Migrações com erro: {result.get('errors', [])}", flush=True)
+        except Exception as e:
+            print(f"⚠️  Erro ao executar migrações: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            _sys.stdout.flush()
+
+# Executar migrações no startup
+run_migrations_on_startup()
 
 # Configurar página de login
 login_manager.login_view = 'login'
@@ -193,6 +199,7 @@ def init_db():
 # =============================================
 
 @app.route('/health')
+@limiter.exempt
 def health_check():
     """
     Endpoint de health check para Fly.io e monitoramento
