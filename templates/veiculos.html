@@ -6,7 +6,7 @@
 <div class="row mb-4">
     <div class="col-12">
         <h1 class="display-6">Gestão de Veículos</h1>
-        <p class="text-muted">Controle completo da sua frota</p>
+        <p class="text-muted">{% if is_servico %}Veículos dos seus clientes{% else %}Controle completo da sua frota{% endif %}</p>
     </div>
 </div>
 
@@ -38,6 +38,7 @@
                         <th>Tipo</th>
                         <th>Marca/Modelo</th>
                         <th>Placa</th>
+                        {% if is_servico %}<th>Cliente</th>{% endif %}
                         <th>Ano</th>
                         <th>Quilometragem</th>
                         <th>Próxima Manutenção</th>
@@ -59,6 +60,15 @@
                         <td>
                             <strong class="text-primary">{{ veiculo[4] }}</strong>
                         </td>
+                        {% if is_servico %}
+                        <td>
+                            {% if veiculo.cliente_nome %}
+                            <span class="badge bg-info">{{ veiculo.cliente_nome }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         <td>{{ veiculo[5] }}</td>
                         <td>
                             <span class="badge bg-info">{{ "{:,}".format(veiculo[6]) }} km</span>
@@ -157,6 +167,18 @@
                         <label class="form-label">Próxima Manutenção</label>
                         <input type="date" class="form-control" name="proxima_manutencao">
                     </div>
+                    {% if is_servico %}
+                    <div class="mb-3">
+                        <label class="form-label">Cliente <span class="text-danger">*</span></label>
+                        <select class="form-select" name="cliente_id" id="cliente_id" required>
+                            <option value="">Selecione o cliente</option>
+                            {% for cliente in clientes %}
+                            <option value="{{ cliente.id }}">{{ cliente.nome }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Obrigatório: selecione o cliente proprietário do veículo</div>
+                    </div>
+                    {% endif %}
                 </form>
             </div>
             <div class="modal-footer">
@@ -223,6 +245,17 @@
                         <label class="form-label">Próxima Manutenção</label>
                         <input type="date" class="form-control" id="edit-proxima-manutencao">
                     </div>
+                    {% if is_servico %}
+                    <div class="mb-3">
+                        <label class="form-label">Cliente <span class="text-danger">*</span></label>
+                        <select class="form-select" id="edit-cliente-id" required>
+                            <option value="">Selecione o cliente</option>
+                            {% for cliente in clientes %}
+                            <option value="{{ cliente.id }}">{{ cliente.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                 </form>
             </div>
             <div class="modal-footer">
@@ -268,6 +301,12 @@ function editarVeiculo(veiculoId) {
                 document.getElementById('edit-quilometragem').value = veiculo.quilometragem || '';
                 document.getElementById('edit-proxima-manutencao').value = veiculo.proxima_manutencao || '';
                 
+                // Campo cliente (modo SERVICO)
+                const clienteSelect = document.getElementById('edit-cliente-id');
+                if (clienteSelect) {
+                    clienteSelect.value = veiculo.cliente_id || '';
+                }
+                
                 // Abrir modal
                 const modal = new bootstrap.Modal(document.getElementById('editarVeiculoModal'));
                 modal.show();
@@ -284,6 +323,17 @@ function editarVeiculo(veiculoId) {
 // Função para salvar edição do veículo
 function salvarEdicaoVeiculo() {
     const veiculoId = document.getElementById('edit-veiculo-id').value;
+    
+    // Campo cliente (modo SERVICO)
+    const clienteSelect = document.getElementById('edit-cliente-id');
+    const clienteId = clienteSelect ? clienteSelect.value : null;
+    
+    // Validar cliente obrigatório (modo SERVICO)
+    if (clienteSelect && clienteSelect.required && !clienteId) {
+        alert('Por favor, selecione um cliente.');
+        return;
+    }
+    
     const dados = {
         tipo: document.getElementById('edit-tipo').value,
         marca: document.getElementById('edit-marca').value,
@@ -291,7 +341,8 @@ function salvarEdicaoVeiculo() {
         placa: document.getElementById('edit-placa').value,
         ano: parseInt(document.getElementById('edit-ano').value) || null,
         quilometragem: parseInt(document.getElementById('edit-quilometragem').value) || 0,
-        proxima_manutencao: document.getElementById('edit-proxima-manutencao').value || null
+        proxima_manutencao: document.getElementById('edit-proxima-manutencao').value || null,
+        cliente_id: clienteId || null
     };
     
     // Validação básica

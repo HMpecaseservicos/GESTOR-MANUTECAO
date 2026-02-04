@@ -129,6 +129,13 @@ function salvarVeiculo() {
         return;
     }
     
+    // Verificar se campo cliente existe e é obrigatório (modo SERVICO)
+    const clienteSelect = document.getElementById('cliente_id');
+    if (clienteSelect && clienteSelect.required && !data.cliente_id) {
+        showAlert('Por favor, selecione um cliente.', 'warning');
+        return;
+    }
+    
     // Converter campos numéricos
     const veiculo = {
         tipo: data.tipo,
@@ -137,7 +144,8 @@ function salvarVeiculo() {
         placa: data.placa,
         ano: parseInt(data.ano) || null,
         quilometragem: parseInt(data.quilometragem) || 0,
-        proxima_manutencao: data.proxima_manutencao || null
+        proxima_manutencao: data.proxima_manutencao || null,
+        cliente_id: data.cliente_id || null
     };
     
     // Fazer requisição real ao backend

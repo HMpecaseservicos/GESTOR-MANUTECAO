@@ -697,17 +697,76 @@ def dashboard():
 @app.route('/veiculos')
 @login_required
 def veiculos():
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT v.*, COUNT(m.id) as total_manutencoes 
-        FROM veiculos v 
-        LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
-        GROUP BY v.id
-    ''')
-    veiculos = cursor.fetchall()
-    conn.close()
-    return render_template('veiculos.html', veiculos=veiculos)
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    veiculos_lista = []
+    clientes_lista = []
+    
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Buscar veículos com JOIN para cliente (modo SERVICO)
+            cursor.execute('''
+                SELECT v.*, COUNT(m.id) as total_manutencoes,
+                       c.nome as cliente_nome
+                FROM veiculos v 
+                LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.empresa_id = %s
+                GROUP BY v.id, c.nome
+                ORDER BY v.placa
+            ''', (empresa_id,))
+            veiculos_lista = cursor.fetchall()
+            
+            # Buscar clientes ativos para o formulário (apenas SERVICO)
+            if is_servico():
+                cursor.execute('''
+                    SELECT id, nome FROM clientes 
+                    WHERE empresa_id = %s AND status = 'ATIVO'
+                    ORDER BY nome
+                ''', (empresa_id,))
+                clientes_lista = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT v.*, COUNT(m.id) as total_manutencoes,
+                       c.nome as cliente_nome
+                FROM veiculos v 
+                LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.empresa_id = ?
+                GROUP BY v.id
+                ORDER BY v.placa
+            ''', (empresa_id,))
+            veiculos_lista = [dict(row) for row in cursor.fetchall()]
+            
+            if is_servico():
+                cursor.execute('''
+                    SELECT id, nome FROM clientes 
+                    WHERE empresa_id = ? AND status = 'ATIVO'
+                    ORDER BY nome
+                ''', (empresa_id,))
+                clientes_lista = [dict(row) for row in cursor.fetchall()]
+            
+            conn.close()
+            
+    except Exception as e:
+        print(f"Erro ao listar veículos: {e}")
+        traceback.print_exc()
+        flash('Erro ao carregar lista de veículos.', 'danger')
+    
+    return render_template('veiculos.html', veiculos=veiculos_lista, clientes=clientes_lista)
 
 @app.route('/api/veiculos', methods=['GET'])
 @login_required
@@ -797,37 +856,119 @@ def detalhes_veiculo(veiculo_id):
 @login_required
 def criar_veiculo():
     """Criar novo veículo"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+        empresa_id = get_empresa_id()
+        cliente_id = data.get('cliente_id') or None
         
-        # Validar placa única
-        cursor.execute("SELECT id FROM veiculos WHERE placa = ?", (data.get('placa'),))
-        if cursor.fetchone():
+        # Validação para modo SERVICO: cliente_id obrigatório
+        if is_servico():
+            if not cliente_id:
+                return jsonify({
+                    'success': False,
+                    'message': 'Para empresas de serviço, é obrigatório selecionar um cliente!'
+                }), 400
+        else:
+            # Modo FROTA: cliente_id deve ser NULL
+            cliente_id = None
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Validar placa única na empresa
+            cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND empresa_id = %s", 
+                          (data.get('placa'), empresa_id))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Placa já cadastrada no sistema!'
+                }), 400
+            
+            # Validar que cliente pertence à empresa (modo SERVICO)
+            if cliente_id:
+                cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
+                              (cliente_id, empresa_id))
+                if not cursor.fetchone():
+                    cursor.close()
+                    conn.close()
+                    return jsonify({
+                        'success': False,
+                        'message': 'Cliente inválido ou não pertence à sua empresa!'
+                    }), 400
+            
+            cursor.execute('''
+                INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
+                                      proxima_manutencao, status, cliente_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                empresa_id,
+                data.get('tipo'),
+                data.get('marca'), 
+                data.get('modelo'),
+                data.get('placa'),
+                data.get('ano'),
+                data.get('quilometragem', 0),
+                data.get('proxima_manutencao') or None,
+                'Operacional',
+                cliente_id
+            ))
+            
+            veiculo_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
             conn.close()
-            return jsonify({
-                'success': False,
-                'message': 'Placa já cadastrada no sistema!'
-            }), 400
-        
-        cursor.execute('''
-            INSERT INTO veiculos (tipo, marca, modelo, placa, ano, quilometragem, proxima_manutencao, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data.get('tipo'),
-            data.get('marca'), 
-            data.get('modelo'),
-            data.get('placa'),
-            data.get('ano'),
-            data.get('quilometragem', 0),
-            data.get('proxima_manutencao'),
-            'Operacional'
-        ))
-        
-        conn.commit()
-        veiculo_id = cursor.lastrowid
-        conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Validar placa única na empresa
+            cursor.execute("SELECT id FROM veiculos WHERE placa = ? AND empresa_id = ?", 
+                          (data.get('placa'), empresa_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Placa já cadastrada no sistema!'
+                }), 400
+            
+            # Validar cliente (modo SERVICO)
+            if cliente_id:
+                cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", 
+                              (cliente_id, empresa_id))
+                if not cursor.fetchone():
+                    conn.close()
+                    return jsonify({
+                        'success': False,
+                        'message': 'Cliente inválido ou não pertence à sua empresa!'
+                    }), 400
+            
+            cursor.execute('''
+                INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
+                                      proxima_manutencao, status, cliente_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                empresa_id,
+                data.get('tipo'),
+                data.get('marca'), 
+                data.get('modelo'),
+                data.get('placa'),
+                data.get('ano'),
+                data.get('quilometragem', 0),
+                data.get('proxima_manutencao') or None,
+                'Operacional',
+                cliente_id
+            ))
+            
+            veiculo_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
         
         return jsonify({
             'success': True,
@@ -847,47 +988,139 @@ def criar_veiculo():
 @login_required
 def editar_veiculo(veiculo_id):
     """Editar veículo existente"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+        empresa_id = get_empresa_id()
+        cliente_id = data.get('cliente_id') or None
         
-        # Verificar se veículo existe
-        cursor.execute("SELECT id FROM veiculos WHERE id = ?", (veiculo_id,))
-        if not cursor.fetchone():
+        # Validação para modo SERVICO: cliente_id obrigatório
+        if is_servico():
+            if not cliente_id:
+                return jsonify({
+                    'success': False,
+                    'message': 'Para empresas de serviço, é obrigatório selecionar um cliente!'
+                }), 400
+        else:
+            # Modo FROTA: cliente_id deve ser NULL
+            cliente_id = None
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se veículo existe e pertence à empresa
+            cursor.execute("SELECT id FROM veiculos WHERE id = %s AND empresa_id = %s", 
+                          (veiculo_id, empresa_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Veículo não encontrado!'
+                }), 404
+            
+            # Validar placa única (exceto o próprio veículo)
+            cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND id != %s AND empresa_id = %s", 
+                          (data.get('placa'), veiculo_id, empresa_id))
+            if cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Placa já cadastrada para outro veículo!'
+                }), 400
+            
+            # Validar cliente (modo SERVICO)
+            if cliente_id:
+                cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
+                              (cliente_id, empresa_id))
+                if not cursor.fetchone():
+                    cursor.close()
+                    conn.close()
+                    return jsonify({
+                        'success': False,
+                        'message': 'Cliente inválido ou não pertence à sua empresa!'
+                    }), 400
+            
+            cursor.execute('''
+                UPDATE veiculos 
+                SET tipo=%s, marca=%s, modelo=%s, placa=%s, ano=%s, quilometragem=%s, 
+                    proxima_manutencao=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s AND empresa_id=%s
+            ''', (
+                data.get('tipo'),
+                data.get('marca'), 
+                data.get('modelo'),
+                data.get('placa'),
+                data.get('ano'),
+                data.get('quilometragem', 0),
+                data.get('proxima_manutencao') or None,
+                cliente_id,
+                veiculo_id,
+                empresa_id
+            ))
+            
+            conn.commit()
+            cursor.close()
             conn.close()
-            return jsonify({
-                'success': False,
-                'message': 'Veículo não encontrado!'
-            }), 404
-        
-        # Validar placa única (exceto o próprio veículo)
-        cursor.execute("SELECT id FROM veiculos WHERE placa = ? AND id != ?", 
-                      (data.get('placa'), veiculo_id))
-        if cursor.fetchone():
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Verificar se veículo existe e pertence à empresa
+            cursor.execute("SELECT id FROM veiculos WHERE id = ? AND empresa_id = ?", 
+                          (veiculo_id, empresa_id))
+            if not cursor.fetchone():
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Veículo não encontrado!'
+                }), 404
+            
+            # Validar placa única (exceto o próprio veículo)
+            cursor.execute("SELECT id FROM veiculos WHERE placa = ? AND id != ? AND empresa_id = ?", 
+                          (data.get('placa'), veiculo_id, empresa_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Placa já cadastrada para outro veículo!'
+                }), 400
+            
+            # Validar cliente (modo SERVICO)
+            if cliente_id:
+                cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", 
+                              (cliente_id, empresa_id))
+                if not cursor.fetchone():
+                    conn.close()
+                    return jsonify({
+                        'success': False,
+                        'message': 'Cliente inválido ou não pertence à sua empresa!'
+                    }), 400
+            
+            cursor.execute('''
+                UPDATE veiculos 
+                SET tipo=?, marca=?, modelo=?, placa=?, ano=?, quilometragem=?, 
+                    proxima_manutencao=?, cliente_id=?
+                WHERE id=? AND empresa_id=?
+            ''', (
+                data.get('tipo'),
+                data.get('marca'), 
+                data.get('modelo'),
+                data.get('placa'),
+                data.get('ano'),
+                data.get('quilometragem', 0),
+                data.get('proxima_manutencao') or None,
+                cliente_id,
+                veiculo_id,
+                empresa_id
+            ))
+            
+            conn.commit()
             conn.close()
-            return jsonify({
-                'success': False,
-                'message': 'Placa já cadastrada para outro veículo!'
-            }), 400
-        
-        cursor.execute('''
-            UPDATE veiculos 
-            SET tipo=?, marca=?, modelo=?, placa=?, ano=?, quilometragem=?, proxima_manutencao=?
-            WHERE id=?
-        ''', (
-            data.get('tipo'),
-            data.get('marca'), 
-            data.get('modelo'),
-            data.get('placa'),
-            data.get('ano'),
-            data.get('quilometragem', 0),
-            data.get('proxima_manutencao'),
-            veiculo_id
-        ))
-        
-        conn.commit()
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -906,36 +1139,91 @@ def editar_veiculo(veiculo_id):
 @login_required
 def obter_veiculo(veiculo_id):
     """Obter dados de um veículo específico"""
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM veiculos WHERE id = ?", (veiculo_id,))
-        veiculo = cursor.fetchone()
-        conn.close()
+        empresa_id = get_empresa_id()
         
-        if veiculo:
-            return jsonify({
-                'success': True,
-                'veiculo': {
-                    'id': veiculo[0],
-                    'tipo': veiculo[1],
-                    'marca': veiculo[2],
-                    'modelo': veiculo[3],
-                    'placa': veiculo[4],
-                    'ano': veiculo[5],
-                    'quilometragem': veiculo[6],
-                    'proxima_manutencao': veiculo[7],
-                    'status': veiculo[8]
-                }
-            })
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            cursor.execute("""
+                SELECT v.*, c.nome as cliente_nome
+                FROM veiculos v
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.id = %s AND v.empresa_id = %s
+            """, (veiculo_id, empresa_id))
+            veiculo = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            
+            if veiculo:
+                return jsonify({
+                    'success': True,
+                    'veiculo': {
+                        'id': veiculo['id'],
+                        'tipo': veiculo['tipo'],
+                        'marca': veiculo['marca'],
+                        'modelo': veiculo['modelo'],
+                        'placa': veiculo['placa'],
+                        'ano': veiculo['ano'],
+                        'quilometragem': veiculo['quilometragem'],
+                        'proxima_manutencao': str(veiculo['proxima_manutencao']) if veiculo['proxima_manutencao'] else None,
+                        'status': veiculo['status'],
+                        'cliente_id': veiculo['cliente_id'],
+                        'cliente_nome': veiculo['cliente_nome']
+                    }
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Veículo não encontrado!'
+                }), 404
         else:
-            return jsonify({
-                'success': False,
-                'message': 'Veículo não encontrado!'
-            }), 404
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT v.*, c.nome as cliente_nome
+                FROM veiculos v
+                LEFT JOIN clientes c ON v.cliente_id = c.id
+                WHERE v.id = ? AND v.empresa_id = ?
+            """, (veiculo_id, empresa_id))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                veiculo = dict(row)
+                return jsonify({
+                    'success': True,
+                    'veiculo': {
+                        'id': veiculo['id'],
+                        'tipo': veiculo['tipo'],
+                        'marca': veiculo['marca'],
+                        'modelo': veiculo['modelo'],
+                        'placa': veiculo['placa'],
+                        'ano': veiculo['ano'],
+                        'quilometragem': veiculo['quilometragem'],
+                        'proxima_manutencao': veiculo['proxima_manutencao'],
+                        'status': veiculo['status'],
+                        'cliente_id': veiculo.get('cliente_id'),
+                        'cliente_nome': veiculo.get('cliente_nome')
+                    }
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Veículo não encontrado!'
+                }), 404
             
     except Exception as e:
         print(f"Erro ao obter veículo: {e}")
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f'Erro ao obter veículo: {str(e)}'
