@@ -40,12 +40,47 @@
                     <a class="nav-link" href="{{ url_for('fornecedores') }}">
                         <i class="fas fa-users"></i> Fornecedores
                     </a>
+                    {% if current_user.role == 'Admin' %}
+                    <a class="nav-link" href="{{ url_for('empresas') }}">
+                        <i class="fas fa-building text-warning"></i> Empresas
+                    </a>
+                    {% endif %}
                     <a class="nav-link" href="{{ url_for('financeiro') }}">
                         <i class="fas fa-chart-line text-success"></i> Financeiro
                     </a>
                     <a class="nav-link" href="{{ url_for('relatorios') }}">
                         <i class="fas fa-chart-bar"></i> Relatórios
                     </a>
+                    
+                    <!-- Menu do Usuário -->
+                    <div class="nav-item dropdown ms-3">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-circle"></i> 
+                            {% if current_user.is_authenticated %}
+                                {{ current_user.username }}
+                            {% else %}
+                                Usuário
+                            {% endif %}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('configuracoes') }}">
+                                    <i class="fas fa-cog me-2"></i> Configurações
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('minha_empresa') }}">
+                                    <i class="fas fa-building me-2"></i> Minha Empresa
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item text-danger" href="{{ url_for('logout') }}">
+                                    <i class="fas fa-sign-out-alt me-2"></i> Sair
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>

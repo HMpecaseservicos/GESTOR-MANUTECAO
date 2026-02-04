@@ -88,6 +88,33 @@ limiter = Limiter(
     enabled=Config.RATELIMIT_ENABLED
 )
 
+# =============================================
+# EXECUÇÃO AUTOMÁTICA DE MIGRAÇÕES (POSTGRESQL)
+# =============================================
+
+if Config.IS_POSTGRES and Config.DATABASE_URL:
+    try:
+        print("🔧 PostgreSQL detectado - Executando migrações automaticamente...")
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'migrations'))
+        from migration_manager import MigrationManager
+        
+        manager = MigrationManager(
+            database_url=Config.DATABASE_URL,
+            migrations_dir=os.path.join(os.path.dirname(__file__), 'migrations')
+        )
+        manager.run_pending_migrations()
+        print("✅ Migrações concluídas com sucesso!")
+    except Exception as e:
+        print(f"⚠️  Erro ao executar migrações: {e}")
+        import traceback
+        traceback.print_exc()
+
+# Configurar página de login
+login_manager.login_view = 'login'
+login_manager.login_message = 'Por favor, faça login para acessar esta página.'
+login_manager.login_message_category = 'info'
+
 # Configurar logging
 if not app.debug:
     if not os.path.exists(Config.LOG_FOLDER):
@@ -162,8 +189,149 @@ def init_db():
     return success
 
 # =============================================
+# ROTAS DE SISTEMA (SEM AUTENTICAÇÃO)
+# =============================================
+
+@app.route('/health')
+def health_check():
+    """
+    Endpoint de health check para Fly.io e monitoramento
+    Verifica conectividade com banco de dados
+    """
+    try:
+        if Config.IS_POSTGRES:
+            # PostgreSQL
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            conn.close()
+        else:
+            # SQLite
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'db_type': 'PostgreSQL' if Config.IS_POSTGRES else 'SQLite'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'database': 'disconnected'
+        }), 503
+
+# =============================================
 # ROTAS DE AUTENTICAÇÃO
 # =============================================
+
+@app.route('/cadastro', methods=['GET', 'POST'])
+@limiter.limit("3 per minute")
+def cadastro():
+    """Rota de auto-cadastro de empresa e usuário"""
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        # Dados da empresa
+        empresa_nome = request.form.get('empresa_nome', '').strip()
+        empresa_cnpj = request.form.get('empresa_cnpj', '').strip()
+        empresa_telefone = request.form.get('empresa_telefone', '').strip()
+        empresa_email = request.form.get('empresa_email', '').strip()
+        plano = request.form.get('plano', 'basico')
+        
+        # Dados do usuário
+        nome = request.form.get('nome', '').strip()
+        email = request.form.get('email', '').strip()
+        username = request.form.get('username', '').strip().lower()
+        telefone = request.form.get('telefone', '').strip()
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        
+        # Validações
+        erros = []
+        
+        if not empresa_nome:
+            erros.append('Nome da empresa é obrigatório')
+        if not nome:
+            erros.append('Seu nome é obrigatório')
+        if not email:
+            erros.append('Email é obrigatório')
+        if not username:
+            erros.append('Nome de usuário é obrigatório')
+        if len(password) < 6:
+            erros.append('Senha deve ter no mínimo 6 caracteres')
+        if password != password_confirm:
+            erros.append('As senhas não coincidem')
+        
+        # Verificar se username já existe
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT id FROM usuarios WHERE username = ?', (username,))
+        if cursor.fetchone():
+            erros.append('Este nome de usuário já está em uso')
+        
+        cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
+        if cursor.fetchone():
+            erros.append('Este email já está cadastrado')
+        
+        if erros:
+            for erro in erros:
+                flash(erro, 'danger')
+            conn.close()
+            return render_template('cadastro.html')
+        
+        try:
+            # Definir limites baseado no plano
+            limites = {
+                'basico': {'veiculos': 10, 'usuarios': 2},
+                'profissional': {'veiculos': 50, 'usuarios': 10},
+                'enterprise': {'veiculos': 999999, 'usuarios': 999999}
+            }
+            
+            limite = limites.get(plano, limites['basico'])
+            
+            # Criar a empresa
+            cursor.execute('''
+                INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
+                                     limite_veiculos, limite_usuarios, data_criacao)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime('now'))
+            ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
+                  plano, limite['veiculos'], limite['usuarios']))
+            
+            empresa_id = cursor.lastrowid
+            
+            # Criar o usuário administrador
+            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+            
+            cursor.execute('''
+                INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
+                                     role, empresa_id, ativo, data_criacao)
+                VALUES (?, ?, ?, ?, ?, 'Admin', ?, 1, datetime('now'))
+            ''', (username, password_hash, nome, email, telefone, empresa_id))
+            
+            conn.commit()
+            conn.close()
+            
+            flash(f'Conta criada com sucesso! Empresa "{empresa_nome}" cadastrada. Faça login para continuar.', 'success')
+            return redirect(url_for('login'))
+            
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"Erro ao criar cadastro: {e}")
+            flash('Erro ao criar cadastro. Tente novamente.', 'danger')
+            return render_template('cadastro.html')
+    
+    return render_template('cadastro.html')
+
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
@@ -200,6 +368,210 @@ def logout():
     logout_user()
     flash('Você saiu do sistema com sucesso.', 'info')
     return redirect(url_for('login'))
+
+
+# =============================================
+# ROTAS DE CONFIGURAÇÕES DO USUÁRIO
+# =============================================
+
+@app.route('/configuracoes')
+@login_required
+def configuracoes():
+    """Página de configurações do usuário"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Buscar dados do usuário
+    cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = ?', 
+                   (current_user.id,))
+    row = cursor.fetchone()
+    usuario = {
+        'id': row[0],
+        'username': row[1],
+        'email': row[2],
+        'nome': row[3],
+        'telefone': row[4],
+        'role': row[5],
+        'empresa_id': row[6]
+    }
+    
+    # Buscar dados da empresa
+    empresa = None
+    if usuario['empresa_id']:
+        cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = ?', (usuario['empresa_id'],))
+        emp_row = cursor.fetchone()
+        if emp_row:
+            empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
+    
+    conn.close()
+    return render_template('configuracoes.html', usuario=usuario, empresa=empresa)
+
+
+@app.route('/atualizar_perfil', methods=['POST'])
+@login_required
+def atualizar_perfil():
+    """Atualizar dados do perfil do usuário"""
+    nome = request.form.get('nome', '').strip()
+    email = request.form.get('email', '').strip()
+    telefone = request.form.get('telefone', '').strip()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Verificar se email já está em uso por outro usuário
+    cursor.execute('SELECT id FROM usuarios WHERE email = ? AND id != ?', (email, current_user.id))
+    if cursor.fetchone():
+        flash('Este email já está em uso por outro usuário.', 'danger')
+        conn.close()
+        return redirect(url_for('configuracoes'))
+    
+    cursor.execute('''
+        UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?
+    ''', (nome, email, telefone, current_user.id))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Perfil atualizado com sucesso!', 'success')
+    return redirect(url_for('configuracoes'))
+
+
+@app.route('/alterar_minha_senha', methods=['POST'])
+@login_required
+def alterar_minha_senha():
+    """Alterar senha do usuário via configurações"""
+    senha_atual = request.form.get('senha_atual', '')
+    nova_senha = request.form.get('nova_senha', '')
+    confirmar_senha = request.form.get('confirmar_senha', '')
+    
+    if nova_senha != confirmar_senha:
+        flash('As senhas não coincidem.', 'danger')
+        return redirect(url_for('configuracoes'))
+    
+    if len(nova_senha) < 6:
+        flash('A nova senha deve ter no mínimo 6 caracteres.', 'danger')
+        return redirect(url_for('configuracoes'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Verificar senha atual
+    cursor.execute('SELECT password_hash FROM usuarios WHERE id = ?', (current_user.id,))
+    row = cursor.fetchone()
+    
+    if not row or not bcrypt.check_password_hash(row[0], senha_atual):
+        flash('Senha atual incorreta.', 'danger')
+        conn.close()
+        return redirect(url_for('configuracoes'))
+    
+    # Atualizar senha
+    nova_hash = bcrypt.generate_password_hash(nova_senha).decode('utf-8')
+    cursor.execute('UPDATE usuarios SET password_hash = ? WHERE id = ?', (nova_hash, current_user.id))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Senha alterada com sucesso!', 'success')
+    return redirect(url_for('configuracoes'))
+
+
+@app.route('/minha-empresa')
+@login_required
+def minha_empresa():
+    """Página de configurações da empresa"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Buscar empresa do usuário
+    cursor.execute('''
+        SELECT e.* FROM empresas e
+        JOIN usuarios u ON u.empresa_id = e.id
+        WHERE u.id = ?
+    ''', (current_user.id,))
+    
+    row = cursor.fetchone()
+    if not row:
+        flash('Empresa não encontrada.', 'warning')
+        conn.close()
+        return redirect(url_for('dashboard'))
+    
+    cols = [desc[0] for desc in cursor.description]
+    empresa = dict(zip(cols, row))
+    
+    # Estatísticas da empresa
+    empresa_id = empresa['id']
+    
+    cursor.execute('SELECT COUNT(*) FROM veiculos WHERE empresa_id = ?', (empresa_id,))
+    veiculos = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ?', (empresa_id,))
+    manutencoes = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = ?', (empresa_id,))
+    pecas = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = ?', (empresa_id,))
+    fornecedores = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ?', (empresa_id,))
+    tecnicos = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM usuarios WHERE empresa_id = ?', (empresa_id,))
+    usuarios = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    stats = {
+        'veiculos': veiculos,
+        'manutencoes': manutencoes,
+        'pecas': pecas,
+        'fornecedores': fornecedores,
+        'tecnicos': tecnicos,
+        'usuarios': usuarios
+    }
+    
+    return render_template('minha_empresa.html', empresa=empresa, stats=stats)
+
+
+@app.route('/atualizar_minha_empresa', methods=['POST'])
+@login_required
+def atualizar_minha_empresa():
+    """Atualizar dados da empresa do usuário logado"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Verificar empresa do usuário
+    cursor.execute('SELECT empresa_id FROM usuarios WHERE id = ?', (current_user.id,))
+    row = cursor.fetchone()
+    
+    if not row or not row[0]:
+        flash('Empresa não encontrada.', 'danger')
+        conn.close()
+        return redirect(url_for('dashboard'))
+    
+    empresa_id = row[0]
+    
+    nome = request.form.get('nome', '').strip()
+    cnpj = request.form.get('cnpj', '').strip()
+    telefone = request.form.get('telefone', '').strip()
+    email = request.form.get('email', '').strip()
+    endereco = request.form.get('endereco', '').strip()
+    cidade = request.form.get('cidade', '').strip()
+    estado = request.form.get('estado', '').strip()
+    cep = request.form.get('cep', '').strip()
+    
+    cursor.execute('''
+        UPDATE empresas 
+        SET nome = ?, cnpj = ?, telefone = ?, email = ?, endereco = ?, cidade = ?, estado = ?, cep = ?
+        WHERE id = ?
+    ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Dados da empresa atualizados com sucesso!', 'success')
+    return redirect(url_for('minha_empresa'))
+
 
 # =============================================
 # ROTAS PRINCIPAIS (COM PROTEÇÃO)
@@ -1023,11 +1395,6 @@ def remover_peca_manutencao(manutencao_id, item_id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
-@app.route('/teste-pecas')
-@login_required
-def teste_pecas():
-    return render_template('teste_pecas.html')
-
 @app.route('/pecas')
 @login_required
 def pecas():
@@ -1165,6 +1532,133 @@ def get_peca(peca_id):
             return jsonify({'success': False, 'message': 'Peça não encontrada'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
+
+# =============================================
+# ROTAS - GESTÃO DE EMPRESAS (MULTI-EMPRESA)
+# =============================================
+
+@app.route('/empresas')
+@login_required
+@admin_required
+def empresas():
+    """Página de gestão de empresas"""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM empresas ORDER BY nome")
+    empresas = cursor.fetchall()
+    conn.close()
+    return render_template('empresas.html', empresas=empresas)
+
+@app.route('/api/empresas', methods=['POST'])
+@login_required
+@admin_required
+def criar_empresa():
+    """Criar nova empresa"""
+    try:
+        data = request.json
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO empresas (
+                nome, nome_fantasia, cnpj, telefone, email,
+                endereco, cidade, estado, cep, plano,
+                limite_veiculos, limite_usuarios, ativo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ''', (
+            data.get('nome'),
+            data.get('nome_fantasia'),
+            data.get('cnpj'),
+            data.get('telefone'),
+            data.get('email'),
+            data.get('endereco'),
+            data.get('cidade'),
+            data.get('estado'),
+            data.get('cep'),
+            data.get('plano', 'Básico'),
+            data.get('limite_veiculos', 10),
+            data.get('limite_usuarios', 3)
+        ))
+        
+        empresa_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        log_action(f'Criou empresa: {data.get("nome")} (ID: {empresa_id})')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Empresa criada com sucesso!',
+            'empresa_id': empresa_id
+        })
+        
+    except Exception as e:
+        print(f"Erro ao criar empresa: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/empresas/<int:empresa_id>', methods=['PUT'])
+@login_required
+@admin_required
+def atualizar_empresa(empresa_id):
+    """Atualizar empresa"""
+    try:
+        data = request.json
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Atualizar apenas o campo ativo ou todos os campos
+        if 'ativo' in data and len(data) == 1:
+            cursor.execute('''
+                UPDATE empresas SET ativo = ?
+                WHERE id = ?
+            ''', (data['ativo'], empresa_id))
+        else:
+            cursor.execute('''
+                UPDATE empresas SET
+                    nome = ?, nome_fantasia = ?, cnpj = ?,
+                    telefone = ?, email = ?, endereco = ?,
+                    cidade = ?, estado = ?, cep = ?,
+                    plano = ?, limite_veiculos = ?, limite_usuarios = ?
+                WHERE id = ?
+            ''', (
+                data.get('nome'),
+                data.get('nome_fantasia'),
+                data.get('cnpj'),
+                data.get('telefone'),
+                data.get('email'),
+                data.get('endereco'),
+                data.get('cidade'),
+                data.get('estado'),
+                data.get('cep'),
+                data.get('plano'),
+                data.get('limite_veiculos'),
+                data.get('limite_usuarios'),
+                empresa_id
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        log_action(f'Atualizou empresa ID: {empresa_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Empresa atualizada com sucesso!'
+        })
+        
+    except Exception as e:
+        print(f"Erro ao atualizar empresa: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# =============================================
+# ROTAS - FORNECEDORES
+# =============================================
 
 @app.route('/fornecedores')
 @login_required

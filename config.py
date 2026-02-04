@@ -20,8 +20,22 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
     
     # Configurações do banco de dados
-    DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'database', 'frota.db')
-    DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
+    # Prioridade: DATABASE_URL (produção PostgreSQL) > SQLite local (desenvolvimento)
+    DATABASE_URL = os.environ.get('DATABASE_URL')
+    
+    if not DATABASE_URL:
+        # Desenvolvimento local com SQLite
+        DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'database', 'frota.db')
+        DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
+    else:
+        # Produção com PostgreSQL (Fly.io)
+        # Fix para Heroku/Fly.io que usam postgres:// em vez de postgresql://
+        if DATABASE_URL.startswith('postgres://'):
+            DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        DATABASE_PATH = None  # Não usado em produção
+    
+    # Detectar se está usando PostgreSQL
+    IS_POSTGRES = DATABASE_URL.startswith('postgresql://')
     
     # Configurações da aplicação
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
@@ -59,13 +73,16 @@ class Config:
     def ensure_directories():
         """Garante que os diretórios necessários existem"""
         directories = [
-            os.path.dirname(Config.DATABASE_PATH),
             Config.UPLOAD_FOLDER,
             Config.REPORTS_FOLDER,
             Config.LOG_FOLDER,
             os.path.join(Config.UPLOAD_FOLDER, 'temp'),
             os.path.join(Config.REPORTS_FOLDER, 'temp')
         ]
+        
+        # Adicionar DATABASE_PATH apenas se estiver em desenvolvimento (SQLite)
+        if Config.DATABASE_PATH:
+            directories.insert(0, os.path.dirname(Config.DATABASE_PATH))
         
         for directory in directories:
             os.makedirs(directory, exist_ok=True)

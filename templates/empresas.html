@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}Gestão de Empresas{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-6"><i class="fas fa-building"></i> Gestão de Empresas</h1>
+        <p class="text-muted">Gerenciar empresas cadastradas no sistema</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaEmpresaModal">
+            <i class="fas fa-plus"></i> Nova Empresa
+        </button>
+    </div>
+</div>
+
+<!-- Cards de Estatísticas -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-building"></i> Total de Empresas</h5>
+                <h2 id="totalEmpresas">{{ empresas|length }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-check-circle"></i> Ativas</h5>
+                <h2 id="empresasAtivas">{{ empresas|selectattr('ativo', 'equalto', 1)|list|length }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-users"></i> Total de Usuários</h5>
+                <h2 id="totalUsuarios">-</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-truck"></i> Total de Veículos</h5>
+                <h2 id="totalVeiculos">-</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabela de Empresas -->
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-list"></i> Empresas Cadastradas</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Nome</th>
+                        <th>CNPJ</th>
+                        <th>Plano</th>
+                        <th>Usuários</th>
+                        <th>Veículos</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for empresa in empresas %}
+                    <tr>
+                        <td><strong>#{{ empresa[0] }}</strong></td>
+                        <td>
+                            <strong>{{ empresa[1] }}</strong><br>
+                            <small class="text-muted">{{ empresa[2] or '-' }}</small>
+                        </td>
+                        <td>{{ empresa[3] or '-' }}</td>
+                        <td><span class="badge bg-info">{{ empresa[10] }}</span></td>
+                        <td><span class="badge bg-secondary">{{ empresa[0] }}</span></td>
+                        <td><span class="badge bg-secondary">{{ empresa[0] }}</span></td>
+                        <td>
+                            {% if empresa[11] %}
+                                <span class="badge bg-success">Ativa</span>
+                            {% else %}
+                                <span class="badge bg-danger">Inativa</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-primary" title="Ver Detalhes" onclick="verDetalhesEmpresa({{ empresa[0] }})">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarEmpresa({{ empresa[0] }})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                {% if empresa[11] %}
+                                <button class="btn btn-sm btn-outline-danger" title="Desativar" onclick="toggleEmpresa({{ empresa[0] }}, false)">
+                                    <i class="fas fa-ban"></i>
+                                </button>
+                                {% else %}
+                                <button class="btn btn-sm btn-outline-success" title="Ativar" onclick="toggleEmpresa({{ empresa[0] }}, true)">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Empresa -->
+<div class="modal fade" id="novaEmpresaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Nova Empresa</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="novaEmpresaForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome / Razão Social *</label>
+                            <input type="text" class="form-control" name="nome" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome Fantasia</label>
+                            <input type="text" class="form-control" name="nome_fantasia">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">CNPJ</label>
+                            <input type="text" class="form-control" name="cnpj" placeholder="00.000.000/0000-00">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Telefone</label>
+                            <input type="text" class="form-control" name="telefone" placeholder="(00) 0000-0000">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" name="email">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Endereço</label>
+                        <input type="text" class="form-control" name="endereco">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label">Cidade</label>
+                            <input type="text" class="form-control" name="cidade">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Estado</label>
+                            <input type="text" class="form-control" name="estado" maxlength="2" placeholder="SP">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">CEP</label>
+                            <input type="text" class="form-control" name="cep" placeholder="00000-000">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Plano</label>
+                            <select class="form-select" name="plano">
+                                <option value="Básico">Básico</option>
+                                <option value="Intermediário">Intermediário</option>
+                                <option value="Premium" selected>Premium</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Limite de Veículos</label>
+                            <input type="number" class="form-control" name="limite_veiculos" value="10" min="1">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Limite de Usuários</label>
+                            <input type="number" class="form-control" name="limite_usuarios" value="3" min="1">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarEmpresa()">
+                    <i class="fas fa-save"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function salvarEmpresa() {
+    const form = document.getElementById('novaEmpresaForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    fetch('/api/empresas', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Empresa cadastrada com sucesso!');
+            location.reload();
+        } else {
+            alert('Erro: ' + result.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao salvar empresa!');
+    });
+}
+
+function toggleEmpresa(id, ativo) {
+    const acao = ativo ? 'ativar' : 'desativar';
+    if (confirm(`Tem certeza que deseja ${acao} esta empresa?`)) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        
+        fetch(`/api/empresas/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ ativo: ativo })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                alert(`Empresa ${acao === 'ativar' ? 'ativada' : 'desativada'} com sucesso!`);
+                location.reload();
+            } else {
+                alert('Erro: ' + result.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao atualizar empresa!');
+        });
+    }
+}
+
+function verDetalhesEmpresa(id) {
+    window.location.href = `/empresa/${id}`;
+}
+
+function editarEmpresa(id) {
+    alert('Função de edição em desenvolvimento');
+}
+</script>
+
+{% endblock %}

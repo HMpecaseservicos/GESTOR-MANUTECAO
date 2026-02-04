@@ -1,0 +1,64 @@
+# Fly.io App Configuration
+# https://fly.io/docs/reference/configuration/
+
+app = "gestor-frota-hibrido"
+primary_region = "gru"  # São Paulo, Brasil
+
+# Configurações da aplicação
+[build]
+  # Usar Dockerfile para build
+  dockerfile = "Dockerfile"
+
+[env]
+  # Variáveis de ambiente (não-sensíveis)
+  FLASK_ENV = "production"
+  FLASK_DEBUG = "false"
+  RATELIMIT_ENABLED = "true"
+  LOG_LEVEL = "INFO"
+  PORT = "8080"
+
+# HTTP service
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    restart_limit = 0
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/health"
+    protocol = "http"
+    restart_limit = 0
+
+# Configuração de recursos
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+# Escalonamento automático
+[scaling]
+  min_machines = 1
+  max_machines = 3

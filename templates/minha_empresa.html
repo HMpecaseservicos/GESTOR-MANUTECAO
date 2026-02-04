@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+
+{% block title %}Minha Empresa{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="fas fa-building text-primary"></i> Minha Empresa</h2>
+        <p class="text-muted">Visualize e edite os dados da sua empresa</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="row">
+    <!-- Dados da Empresa -->
+    <div class="col-md-8 mb-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-building me-2"></i>Dados da Empresa</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('atualizar_minha_empresa') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label for="nome" class="form-label">Nome da Empresa *</label>
+                            <input type="text" class="form-control" id="nome" name="nome" 
+                                   value="{{ empresa.nome or '' }}" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="cnpj" class="form-label">CNPJ</label>
+                            <input type="text" class="form-control" id="cnpj" name="cnpj" 
+                                   value="{{ empresa.cnpj or '' }}" placeholder="00.000.000/0000-00">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="telefone" class="form-label">Telefone</label>
+                            <input type="tel" class="form-control" id="telefone" name="telefone" 
+                                   value="{{ empresa.telefone or '' }}" placeholder="(00) 00000-0000">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email" name="email" 
+                                   value="{{ empresa.email or '' }}" placeholder="contato@empresa.com">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="endereco" class="form-label">Endereço</label>
+                        <input type="text" class="form-control" id="endereco" name="endereco" 
+                               value="{{ empresa.endereco or '' }}" placeholder="Rua, número, bairro">
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label for="cidade" class="form-label">Cidade</label>
+                            <input type="text" class="form-control" id="cidade" name="cidade" 
+                                   value="{{ empresa.cidade or '' }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="estado" class="form-label">Estado</label>
+                            <select class="form-select" id="estado" name="estado">
+                                <option value="">Selecione</option>
+                                {% set estados = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+                                {% for uf in estados %}
+                                <option value="{{ uf }}" {{ 'selected' if empresa.estado == uf else '' }}>{{ uf }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="cep" class="form-label">CEP</label>
+                            <input type="text" class="form-control" id="cep" name="cep" 
+                                   value="{{ empresa.cep or '' }}" placeholder="00000-000">
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-2"></i>Salvar Alterações
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Informações do Plano -->
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-crown me-2"></i>Seu Plano</h5>
+            </div>
+            <div class="card-body text-center">
+                <div class="mb-3">
+                    {% if empresa.plano == 'enterprise' %}
+                    <i class="fas fa-rocket fa-4x text-warning mb-3"></i>
+                    <h3 class="text-warning">Enterprise</h3>
+                    {% elif empresa.plano == 'profissional' %}
+                    <i class="fas fa-briefcase fa-4x text-primary mb-3"></i>
+                    <h3 class="text-primary">Profissional</h3>
+                    {% else %}
+                    <i class="fas fa-seedling fa-4x text-success mb-3"></i>
+                    <h3 class="text-success">Básico</h3>
+                    {% endif %}
+                </div>
+                
+                <hr>
+                
+                <div class="text-start">
+                    <p class="mb-2">
+                        <i class="fas fa-car text-primary me-2"></i>
+                        <strong>Veículos:</strong> 
+                        <span class="float-end">{{ stats.veiculos }}/{{ empresa.limite_veiculos or 'Ilimitado' }}</span>
+                    </p>
+                    <div class="progress mb-3" style="height: 8px;">
+                        {% set pct_veiculos = (stats.veiculos / (empresa.limite_veiculos or 999)) * 100 %}
+                        <div class="progress-bar bg-primary" style="width: {{ pct_veiculos }}%"></div>
+                    </div>
+                    
+                    <p class="mb-2">
+                        <i class="fas fa-users text-success me-2"></i>
+                        <strong>Usuários:</strong> 
+                        <span class="float-end">{{ stats.usuarios }}/{{ empresa.limite_usuarios or 'Ilimitado' }}</span>
+                    </p>
+                    <div class="progress mb-3" style="height: 8px;">
+                        {% set pct_usuarios = (stats.usuarios / (empresa.limite_usuarios or 999)) * 100 %}
+                        <div class="progress-bar bg-success" style="width: {{ pct_usuarios }}%"></div>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <p class="text-muted small mb-2">
+                    <i class="fas fa-calendar me-1"></i>
+                    Criada em: {{ empresa.data_criacao[:10] if empresa.data_criacao else 'N/A' }}
+                </p>
+                
+                {% if empresa.plano != 'enterprise' %}
+                <a href="#" class="btn btn-warning btn-sm mt-2" onclick="alert('Entre em contato para fazer upgrade do plano!')">
+                    <i class="fas fa-arrow-up me-1"></i>Fazer Upgrade
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Estatísticas -->
+        <div class="card mt-3">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Estatísticas</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span><i class="fas fa-car me-2"></i>Veículos</span>
+                    <strong>{{ stats.veiculos }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><i class="fas fa-wrench me-2"></i>Manutenções</span>
+                    <strong>{{ stats.manutencoes }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><i class="fas fa-cogs me-2"></i>Peças</span>
+                    <strong>{{ stats.pecas }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span><i class="fas fa-users me-2"></i>Fornecedores</span>
+                    <strong>{{ stats.fornecedores }}</strong>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span><i class="fas fa-user-cog me-2"></i>Técnicos</span>
+                    <strong>{{ stats.tecnicos }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

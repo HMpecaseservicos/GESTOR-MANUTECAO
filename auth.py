@@ -13,23 +13,24 @@ login_manager = LoginManager()
 bcrypt = Bcrypt()
 
 class User(UserMixin):
-    def __init__(self, id, username, password, role):
+    def __init__(self, id, username, password, role, empresa_id=None):
         self.id = id
         self.username = username
         self.password = password
         self.role = role
+        self.empresa_id = empresa_id
 
 @login_manager.user_loader
 def load_user(user_id):
     """Carregar usuário do banco de dados"""
     conn = sqlite3.connect('database/frota.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT id, username, password_hash, role FROM usuarios WHERE id = ?', (user_id,))
+    cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = ?', (user_id,))
     user_data = cursor.fetchone()
     conn.close()
     
     if user_data:
-        return User(user_data[0], user_data[1], user_data[2], user_data[3])
+        return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
     return None
 
 def init_auth_tables(conn):
@@ -66,15 +67,24 @@ def init_auth_tables(conn):
 
 def authenticate_user(username, password):
     """Autenticar usuário"""
-    conn = sqlite3.connect('database/frota.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, username, password_hash, role FROM usuarios WHERE username = ?', (username,))
-    user_data = cursor.fetchone()
-    conn.close()
-    
-    if user_data and bcrypt.check_password_hash(user_data[2], password):
-        return User(user_data[0], user_data[1], user_data[2], user_data[3])
-    return None
+    try:
+        conn = sqlite3.connect('database/frota.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = ? AND ativo = 1', (username,))
+        user_data = cursor.fetchone()
+        conn.close()
+        
+        if not user_data:
+            return None, 'Usuário não encontrado ou inativo'
+        
+        if not bcrypt.check_password_hash(user_data[2], password):
+            return None, 'Senha incorreta'
+        
+        user = User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
+        return user, None
+        
+    except Exception as e:
+        return None, f'Erro ao autenticar: {str(e)}'
 
 def admin_required(f):
     """Decorator para rotas que requerem admin"""
