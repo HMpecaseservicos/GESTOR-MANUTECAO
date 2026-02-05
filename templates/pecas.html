@@ -155,8 +155,29 @@
 }
 
 .table-modern tbody td {
-    padding: 15px;
+    padding: 15px 12px;
     vertical-align: middle;
+    font-size: 0.95rem;
+}
+
+/* Nome da peça mais visível */
+.table-modern tbody td strong {
+    font-size: 1rem;
+    color: #2d3748;
+}
+
+/* Preço formatado */
+.preco-valor {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #38a169;
+}
+
+/* Código mais visível */
+.codigo-badge {
+    font-size: 0.85rem;
+    padding: 5px 10px;
+    font-weight: 600;
 }
 
 /* Badges de categoria */
@@ -458,7 +479,7 @@
                 <div class="stats-icon bg-gradient-info text-white">
                     <i class="fas fa-dollar-sign"></i>
                 </div>
-                <div class="stats-value">R$ {{ "%.0f"|format(valor_total_estoque) }}</div>
+                <div class="stats-value">R$ {{ "{:,.2f}".format(valor_total_estoque)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</div>
                 <div class="stats-label">Valor em Estoque</div>
             </div>
         </div>
@@ -534,10 +555,11 @@
                     data-fornecedor="{{ peca[5] or '' }}"
                     data-status="{% if peca[6] == 0 %}zerado{% elif peca[6] < 6 %}baixo{% else %}disponivel{% endif %}">
                     <td>
-                        <span class="badge bg-primary bg-opacity-10 text-primary">{{ peca[2] }}</span>
+                        <span class="badge bg-primary codigo-badge">{{ peca[2] }}</span>
                     </td>
                     <td>
-                        <strong>{{ peca[1] }}</strong>
+                        <strong class="d-block">{{ peca[1] }}</strong>
+                        {% if peca[3] %}<small class="text-muted">{{ peca[3] }}</small>{% endif %}
                     </td>
                     <td>
                         {% if peca[11] %}
@@ -545,14 +567,14 @@
                             <i class="{{ peca[13] or 'fas fa-tag' }}"></i> {{ peca[11] }}
                         </span>
                         {% else %}
-                        <span class="text-muted small">Sem categoria</span>
+                        <span class="text-muted small">-</span>
                         {% endif %}
                     </td>
-                    <td>
+                    <td class="d-none d-lg-table-cell">
                         <small class="text-muted">{{ peca[3] or '-' }}</small>
                     </td>
                     <td>
-                        <span class="text-success fw-bold">R$ {{ "%.2f"|format(peca[4]) }}</span>
+                        <span class="preco-valor">R$ {{ "%.2f"|format(peca[4])|replace('.', ',') }}</span>
                     </td>
                     <td>
                         {% if peca[6] == 0 %}
@@ -583,6 +605,16 @@
                             <button class="btn btn-outline-info btn-estoque" title="Ajustar Estoque" data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}" data-peca-estoque="{{ peca[6] }}">
                                 <i class="fas fa-boxes"></i>
                             </button>
+                            {% if peca[6] < 6 and peca[8] %}
+                            <button class="btn btn-outline-success btn-whatsapp" title="Solicitar via WhatsApp"
+                                    data-peca-nome="{{ peca[1] }}"
+                                    data-peca-codigo="{{ peca[2] }}"
+                                    data-peca-estoque="{{ peca[6] }}"
+                                    data-fornecedor-nome="{{ peca[7] or '' }}"
+                                    data-fornecedor-telefone="{{ peca[8] or '' }}">
+                                <i class="fab fa-whatsapp"></i>
+                            </button>
+                            {% endif %}
                             <button class="btn btn-outline-danger btn-excluir" title="Excluir" data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -1165,6 +1197,38 @@ function configurarBotoesAcao() {
             document.getElementById('deletePecaId').value = this.dataset.pecaId;
             document.getElementById('deleteItemName').textContent = `Deseja excluir "${this.dataset.pecaNome}"? Esta ação não pode ser desfeita.`;
             document.getElementById('confirmDeleteOverlay').classList.add('show');
+        });
+    });
+    
+    // Botões WhatsApp
+    document.querySelectorAll('.btn-whatsapp').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const nome = this.dataset.pecaNome;
+            const codigo = this.dataset.pecaCodigo;
+            const estoque = this.dataset.pecaEstoque;
+            const fornecedor = this.dataset.fornecedorNome;
+            const telefone = this.dataset.fornecedorTelefone;
+            
+            if (!telefone) {
+                showToast('Fornecedor sem telefone cadastrado', 'warning');
+                return;
+            }
+            
+            // Limpar telefone (só números)
+            const telLimpo = telefone.replace(/\D/g, '');
+            const telFormatado = telLimpo.startsWith('55') ? telLimpo : '55' + telLimpo;
+            
+            // Montar mensagem
+            const msg = encodeURIComponent(
+                `Olá ${fornecedor}!\\n\\n` +
+                `Preciso solicitar reposição da peça:\\n` +
+                `📦 *${nome}* (Cód: ${codigo})\\n` +
+                `📊 Estoque atual: ${estoque} unidades\\n\\n` +
+                `Poderia me enviar orçamento?\\n` +
+                `Obrigado!`
+            );
+            
+            window.open(`https://wa.me/${telFormatado}?text=${msg}`, '_blank');
         });
     });
 }
