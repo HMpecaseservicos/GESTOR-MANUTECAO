@@ -4192,8 +4192,8 @@ def criar_fornecedor():
             cursor = conn.cursor()
             
             cursor.execute('''
-                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade, cnpj, endereco)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 empresa_id,
@@ -4201,7 +4201,9 @@ def criar_fornecedor():
                 data.get('contato'),
                 data.get('telefone'),
                 data.get('email'),
-                data.get('especialidade')
+                data.get('especialidade'),
+                data.get('cnpj', ''),
+                data.get('endereco', '')
             ))
             
             fornecedor_id = cursor.fetchone()[0]
@@ -4210,15 +4212,17 @@ def criar_fornecedor():
             cursor = conn.cursor()
             
             cursor.execute('''
-                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade, cnpj, endereco)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 empresa_id,
                 data.get('nome'),
                 data.get('contato'),
                 data.get('telefone'),
                 data.get('email'),
-                data.get('especialidade')
+                data.get('especialidade'),
+                data.get('cnpj', ''),
+                data.get('endereco', '')
             ))
             
             fornecedor_id = cursor.lastrowid

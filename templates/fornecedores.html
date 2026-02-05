@@ -387,12 +387,12 @@ function salvarFornecedor() {
     const telefoneInput = document.querySelector('#novoFornecedorModal input[name="telefone"]');
     const emailInput = document.querySelector('#novoFornecedorModal input[name="email"]');
     const especialidadeSelect = document.querySelector('#novoFornecedorModal select[name="especialidade"]');
+    const cnpjInput = document.querySelector('#novoFornecedorModal input[name="cnpj"]');
+    const enderecoInput = document.querySelector('#novoFornecedorModal input[name="endereco"]');
     
     const nome = nomeInput ? nomeInput.value.trim() : '';
     
     console.log('Nome capturado:', nome);
-    
-    
     
     // Dados completos
     const dados = {
@@ -400,7 +400,9 @@ function salvarFornecedor() {
         contato: contatoInput ? contatoInput.value.trim() : '',
         telefone: telefoneInput ? telefoneInput.value.trim() : '',
         email: emailInput ? emailInput.value.trim() : '',
-        especialidade: especialidadeSelect ? especialidadeSelect.value : ''
+        especialidade: especialidadeSelect ? especialidadeSelect.value : '',
+        cnpj: cnpjInput ? cnpjInput.value.trim() : '',
+        endereco: enderecoInput ? enderecoInput.value.trim() : ''
     };
     
     console.log('Enviando:', dados);
