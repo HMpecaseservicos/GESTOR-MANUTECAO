@@ -6612,20 +6612,36 @@ def catalogo_acesso():
 @app.route('/api/chatbot', methods=['POST'])
 @login_required
 def chatbot():
+    from empresa_helpers import get_empresa_id
+    
+    empresa_id = get_empresa_id()
     mensagem = request.json.get('mensagem', '').lower().strip()
     
     # Reconhecer números das opções do menu e atalhos
     if mensagem == '1' or 'próxima' in mensagem or 'agendada' in mensagem or 'manutenção' in mensagem:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT v.placa, m.tipo, m.data_agendada 
-            FROM manutencoes m 
-            JOIN veiculos v ON m.veiculo_id = v.id 
-            WHERE m.status = 'Agendada' 
-            ORDER BY m.data_agendada 
-            LIMIT 3
-        ''')
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT v.placa, m.tipo, m.data_agendada 
+                FROM manutencoes m 
+                JOIN veiculos v ON m.veiculo_id = v.id 
+                WHERE m.status = 'Agendada' AND m.empresa_id = %s
+                ORDER BY m.data_agendada 
+                LIMIT 3
+            ''', (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT v.placa, m.tipo, m.data_agendada 
+                FROM manutencoes m 
+                JOIN veiculos v ON m.veiculo_id = v.id 
+                WHERE m.status = 'Agendada' AND m.empresa_id = ?
+                ORDER BY m.data_agendada 
+                LIMIT 3
+            ''', (empresa_id,))
         proximas = cursor.fetchall()
         conn.close()
         
@@ -6638,9 +6654,15 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '4' or 'estoque' in mensagem or 'baixo' in mensagem:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10")
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10 AND empresa_id = %s", (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10 AND empresa_id = ?", (empresa_id,))
         alertas = cursor.fetchall()
         conn.close()
         
@@ -6652,15 +6674,27 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '2' or ('catálogo' in mensagem and 'pdf' not in mensagem) or ('catalogo' in mensagem and 'pdf' not in mensagem) or ('peças' in mensagem and 'pdf' not in mensagem) or ('pecas' in mensagem and 'pdf' not in mensagem):
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM pecas")
-        total_pecas = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas")
-        total_estoque = cursor.fetchone()[0] or 0
-        
-        cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL")
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM pecas WHERE empresa_id = %s", (empresa_id,))
+            total_pecas = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas WHERE empresa_id = %s", (empresa_id,))
+            total_estoque = cursor.fetchone()[0] or 0
+            
+            cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL AND empresa_id = %s", (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM pecas WHERE empresa_id = ?", (empresa_id,))
+            total_pecas = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas WHERE empresa_id = ?", (empresa_id,))
+            total_estoque = cursor.fetchone()[0] or 0
+            
+            cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL AND empresa_id = ?", (empresa_id,))
         valor_total = cursor.fetchone()[0] or 0
         conn.close()
         
@@ -7070,18 +7104,38 @@ def get_categorias_despesa_alt():
 @app.route('/api/financeiro/entradas', methods=['GET'])
 @login_required
 def get_entradas():
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
-                   e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
-                   c.nome as categoria_nome, v.placa, v.modelo
-            FROM entradas e
-            LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
-            LEFT JOIN veiculos v ON e.veiculo_id = v.id
-            ORDER BY e.data_entrada DESC
-        ''')
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
+                       e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
+                       c.nome as categoria_nome, v.placa, v.modelo
+                FROM entradas e
+                LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
+                LEFT JOIN veiculos v ON e.veiculo_id = v.id
+                WHERE e.empresa_id = %s
+                ORDER BY e.data_entrada DESC
+            ''', (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
+                       e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
+                       c.nome as categoria_nome, v.placa, v.modelo
+                FROM entradas e
+                LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
+                LEFT JOIN veiculos v ON e.veiculo_id = v.id
+                WHERE e.empresa_id = ?
+                ORDER BY e.data_entrada DESC
+            ''', (empresa_id,))
         
         entradas = []
         for row in cursor.fetchall():
@@ -7108,26 +7162,54 @@ def get_entradas():
 @app.route('/api/financeiro/entrada', methods=['POST'])
 @login_required
 def create_entrada():
+    from empresa_helpers import get_empresa_id
+    
     try:
+        empresa_id = get_empresa_id()
         data = request.json
-        conn = sqlite3.connect(DATABASE, timeout=30.0)
-        cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO entradas (descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['descricao'],
-            data['valor'],
-            data['data_entrada'],
-            data['categoria_id'],
-            data.get('veiculo_id'),
-            data.get('tipo', 'Manual'),
-            data.get('observacoes', '')
-        ))
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO entradas (empresa_id, descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                empresa_id,
+                data['descricao'],
+                data['valor'],
+                data['data_entrada'],
+                data['categoria_id'],
+                data.get('veiculo_id'),
+                data.get('tipo', 'Manual'),
+                data.get('observacoes', '')
+            ))
+            
+            entrada_id = cursor.fetchone()[0]
+        else:
+            conn = sqlite3.connect(DATABASE, timeout=30.0)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO entradas (empresa_id, descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                empresa_id,
+                data['descricao'],
+                data['valor'],
+                data['data_entrada'],
+                data['categoria_id'],
+                data.get('veiculo_id'),
+                data.get('tipo', 'Manual'),
+                data.get('observacoes', '')
+            ))
+            
+            entrada_id = cursor.lastrowid
         
         conn.commit()
-        entrada_id = cursor.lastrowid
         conn.close()
         
         return jsonify({'success': True, 'id': entrada_id, 'message': 'Entrada cadastrada com sucesso!'})
@@ -7143,18 +7225,38 @@ def create_entrada():
 @app.route('/api/financeiro/despesas', methods=['GET'])
 @login_required
 def get_despesas():
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
-                   d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
-                   c.nome as categoria_nome, v.placa, v.modelo
-            FROM despesas d
-            LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
-            LEFT JOIN veiculos v ON d.veiculo_id = v.id
-            ORDER BY d.data_despesa DESC
-        ''')
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
+                       d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
+                       c.nome as categoria_nome, v.placa, v.modelo
+                FROM despesas d
+                LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
+                LEFT JOIN veiculos v ON d.veiculo_id = v.id
+                WHERE d.empresa_id = %s
+                ORDER BY d.data_despesa DESC
+            ''', (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
+                       d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
+                       c.nome as categoria_nome, v.placa, v.modelo
+                FROM despesas d
+                LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
+                LEFT JOIN veiculos v ON d.veiculo_id = v.id
+                WHERE d.empresa_id = ?
+                ORDER BY d.data_despesa DESC
+            ''', (empresa_id,))
         
         despesas = []
         for row in cursor.fetchall():
@@ -7182,27 +7284,56 @@ def get_despesas():
 @app.route('/api/financeiro/despesa', methods=['POST'])
 @login_required
 def create_despesa():
+    from empresa_helpers import get_empresa_id
+    
     try:
+        empresa_id = get_empresa_id()
         data = request.json
-        conn = sqlite3.connect(DATABASE, timeout=30.0)
-        cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['descricao'],
-            data['valor'],
-            data['data_despesa'],
-            data['categoria_id'],
-            data.get('veiculo_id'),
-            data.get('tipo', 'Manual'),
-            data.get('observacoes', ''),
-            data.get('manutencao_id')
-        ))
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                empresa_id,
+                data['descricao'],
+                data['valor'],
+                data['data_despesa'],
+                data['categoria_id'],
+                data.get('veiculo_id'),
+                data.get('tipo', 'Manual'),
+                data.get('observacoes', ''),
+                data.get('manutencao_id')
+            ))
+            
+            despesa_id = cursor.fetchone()[0]
+        else:
+            conn = sqlite3.connect(DATABASE, timeout=30.0)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                empresa_id,
+                data['descricao'],
+                data['valor'],
+                data['data_despesa'],
+                data['categoria_id'],
+                data.get('veiculo_id'),
+                data.get('tipo', 'Manual'),
+                data.get('observacoes', ''),
+                data.get('manutencao_id')
+            ))
+            
+            despesa_id = cursor.lastrowid
         
         conn.commit()
-        despesa_id = cursor.lastrowid
         conn.close()
         
         return jsonify({'success': True, 'id': despesa_id, 'message': 'Despesa cadastrada com sucesso!'})
@@ -7293,38 +7424,38 @@ def get_resumo_financeiro():
             cursor.close()
             conn.close()
         else:
-            conn = get_db_connection()
+            conn = sqlite3.connect(DATABASE)
             cursor = conn.cursor()
             
-            # Total de entradas
-            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM entradas WHERE data_entrada >= date("now", "-" || ? || " days")', (periodo_int,))
+            # Total de entradas (com filtro empresa_id)
+            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM entradas WHERE empresa_id = ? AND data_entrada >= date("now", "-" || ? || " days")', (empresa_id, periodo_int))
             total_entradas = cursor.fetchone()[0]
             
-            # Total de despesas
-            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM despesas WHERE data_despesa >= date("now", "-" || ? || " days")', (periodo_int,))
+            # Total de despesas (com filtro empresa_id)
+            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM despesas WHERE empresa_id = ? AND data_despesa >= date("now", "-" || ? || " days")', (empresa_id, periodo_int))
             total_despesas = cursor.fetchone()[0]
             
-            # Entradas por categoria
+            # Entradas por categoria (com filtro empresa_id)
             cursor.execute('''
                 SELECT c.nome, COALESCE(SUM(e.valor), 0)
                 FROM categorias_entrada c
-                LEFT JOIN entradas e ON c.id = e.categoria_id AND e.data_entrada >= date("now", "-" || ? || " days")
+                LEFT JOIN entradas e ON c.id = e.categoria_id AND e.empresa_id = ? AND e.data_entrada >= date("now", "-" || ? || " days")
                 GROUP BY c.id, c.nome
                 ORDER BY SUM(e.valor) DESC
-            ''', (periodo_int,))
+            ''', (empresa_id, periodo_int))
             entradas_categoria = cursor.fetchall()
             
-            # Despesas por categoria
+            # Despesas por categoria (com filtro empresa_id)
             cursor.execute('''
                 SELECT c.nome, COALESCE(SUM(d.valor), 0)
                 FROM categorias_despesa c
-                LEFT JOIN despesas d ON c.id = d.categoria_id AND d.data_despesa >= date("now", "-" || ? || " days")
+                LEFT JOIN despesas d ON c.id = d.categoria_id AND d.empresa_id = ? AND d.data_despesa >= date("now", "-" || ? || " days")
                 GROUP BY c.id, c.nome
                 ORDER BY SUM(d.valor) DESC
-            ''', (periodo_int,))
+            ''', (empresa_id, periodo_int))
             despesas_categoria = cursor.fetchall()
             
-            # Resultado por veículo
+            # Resultado por veículo (com filtro empresa_id)
             cursor.execute('''
                 SELECT v.placa, v.modelo,
                        COALESCE(SUM(e.valor), 0) as entradas,
@@ -7333,10 +7464,11 @@ def get_resumo_financeiro():
                 FROM veiculos v
                 LEFT JOIN entradas e ON v.id = e.veiculo_id AND e.data_entrada >= date("now", "-" || ? || " days")
                 LEFT JOIN despesas d ON v.id = d.veiculo_id AND d.data_despesa >= date("now", "-" || ? || " days")
+                WHERE v.empresa_id = ?
                 GROUP BY v.id, v.placa, v.modelo
                 HAVING entradas > 0 OR despesas > 0
                 ORDER BY saldo DESC
-            ''', (periodo_int, periodo_int))
+            ''', (periodo_int, periodo_int, empresa_id))
             resultado_veiculo = cursor.fetchall()
             
             conn.close()
