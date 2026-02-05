@@ -6427,17 +6427,30 @@ def exportar_csv():
         return jsonify({'error': str(e)}), 500
 
 
-def gerar_catalogo_pdf():
-    """Gera um PDF detalhado com todas as peças do catálogo"""
-    # Buscar todas as peças do banco
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
-        FROM pecas p 
-        LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
-        ORDER BY p.nome
-    ''')
+def gerar_catalogo_pdf(empresa_id):
+    """Gera um PDF detalhado com todas as peças do catálogo da empresa"""
+    # Buscar todas as peças do banco (filtrado por empresa)
+    if Config.IS_POSTGRES:
+        import psycopg2
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
+            FROM pecas p 
+            LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
+            WHERE p.empresa_id = %s
+            ORDER BY p.nome
+        ''', (empresa_id,))
+    else:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
+            FROM pecas p 
+            LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
+            WHERE p.empresa_id = ?
+            ORDER BY p.nome
+        ''', (empresa_id,))
     pecas = cursor.fetchall()
     conn.close()
     
@@ -6530,9 +6543,12 @@ def gerar_catalogo_pdf():
 @app.route('/catalogo-pdf')
 @login_required
 def catalogo_pdf():
+    from empresa_helpers import get_empresa_id
+    
     try:
+        empresa_id = get_empresa_id()
         # Gerar PDF atualizado
-        pdf_path = gerar_catalogo_pdf()
+        pdf_path = gerar_catalogo_pdf(empresa_id)
         return send_file(pdf_path, as_attachment=False, download_name='catalogo_pecas_detalhado.pdf')
     except Exception as e:
         return f"Erro ao gerar PDF: {str(e)}", 500
@@ -6719,9 +6735,15 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '5' or 'fornecedor' in mensagem or 'contato' in mensagem:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores LIMIT 3")
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores WHERE empresa_id = %s LIMIT 3", (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores WHERE empresa_id = ? LIMIT 3", (empresa_id,))
         fornecedores = cursor.fetchall()
         conn.close()
         
