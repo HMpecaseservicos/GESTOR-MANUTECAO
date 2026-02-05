@@ -228,4 +228,4 @@ Para dúvidas e suporte:
 
 ---
 
-**Desenvolvido com ❤️ para otimizar a gestão da sua frota!**
+**Desenvolvido com ❤️ para otimizar a gestão da sua frota!**# Cache bust Thu Feb  5 20:01:01 UTC 2026
