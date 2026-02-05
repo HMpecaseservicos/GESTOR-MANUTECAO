@@ -1236,14 +1236,17 @@ def usuarios():
             usuarios_lista = cursor.fetchall()
             
             # Estatísticas
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true", (empresa_id,))
-            stats['usuarios'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true", (empresa_id,))
+            result = cursor.fetchone()
+            stats['usuarios'] = result['cnt'] if result else 0
             
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'ADMIN'", (empresa_id,))
-            stats['admins'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'ADMIN'", (empresa_id,))
+            result = cursor.fetchone()
+            stats['admins'] = result['cnt'] if result else 0
             
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'OPERADOR'", (empresa_id,))
-            stats['operadores'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'OPERADOR'", (empresa_id,))
+            result = cursor.fetchone()
+            stats['operadores'] = result['cnt'] if result else 0
             
             cursor.close()
             conn.close()
@@ -4550,173 +4553,237 @@ def excluir_tecnico(tecnico_id):
 @app.route('/relatorios')
 @login_required
 def relatorios():
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    from empresa_helpers import get_empresa_id
+    
+    empresa_id = get_empresa_id()
     
     # Obter filtros da query string
     data_inicial = request.args.get('data_inicial', '')
     data_final = request.args.get('data_final', '')
     veiculo_id = request.args.get('veiculo_id', '')
     
-    # Construir condições WHERE
-    where_conditions = ["data_realizada IS NOT NULL"]
-    params = []
+    # Valores padrão
+    custos_mensais_json = []
+    veiculos_mais_manutencoes = []
+    tipos_manutencao_json = []
+    custo_total_ano = 0
+    media_mensal = 0
+    total_manutencoes = 0
+    manutencoes_emergenciais = 0
+    veiculos = []
     
-    if data_inicial:
-        where_conditions.append("data_realizada >= ?")
-        params.append(data_inicial)
-    
-    if data_final:
-        where_conditions.append("data_realizada <= ?")
-        params.append(data_final)
-    
-    if veiculo_id:
-        where_conditions.append("veiculo_id = ?")
-        params.append(veiculo_id)
-    
-    where_clause = " AND ".join(where_conditions)
-    
-    # Custo total de manutenção por mês (com filtros)
-    cursor.execute(f'''
-        SELECT strftime('%Y-%m', data_realizada) as mes, SUM(custo) as total
-        FROM manutencoes 
-        WHERE {where_clause}
-        GROUP BY mes 
-        ORDER BY mes DESC 
-        LIMIT 12
-    ''', params)
-    custos_mensais = cursor.fetchall()
-    print(f"DEBUG - Custos mensais: {custos_mensais}")
-    
-    # Converter custos mensais para formato JSON adequado
-    custos_mensais_json = [[row[0], row[1]] for row in custos_mensais]
-    
-    # Veículos com mais manutenções (com filtros de data)
-    where_veiculos = []
-    params_veiculos = []
-    if data_inicial:
-        where_veiculos.append("m.data_realizada >= ?")
-        params_veiculos.append(data_inicial)
-    if data_final:
-        where_veiculos.append("m.data_realizada <= ?")
-        params_veiculos.append(data_final)
-    if veiculo_id:
-        where_veiculos.append("v.id = ?")
-        params_veiculos.append(veiculo_id)
-    
-    where_veiculos_clause = " AND ".join(where_veiculos) if where_veiculos else "1=1"
-    
-    cursor.execute(f'''
-        SELECT v.placa, v.modelo, COUNT(m.id) as total_manutencoes
-        FROM veiculos v 
-        LEFT JOIN manutencoes m ON v.id = m.veiculo_id AND {where_veiculos_clause}
-        GROUP BY v.id 
-        ORDER BY total_manutencoes DESC 
-        LIMIT 10
-    ''', params_veiculos)
-    veiculos_mais_manutencoes = cursor.fetchall()
-    
-    # Tipos de manutenção (dados reais com filtros)
-    cursor.execute(f'''
-        SELECT tipo, COUNT(*) as quantidade
-        FROM manutencoes
-        WHERE {where_clause}
-        GROUP BY tipo
-        ORDER BY quantidade DESC
-    ''', params)
-    tipos_manutencao = cursor.fetchall()
-    print(f"DEBUG - Tipos manutenção: {tipos_manutencao}")
-    
-    # Converter tipos de manutenção para formato JSON adequado
-    tipos_manutencao_json = [[row[0], row[1]] for row in tipos_manutencao]
-    
-    # Estatísticas para os cards (com filtros)
-    # Custo total
-    if data_inicial or data_final or veiculo_id:
-        where_stats = []
-        params_stats = []
-        if data_inicial:
-            where_stats.append("data_realizada >= ?")
-            params_stats.append(data_inicial)
-        if data_final:
-            where_stats.append("data_realizada <= ?")
-            params_stats.append(data_final)
-        if veiculo_id:
-            where_stats.append("veiculo_id = ?")
-            params_stats.append(veiculo_id)
-        where_stats_clause = " AND ".join(where_stats)
-        
-        cursor.execute(f'''
-            SELECT COALESCE(SUM(custo), 0) as total
-            FROM manutencoes
-            WHERE {where_stats_clause}
-        ''', params_stats)
-    else:
-        cursor.execute('''
-            SELECT COALESCE(SUM(custo), 0) as total
-            FROM manutencoes
-                WHERE data_realizada >= date('now', '-12 months')
-        ''')
-    custo_total_ano = cursor.fetchone()[0]
-    
-    # Média mensal (com filtros)
-    if data_inicial or data_final or veiculo_id:
-        cursor.execute(f'''
-            SELECT COALESCE(AVG(custo_mensal), 0) as media
-            FROM (
-                SELECT SUM(custo) as custo_mensal
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Construir condições WHERE para PostgreSQL
+            where_conditions = ["m.data_realizada IS NOT NULL", "v.empresa_id = %s"]
+            params = [empresa_id]
+            
+            if data_inicial:
+                where_conditions.append("m.data_realizada >= %s")
+                params.append(data_inicial)
+            
+            if data_final:
+                where_conditions.append("m.data_realizada <= %s")
+                params.append(data_final)
+            
+            if veiculo_id:
+                where_conditions.append("m.veiculo_id = %s")
+                params.append(int(veiculo_id))
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Custo total de manutenção por mês (PostgreSQL usa TO_CHAR)
+            cursor.execute(f'''
+                SELECT TO_CHAR(m.data_realizada, 'YYYY-MM') as mes, COALESCE(SUM(m.custo_total), 0) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {where_clause}
+                GROUP BY TO_CHAR(m.data_realizada, 'YYYY-MM')
+                ORDER BY mes DESC 
+                LIMIT 12
+            ''', params)
+            custos_mensais = cursor.fetchall()
+            custos_mensais_json = [[row[0], float(row[1] or 0)] for row in custos_mensais]
+            
+            # Veículos com mais manutenções
+            cursor.execute(f'''
+                SELECT v.placa, v.modelo, COUNT(m.id) as total_manutencoes
+                FROM veiculos v 
+                LEFT JOIN manutencoes m ON v.id = m.veiculo_id AND m.data_realizada IS NOT NULL
+                WHERE v.empresa_id = %s
+                GROUP BY v.id, v.placa, v.modelo
+                ORDER BY total_manutencoes DESC 
+                LIMIT 10
+            ''', (empresa_id,))
+            veiculos_mais_manutencoes = cursor.fetchall()
+            
+            # Tipos de manutenção
+            cursor.execute(f'''
+                SELECT m.tipo, COUNT(*) as quantidade
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {where_clause}
+                GROUP BY m.tipo
+                ORDER BY quantidade DESC
+            ''', params)
+            tipos_manutencao = cursor.fetchall()
+            tipos_manutencao_json = [[row[0] or 'Não especificado', int(row[1])] for row in tipos_manutencao]
+            
+            # Estatísticas - Custo total
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(m.custo_total), 0) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {where_clause}
+            ''', params)
+            custo_total_ano = float(cursor.fetchone()[0] or 0)
+            
+            # Média mensal
+            cursor.execute(f'''
+                SELECT COALESCE(AVG(custo_mensal), 0) as media
+                FROM (
+                    SELECT SUM(m.custo_total) as custo_mensal
+                    FROM manutencoes m
+                    JOIN veiculos v ON m.veiculo_id = v.id
+                    WHERE {where_clause}
+                    GROUP BY TO_CHAR(m.data_realizada, 'YYYY-MM')
+                ) subq
+            ''', params)
+            media_mensal = float(cursor.fetchone()[0] or 0)
+            
+            # Total de manutenções
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE m.status = 'Concluída' AND {where_clause}
+            ''', params)
+            total_manutencoes = int(cursor.fetchone()[0] or 0)
+            
+            # Manutenções emergenciais
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE m.tipo = 'Emergencial' AND m.status = 'Concluída' AND {where_clause}
+            ''', params)
+            manutencoes_emergenciais = int(cursor.fetchone()[0] or 0)
+            
+            # Veículos para dropdown
+            cursor.execute('SELECT id, placa, modelo FROM veiculos WHERE empresa_id = %s ORDER BY placa', (empresa_id,))
+            veiculos = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+        else:
+            # SQLite original
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Construir condições WHERE
+            where_conditions = ["data_realizada IS NOT NULL"]
+            params = []
+            
+            if data_inicial:
+                where_conditions.append("data_realizada >= ?")
+                params.append(data_inicial)
+            
+            if data_final:
+                where_conditions.append("data_realizada <= ?")
+                params.append(data_final)
+            
+            if veiculo_id:
+                where_conditions.append("veiculo_id = ?")
+                params.append(veiculo_id)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Custo total de manutenção por mês
+            cursor.execute(f'''
+                SELECT strftime('%Y-%m', data_realizada) as mes, SUM(custo) as total
+                FROM manutencoes 
+                WHERE {where_clause}
+                GROUP BY mes 
+                ORDER BY mes DESC 
+                LIMIT 12
+            ''', params)
+            custos_mensais = cursor.fetchall()
+            custos_mensais_json = [[row[0], row[1]] for row in custos_mensais]
+            
+            # Veículos com mais manutenções
+            cursor.execute('''
+                SELECT v.placa, v.modelo, COUNT(m.id) as total_manutencoes
+                FROM veiculos v 
+                LEFT JOIN manutencoes m ON v.id = m.veiculo_id
+                GROUP BY v.id 
+                ORDER BY total_manutencoes DESC 
+                LIMIT 10
+            ''')
+            veiculos_mais_manutencoes = cursor.fetchall()
+            
+            # Tipos de manutenção
+            cursor.execute(f'''
+                SELECT tipo, COUNT(*) as quantidade
                 FROM manutencoes
-                WHERE {where_stats_clause}
-                GROUP BY strftime('%Y-%m', data_realizada)
-            )
-        ''', params_stats)
-    else:
-        cursor.execute('''
-            SELECT COALESCE(AVG(custo_mensal), 0) as media
-            FROM (
-                SELECT SUM(custo) as custo_mensal
+                WHERE {where_clause}
+                GROUP BY tipo
+                ORDER BY quantidade DESC
+            ''', params)
+            tipos_manutencao = cursor.fetchall()
+            tipos_manutencao_json = [[row[0], row[1]] for row in tipos_manutencao]
+            
+            # Custo total
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(custo), 0) as total
                 FROM manutencoes
-                WHERE data_realizada >= date('now', '-12 months')
-                GROUP BY strftime('%Y-%m', data_realizada)
-            )
-        ''')
-    media_mensal = cursor.fetchone()[0]
+                WHERE {where_clause}
+            ''', params)
+            custo_total_ano = cursor.fetchone()[0] or 0
+            
+            # Média mensal
+            cursor.execute(f'''
+                SELECT COALESCE(AVG(custo_mensal), 0) as media
+                FROM (
+                    SELECT SUM(custo) as custo_mensal
+                    FROM manutencoes
+                    WHERE {where_clause}
+                    GROUP BY strftime('%Y-%m', data_realizada)
+                )
+            ''', params)
+            media_mensal = cursor.fetchone()[0] or 0
+            
+            # Total de manutenções
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes
+                WHERE status = 'Concluída' AND {where_clause}
+            ''', params)
+            total_manutencoes = cursor.fetchone()[0] or 0
+            
+            # Manutenções emergenciais
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes
+                WHERE tipo = 'Emergencial' AND status = 'Concluída' AND {where_clause}
+            ''', params)
+            manutencoes_emergenciais = cursor.fetchone()[0] or 0
+            
+            # Veículos para dropdown
+            cursor.execute('SELECT id, placa, modelo FROM veiculos ORDER BY placa')
+            veiculos = cursor.fetchall()
+            
+            conn.close()
+            
+    except Exception as e:
+        print(f"Erro ao carregar relatórios: {e}")
+        import traceback
+        traceback.print_exc()
+        flash('Erro ao carregar dados dos relatórios.', 'danger')
     
-    # Total de manutenções realizadas (com filtros)
-    if data_inicial or data_final or veiculo_id:
-        cursor.execute(f'''
-            SELECT COUNT(*) as total
-            FROM manutencoes
-            WHERE status = 'Concluída' AND {where_stats_clause}
-        ''', params_stats)
-    else:
-        cursor.execute('''
-            SELECT COUNT(*) as total
-            FROM manutencoes
-            WHERE status = 'Concluída'
-        ''')
-    total_manutencoes = cursor.fetchone()[0]
-    
-    # Manutenções emergenciais (com filtros)
-    if data_inicial or data_final or veiculo_id:
-        cursor.execute(f'''
-            SELECT COUNT(*) as total
-            FROM manutencoes
-            WHERE tipo = 'Emergencial' AND status = 'Concluída' AND {where_stats_clause}
-        ''', params_stats)
-    else:
-        cursor.execute('''
-            SELECT COUNT(*) as total
-            FROM manutencoes
-            WHERE tipo = 'Emergencial' AND status = 'Concluída'
-        ''')
-    manutencoes_emergenciais = cursor.fetchone()[0]
-    
-    # Buscar todos os veículos para o dropdown
-    cursor.execute('SELECT id, placa, modelo FROM veiculos ORDER BY placa')
-    veiculos = cursor.fetchall()
-    
-    conn.close()
     return render_template('relatorios.html', 
                          custos_mensais=custos_mensais_json,
                          veiculos_mais_manutencoes=veiculos_mais_manutencoes,
@@ -6609,6 +6676,9 @@ def create_despesa():
 @login_required
 def get_resumo_financeiro():
     try:
+        from empresa_helpers import get_empresa_id
+        empresa_id = get_empresa_id()
+        
         periodo = request.args.get('periodo', '30')  # últimos 30 dias por padrão
         
         # Validar período (segurança)
@@ -6619,64 +6689,127 @@ def get_resumo_financeiro():
         except ValueError:
             periodo_int = 30
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Total de entradas
-        cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM entradas WHERE data_entrada >= date("now", "-" || ? || " days")', (periodo_int,))
-        total_entradas = cursor.fetchone()[0]
-        
-        # Total de despesas
-        cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM despesas WHERE data_despesa >= date("now", "-" || ? || " days")', (periodo_int,))
-        total_despesas = cursor.fetchone()[0]
-        
-        # Entradas por categoria
-        cursor.execute('''
-            SELECT c.nome, COALESCE(SUM(e.valor), 0)
-            FROM categorias_entrada c
-            LEFT JOIN entradas e ON c.id = e.categoria_id AND e.data_entrada >= date("now", "-" || ? || " days")
-            GROUP BY c.id, c.nome
-            ORDER BY SUM(e.valor) DESC
-        ''', (periodo_int,))
-        entradas_categoria = cursor.fetchall()
-        
-        # Despesas por categoria
-        cursor.execute('''
-            SELECT c.nome, COALESCE(SUM(d.valor), 0)
-            FROM categorias_despesa c
-            LEFT JOIN despesas d ON c.id = d.categoria_id AND d.data_despesa >= date("now", "-" || ? || " days")
-            GROUP BY c.id, c.nome
-            ORDER BY SUM(d.valor) DESC
-        ''', (periodo_int,))
-        despesas_categoria = cursor.fetchall()
-        
-        # Resultado por veículo
-        cursor.execute('''
-            SELECT v.placa, v.modelo,
-                   COALESCE(SUM(e.valor), 0) as entradas,
-                   COALESCE(SUM(d.valor), 0) as despesas,
-                   (COALESCE(SUM(e.valor), 0) - COALESCE(SUM(d.valor), 0)) as saldo
-            FROM veiculos v
-            LEFT JOIN entradas e ON v.id = e.veiculo_id AND e.data_entrada >= date("now", "-" || ? || " days")
-            LEFT JOIN despesas d ON v.id = d.veiculo_id AND d.data_despesa >= date("now", "-" || ? || " days")
-            GROUP BY v.id, v.placa, v.modelo
-            HAVING entradas > 0 OR despesas > 0
-            ORDER BY saldo DESC
-        ''', (periodo_int, periodo_int))
-        resultado_veiculo = cursor.fetchall()
-        
-        conn.close()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Total de entradas (PostgreSQL usa INTERVAL)
+            cursor.execute('''
+                SELECT COALESCE(SUM(e.valor), 0) 
+                FROM entradas e
+                JOIN veiculos v ON e.veiculo_id = v.id
+                WHERE v.empresa_id = %s AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
+            ''', (empresa_id, periodo_int))
+            total_entradas = float(cursor.fetchone()[0] or 0)
+            
+            # Total de despesas
+            cursor.execute('''
+                SELECT COALESCE(SUM(d.valor), 0) 
+                FROM despesas d
+                JOIN veiculos v ON d.veiculo_id = v.id
+                WHERE v.empresa_id = %s AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
+            ''', (empresa_id, periodo_int))
+            total_despesas = float(cursor.fetchone()[0] or 0)
+            
+            # Entradas por categoria
+            cursor.execute('''
+                SELECT c.nome, COALESCE(SUM(e.valor), 0)
+                FROM categorias_entrada c
+                LEFT JOIN entradas e ON c.id = e.categoria_id 
+                    AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
+                    AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = e.veiculo_id AND v.empresa_id = %s)
+                GROUP BY c.id, c.nome
+                ORDER BY SUM(e.valor) DESC NULLS LAST
+            ''', (periodo_int, empresa_id))
+            entradas_categoria = cursor.fetchall()
+            
+            # Despesas por categoria
+            cursor.execute('''
+                SELECT c.nome, COALESCE(SUM(d.valor), 0)
+                FROM categorias_despesa c
+                LEFT JOIN despesas d ON c.id = d.categoria_id 
+                    AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
+                    AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = d.veiculo_id AND v.empresa_id = %s)
+                GROUP BY c.id, c.nome
+                ORDER BY SUM(d.valor) DESC NULLS LAST
+            ''', (periodo_int, empresa_id))
+            despesas_categoria = cursor.fetchall()
+            
+            # Resultado por veículo
+            cursor.execute('''
+                SELECT v.placa, v.modelo,
+                       COALESCE((SELECT SUM(e.valor) FROM entradas e WHERE e.veiculo_id = v.id AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'), 0) as entradas,
+                       COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.veiculo_id = v.id AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'), 0) as despesas
+                FROM veiculos v
+                WHERE v.empresa_id = %s
+                ORDER BY (entradas - despesas) DESC
+            ''', (periodo_int, periodo_int, empresa_id))
+            resultado_veiculo = [(row[0], row[1], float(row[2] or 0), float(row[3] or 0), float(row[2] or 0) - float(row[3] or 0)) for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Total de entradas
+            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM entradas WHERE data_entrada >= date("now", "-" || ? || " days")', (periodo_int,))
+            total_entradas = cursor.fetchone()[0]
+            
+            # Total de despesas
+            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM despesas WHERE data_despesa >= date("now", "-" || ? || " days")', (periodo_int,))
+            total_despesas = cursor.fetchone()[0]
+            
+            # Entradas por categoria
+            cursor.execute('''
+                SELECT c.nome, COALESCE(SUM(e.valor), 0)
+                FROM categorias_entrada c
+                LEFT JOIN entradas e ON c.id = e.categoria_id AND e.data_entrada >= date("now", "-" || ? || " days")
+                GROUP BY c.id, c.nome
+                ORDER BY SUM(e.valor) DESC
+            ''', (periodo_int,))
+            entradas_categoria = cursor.fetchall()
+            
+            # Despesas por categoria
+            cursor.execute('''
+                SELECT c.nome, COALESCE(SUM(d.valor), 0)
+                FROM categorias_despesa c
+                LEFT JOIN despesas d ON c.id = d.categoria_id AND d.data_despesa >= date("now", "-" || ? || " days")
+                GROUP BY c.id, c.nome
+                ORDER BY SUM(d.valor) DESC
+            ''', (periodo_int,))
+            despesas_categoria = cursor.fetchall()
+            
+            # Resultado por veículo
+            cursor.execute('''
+                SELECT v.placa, v.modelo,
+                       COALESCE(SUM(e.valor), 0) as entradas,
+                       COALESCE(SUM(d.valor), 0) as despesas,
+                       (COALESCE(SUM(e.valor), 0) - COALESCE(SUM(d.valor), 0)) as saldo
+                FROM veiculos v
+                LEFT JOIN entradas e ON v.id = e.veiculo_id AND e.data_entrada >= date("now", "-" || ? || " days")
+                LEFT JOIN despesas d ON v.id = d.veiculo_id AND d.data_despesa >= date("now", "-" || ? || " days")
+                GROUP BY v.id, v.placa, v.modelo
+                HAVING entradas > 0 OR despesas > 0
+                ORDER BY saldo DESC
+            ''', (periodo_int, periodo_int))
+            resultado_veiculo = cursor.fetchall()
+            
+            conn.close()
         
         return jsonify({
             'success': True,
             'total_entradas': total_entradas,
             'total_despesas': total_despesas,
             'saldo': total_entradas - total_despesas,
-            'entradas_categoria': [{'categoria': row[0], 'valor': row[1]} for row in entradas_categoria],
-            'despesas_categoria': [{'categoria': row[0], 'valor': row[1]} for row in despesas_categoria],
-            'resultado_veiculo': [{'placa': row[0], 'modelo': row[1], 'entradas': row[2], 'despesas': row[3], 'saldo': row[4]} for row in resultado_veiculo]
+            'entradas_categoria': [{'categoria': row[0], 'valor': float(row[1] or 0)} for row in entradas_categoria],
+            'despesas_categoria': [{'categoria': row[0], 'valor': float(row[1] or 0)} for row in despesas_categoria],
+            'resultado_veiculo': [{'placa': row[0], 'modelo': row[1], 'entradas': float(row[2] or 0), 'despesas': float(row[3] or 0), 'saldo': float(row[4] if len(row) > 4 else (row[2] or 0) - (row[3] or 0))} for row in resultado_veiculo]
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)})
 
 # =============================================
