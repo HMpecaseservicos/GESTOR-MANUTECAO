@@ -635,22 +635,29 @@ document.addEventListener('DOMContentLoaded', function() {
     const editStatus = document.getElementById('edit-status');
     if (editStatus) {
         editStatus.addEventListener('change', function() {
-            const dataRealizadaRequired = document.getElementById('data-realizada-required');
-            const dataRealizadaHelp = document.getElementById('data-realizada-help');
-            const dataRealizadaInput = document.getElementById('edit-data-realizada');
-            
-            if (this.value === 'Concluída') {
-                dataRealizadaRequired.style.display = 'inline';
-                dataRealizadaHelp.style.display = 'block';
-                dataRealizadaInput.classList.add('border-danger');
-            } else {
-                dataRealizadaRequired.style.display = 'none';
-                dataRealizadaHelp.style.display = 'none';
-                dataRealizadaInput.classList.remove('border-danger');
-            }
+            verificarDataRealizadaObrigatoria(this.value);
         });
     }
 });
+
+// Função para verificar se data realizada é obrigatória
+function verificarDataRealizadaObrigatoria(status) {
+    const dataRealizadaRequired = document.getElementById('data-realizada-required');
+    const dataRealizadaHelp = document.getElementById('data-realizada-help');
+    const dataRealizadaInput = document.getElementById('edit-data-realizada');
+    
+    // Verificar se é status final (Concluída ou FINALIZADO)
+    const statusFinais = ['Concluída', 'FINALIZADO'];
+    if (statusFinais.includes(status)) {
+        dataRealizadaRequired.style.display = 'inline';
+        dataRealizadaHelp.style.display = 'block';
+        dataRealizadaInput.classList.add('border-danger');
+    } else {
+        dataRealizadaRequired.style.display = 'none';
+        dataRealizadaHelp.style.display = 'none';
+        dataRealizadaInput.classList.remove('border-danger');
+    }
+}
 
 // Função para carregar dados da manutenção para edição
 function editarManutencao(manutencaoId) {
@@ -669,26 +676,14 @@ function editarManutencao(manutencaoId) {
                 document.getElementById('edit-veiculo').value = manutencao.veiculo_id;
                 document.getElementById('edit-tipo').value = manutencao.tipo;
                 document.getElementById('edit-descricao').value = manutencao.descricao;
-                document.getElementById('edit-data-agendada').value = manutencao.data_agendada;
+                document.getElementById('edit-data-agendada').value = manutencao.data_agendada || '';
                 document.getElementById('edit-data-realizada').value = manutencao.data_realizada || '';
-                document.getElementById('edit-custo').value = manutencao.custo || '';
+                document.getElementById('edit-custo').value = manutencao.custo || 0;
                 document.getElementById('edit-status').value = manutencao.status;
                 document.getElementById('edit-tecnico').value = manutencao.tecnico || '';
                 
-                // Verificar se status é Concluída para mostrar aviso
-                const dataRealizadaRequired = document.getElementById('data-realizada-required');
-                const dataRealizadaHelp = document.getElementById('data-realizada-help');
-                const dataRealizadaInput = document.getElementById('edit-data-realizada');
-                
-                if (manutencao.status === 'Concluída') {
-                    dataRealizadaRequired.style.display = 'inline';
-                    dataRealizadaHelp.style.display = 'block';
-                    dataRealizadaInput.classList.add('border-danger');
-                } else {
-                    dataRealizadaRequired.style.display = 'none';
-                    dataRealizadaHelp.style.display = 'none';
-                    dataRealizadaInput.classList.remove('border-danger');
-                }
+                // Verificar se status requer data realizada
+                verificarDataRealizadaObrigatoria(manutencao.status);
                 
                 // Carregar peças da manutenção
                 carregarPecasEdicao(manutencao.id);
@@ -757,9 +752,10 @@ function salvarEdicaoManutencao() {
         return;
     }
     
-    // Validar data realizada se status for Concluída
-    if (dados.status === 'Concluída' && !dados.data_realizada) {
-        alert('⚠️ Para concluir uma manutenção, é obrigatório informar a Data Realizada!');
+    // Validar data realizada se status for Concluída ou FINALIZADO
+    const statusFinais = ['Concluída', 'FINALIZADO'];
+    if (statusFinais.includes(dados.status) && !dados.data_realizada) {
+        alert('⚠️ Para concluir/finalizar uma manutenção, é obrigatório informar a Data Realizada!');
         document.getElementById('edit-data-realizada').focus();
         return;
     }

@@ -2615,6 +2615,22 @@ def get_manutencao(manutencao_id):
             # Calcular total das peças
             total_pecas = sum(float(peca[7]) for peca in pecas_utilizadas) if pecas_utilizadas else 0
             
+            # Formatar datas para o formato esperado pelo input[type="date"] (YYYY-MM-DD)
+            data_agendada = manutencao[4]
+            data_realizada = manutencao[5]
+            
+            if data_agendada:
+                if hasattr(data_agendada, 'strftime'):
+                    data_agendada = data_agendada.strftime('%Y-%m-%d')
+                else:
+                    data_agendada = str(data_agendada)[:10]
+            
+            if data_realizada:
+                if hasattr(data_realizada, 'strftime'):
+                    data_realizada = data_realizada.strftime('%Y-%m-%d')
+                else:
+                    data_realizada = str(data_realizada)[:10]
+            
             return jsonify({
                 'success': True,
                 'manutencao': {
@@ -2622,9 +2638,9 @@ def get_manutencao(manutencao_id):
                     'veiculo_id': manutencao[1],
                     'tipo': manutencao[2],
                     'descricao': manutencao[3],
-                    'data_agendada': manutencao[4],
-                    'data_realizada': manutencao[5],
-                    'custo': manutencao[6],
+                    'data_agendada': data_agendada,
+                    'data_realizada': data_realizada,
+                    'custo': float(manutencao[6]) if manutencao[6] else 0,
                     'status': manutencao[7],
                     'tecnico': manutencao[8],
                     'veiculo_placa': manutencao[9],
@@ -2634,10 +2650,10 @@ def get_manutencao(manutencao_id):
                     {
                         'id': peca[0],
                         'quantidade': peca[3],
-                        'preco_unitario': peca[4],
+                        'preco_unitario': float(peca[4]) if peca[4] else 0,
                         'nome': peca[5],
                         'codigo': peca[6],
-                        'subtotal': peca[7]
+                        'subtotal': float(peca[7]) if peca[7] else 0
                     } for peca in pecas_utilizadas
                 ],
                 'total_pecas': total_pecas
