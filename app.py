@@ -3843,6 +3843,8 @@ def pecas():
         cursor.execute(f"SELECT id, nome FROM fornecedores WHERE empresa_id = {placeholder}", (empresa_id,))
         fornecedores = cursor.fetchall()
         
+        print(f"DEBUG /pecas: empresa_id={empresa_id}, fornecedores={fornecedores}")
+        
         conn.close()
         return render_template('pecas.html', pecas=pecas_list, fornecedores=fornecedores)
     except Exception as e:
