@@ -1050,15 +1050,20 @@ function carregarPecasUtilizadas() {
             html += '<thead><tr><th>Peça</th><th>Código</th><th>Qtd</th><th>Preço Unit.</th><th>Subtotal</th></tr></thead><tbody>';
             
             pecas.forEach(peca => {
-                const subtotal = parseFloat(peca[3]) * parseFloat(peca[4]);
-                totalGeral += subtotal;
+                // A API retorna objetos com propriedades nomeadas
+                const quantidade = peca.quantidade || peca[3] || 0;
+                const precoUnitario = peca.preco_unitario || peca[4] || 0;
+                const nome = peca.nome || peca[5] || 'N/A';
+                const codigo = peca.codigo || peca[6] || 'N/A';
+                const subtotal = peca.subtotal || (parseFloat(quantidade) * parseFloat(precoUnitario));
+                totalGeral += parseFloat(subtotal);
                 
                 html += `<tr>
-                    <td><strong>${peca[6]}</strong></td>
-                    <td><small>${peca[7]}</small></td>
-                    <td>${peca[3]}</td>
-                    <td>${formatarMoedaBR(parseFloat(peca[4]))}</td>
-                    <td>${formatarMoedaBR(subtotal)}</td>
+                    <td><strong>${nome}</strong></td>
+                    <td><small>${codigo}</small></td>
+                    <td>${quantidade}</td>
+                    <td>${formatarMoedaBR(parseFloat(precoUnitario))}</td>
+                    <td>${formatarMoedaBR(parseFloat(subtotal))}</td>
                 </tr>`;
             });
             
