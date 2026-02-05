@@ -1575,46 +1575,98 @@ def toggle_usuario_status():
 @app.route('/')
 @login_required
 def dashboard():
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    from empresa_helpers import get_empresa_id
     
-    # Estatísticas gerais
-    cursor.execute("SELECT COUNT(*) FROM veiculos")
-    total_veiculos = cursor.fetchone()[0]
+    empresa_id = get_empresa_id()
     
-    cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE status = 'Agendada'")
-    manutencoes_pendentes = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE status = 'Concluída' AND data_realizada >= date('now', '-30 days')")
-    manutencoes_30_dias = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE status = 'Ativo'")
-    tecnicos_ativos = cursor.fetchone()[0]
-    
-    # Próximas manutenções
-    cursor.execute('''
-        SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
-        FROM manutencoes m 
-        JOIN veiculos v ON m.veiculo_id = v.id 
-        WHERE m.status = 'Agendada' 
-        ORDER BY m.data_agendada 
-        LIMIT 5
-    ''')
-    proximas_manutencoes = cursor.fetchall()
-    
-    # Alertas de estoque baixo
-    cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 3")
-    alertas_estoque = cursor.fetchall()
-    
-    conn.close()
-    
-    return render_template('dashboard.html', 
-                         total_veiculos=total_veiculos,
-                         manutencoes_pendentes=manutencoes_pendentes,
-                         manutencoes_30_dias=manutencoes_30_dias,
-                         tecnicos_ativos=tecnicos_ativos,
-                         proximas_manutencoes=proximas_manutencoes,
-                         alertas_estoque=alertas_estoque)
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Estatísticas gerais (filtrado por empresa)
+            cursor.execute("SELECT COUNT(*) FROM veiculos WHERE empresa_id = %s", (empresa_id,))
+            total_veiculos = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')", (empresa_id,))
+            manutencoes_pendentes = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Concluída', 'FINALIZADO', 'FATURADO') AND data_realizada >= CURRENT_DATE - INTERVAL '30 days'", (empresa_id,))
+            manutencoes_30_dias = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s AND status = 'Ativo'", (empresa_id,))
+            tecnicos_ativos = cursor.fetchone()[0]
+            
+            # Próximas manutenções
+            cursor.execute('''
+                SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
+                FROM manutencoes m 
+                JOIN veiculos v ON m.veiculo_id = v.id 
+                WHERE m.empresa_id = %s AND m.status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
+                ORDER BY m.data_agendada 
+                LIMIT 5
+            ''', (empresa_id,))
+            proximas_manutencoes = cursor.fetchall()
+            
+            # Alertas de estoque baixo
+            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE empresa_id = %s AND quantidade_estoque < 3", (empresa_id,))
+            alertas_estoque = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            # Estatísticas gerais
+            cursor.execute("SELECT COUNT(*) FROM veiculos WHERE empresa_id = ?", (empresa_id,))
+            total_veiculos = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ? AND status = 'Agendada'", (empresa_id,))
+            manutencoes_pendentes = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ? AND status = 'Concluída' AND data_realizada >= date('now', '-30 days')", (empresa_id,))
+            manutencoes_30_dias = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ? AND status = 'Ativo'", (empresa_id,))
+            tecnicos_ativos = cursor.fetchone()[0]
+            
+            # Próximas manutenções
+            cursor.execute('''
+                SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
+                FROM manutencoes m 
+                JOIN veiculos v ON m.veiculo_id = v.id 
+                WHERE m.empresa_id = ? AND m.status = 'Agendada' 
+                ORDER BY m.data_agendada 
+                LIMIT 5
+            ''', (empresa_id,))
+            proximas_manutencoes = cursor.fetchall()
+            
+            # Alertas de estoque baixo
+            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE empresa_id = ? AND quantidade_estoque < 3", (empresa_id,))
+            alertas_estoque = cursor.fetchall()
+            
+            conn.close()
+        
+        return render_template('dashboard.html', 
+                             total_veiculos=total_veiculos,
+                             manutencoes_pendentes=manutencoes_pendentes,
+                             manutencoes_30_dias=manutencoes_30_dias,
+                             tecnicos_ativos=tecnicos_ativos,
+                             proximas_manutencoes=proximas_manutencoes,
+                             alertas_estoque=alertas_estoque)
+    except Exception as e:
+        print(f"Erro no dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('dashboard.html', 
+                             total_veiculos=0,
+                             manutencoes_pendentes=0,
+                             manutencoes_30_dias=0,
+                             tecnicos_ativos=0,
+                             proximas_manutencoes=[],
+                             alertas_estoque=[])
 
 @app.route('/veiculos')
 @login_required
