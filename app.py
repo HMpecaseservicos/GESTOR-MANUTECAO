@@ -4183,8 +4183,19 @@ def criar_fornecedor():
     from empresa_helpers import get_empresa_id
     
     try:
+        print(f"DEBUG: Content-Type: {request.content_type}")
+        print(f"DEBUG: Request data: {request.data}")
+        
         empresa_id = get_empresa_id()
-        data = request.json
+        data = request.get_json(force=True)  # Force parse JSON
+        
+        print(f"DEBUG: Dados recebidos: {data}")
+        
+        if not data or not data.get('nome'):
+            return jsonify({
+                'success': False,
+                'message': 'Nome é obrigatório'
+            }), 400
         
         if Config.IS_POSTGRES:
             import psycopg2
