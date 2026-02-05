@@ -3714,37 +3714,48 @@ def adicionar_peca_manutencao(manutencao_id):
             WHERE id = {placeholder}
         ''', (quantidade, peca_id))
         
-        try:
-            # Gerar despesa automática para a peça (opcional - não bloqueia se falhar)
-            cursor.execute(f'SELECT nome FROM pecas WHERE id = {placeholder}', (peca_id,))
-            nome_peca = cursor.fetchone()[0]
-            
-            cursor.execute(f'SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = {placeholder}', (manutencao_id,))
-            manutencao_info = cursor.fetchone()
-            veiculo_id, data_realizada, data_agendada = manutencao_info
-            
-            # Buscar categoria "Peças e Componentes"
-            cursor.execute(f'SELECT id FROM categorias_despesa WHERE nome = {placeholder}', ('Peças e Componentes',))
-            categoria_peca = cursor.fetchone()
-            categoria_id = categoria_peca[0] if categoria_peca else None
-            
-            # Criar despesa automática para a peça
-            valor_total = preco * quantidade
-            data_despesa = data_realizada if data_realizada else data_agendada
-            descricao_despesa = f"Peça: {nome_peca} (Qtd: {quantidade})"
-            
-            cursor.execute(f'''
-                INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
-                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-            ''', (descricao_despesa, valor_total, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
-            print(f"DEBUG: Despesa automática criada")
-        except Exception as despesa_error:
-            print(f"DEBUG: Erro ao criar despesa (não crítico): {despesa_error}")
-            # Continua mesmo se falhar ao criar despesa
-        
+        # Commit principal - peça adicionada e estoque atualizado
         print(f"DEBUG: Fazendo commit")
         conn.commit()
         print(f"DEBUG: Peça adicionada com sucesso!")
+        
+        # Tentar criar despesa automática em transação separada (não bloqueia se falhar)
+        try:
+            if Config.IS_POSTGRES:
+                conn2 = psycopg2.connect(Config.DATABASE_URL)
+                cursor2 = conn2.cursor()
+                
+                cursor2.execute('SELECT nome FROM pecas WHERE id = %s', (peca_id,))
+                nome_peca = cursor2.fetchone()[0]
+                
+                cursor2.execute('SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = %s', (manutencao_id,))
+                manutencao_info = cursor2.fetchone()
+                veiculo_id, data_realizada, data_agendada = manutencao_info
+                
+                # Verificar se tabela categorias_despesa existe
+                cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'categorias_despesa')")
+                if cursor2.fetchone()[0]:
+                    cursor2.execute("SELECT id FROM categorias_despesa WHERE nome = 'Peças e Componentes'")
+                    categoria_peca = cursor2.fetchone()
+                    categoria_id = categoria_peca[0] if categoria_peca else None
+                    
+                    # Verificar se tabela despesas existe
+                    cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'despesas')")
+                    if cursor2.fetchone()[0]:
+                        valor_total = float(preco) * quantidade
+                        data_despesa = data_realizada if data_realizada else data_agendada
+                        descricao_despesa = f"Peça: {nome_peca} (Qtd: {quantidade})"
+                        
+                        cursor2.execute('''
+                            INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ''', (descricao_despesa, valor_total, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
+                        conn2.commit()
+                        print(f"DEBUG: Despesa automática criada")
+                
+                conn2.close()
+        except Exception as despesa_error:
+            print(f"DEBUG: Erro ao criar despesa (não crítico): {despesa_error}")
         
         return jsonify({'success': True, 'message': f'Peça adicionada com sucesso! Estoque atualizado.'})
     except Exception as e:
