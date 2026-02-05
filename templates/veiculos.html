@@ -51,14 +51,14 @@
                     {% for veiculo in veiculos %}
                     <tr>
                         <td>
-                            <span class="badge bg-secondary">{{ veiculo[1] }}</span>
+                            <span class="badge bg-secondary">{{ veiculo.tipo }}</span>
                         </td>
                         <td>
-                            <strong>{{ veiculo[2] }}</strong><br>
-                            <small class="text-muted">{{ veiculo[3] }}</small>
+                            <strong>{{ veiculo.marca }}</strong><br>
+                            <small class="text-muted">{{ veiculo.modelo }}</small>
                         </td>
                         <td>
-                            <strong class="text-primary">{{ veiculo[4] }}</strong>
+                            <strong class="text-primary">{{ veiculo.placa }}</strong>
                         </td>
                         {% if is_servico %}
                         <td>
@@ -69,39 +69,39 @@
                             {% endif %}
                         </td>
                         {% endif %}
-                        <td>{{ veiculo[5] }}</td>
+                        <td>{{ veiculo.ano }}</td>
                         <td>
-                            <span class="badge bg-info">{{ "{:,}".format(veiculo[6]|default(0, true)) }} km</span>
+                            <span class="badge bg-info">{{ "{:,}".format(veiculo.quilometragem|default(0, true)) }} km</span>
                         </td>
                         <td>
-                            {% if veiculo[7] %}
-                                <small class="text-warning">{{ veiculo[7] }}</small>
+                            {% if veiculo.proxima_manutencao %}
+                                <small class="text-warning">{{ veiculo.proxima_manutencao }}</small>
                             {% else %}
                                 <small class="text-muted">Não agendada</small>
                             {% endif %}
                         </td>
                         <td>
-                            {% if veiculo[8] == 'Operacional' %}
-                                <span class="badge bg-success">{{ veiculo[8] }}</span>
-                            {% elif veiculo[8] == 'Manutenção' %}
-                                <span class="badge bg-warning">{{ veiculo[8] }}</span>
+                            {% if veiculo.status == 'Operacional' %}
+                                <span class="badge bg-success">{{ veiculo.status }}</span>
+                            {% elif veiculo.status == 'Manutenção' %}
+                                <span class="badge bg-warning">{{ veiculo.status }}</span>
                             {% else %}
-                                <span class="badge bg-danger">{{ veiculo[8] }}</span>
+                                <span class="badge bg-danger">{{ veiculo.status }}</span>
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge bg-primary">{{ veiculo[9] }}</span>
+                            <span class="badge bg-primary">{{ veiculo.total_manutencoes|default(0) }}</span>
                         </td>
                         <td>
                             <div class="btn-group" role="group">
-                                <a href="{{ url_for('detalhes_veiculo', veiculo_id=veiculo[0]) }}" 
+                                <a href="{{ url_for('detalhes_veiculo', veiculo_id=veiculo.id) }}" 
                                    class="btn btn-sm btn-outline-primary" title="Ver Detalhes">
                                     <i class="fas fa-eye"></i>
                                 </a>
-                                <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarVeiculo({{ veiculo[0] }})">
+                                <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarVeiculo({{ veiculo.id }})">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="excluirVeiculo({{ veiculo[0] }}, '{{ veiculo[2] }} {{ veiculo[3] }} - {{ veiculo[4] }}')">
+                                <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="excluirVeiculo({{ veiculo.id }}, '{{ veiculo.marca }} {{ veiculo.modelo }} - {{ veiculo.placa }}')">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
