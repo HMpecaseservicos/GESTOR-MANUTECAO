@@ -2449,9 +2449,13 @@ def manutencao():
         placeholder = '?'
     
     # Buscar manutenções com telefone de técnicos OU fornecedores (FILTRADO POR EMPRESA)
+    # Ordem: id, veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_total, status, tecnico, 
+    #        observacoes, km_veiculo, data_criacao, custo_mao_obra, placa, modelo, telefone
     cursor.execute(f'''
         SELECT 
-            m.*, 
+            m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada,
+            m.custo_total, m.status, m.tecnico, m.observacoes, m.km_veiculo, 
+            m.data_criacao, m.custo_mao_obra,
             v.placa, 
             v.modelo, 
             COALESCE(t.telefone, f.telefone) as telefone
