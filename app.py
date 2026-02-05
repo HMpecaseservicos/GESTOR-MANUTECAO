@@ -3876,6 +3876,13 @@ def add_peca():
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
+            
+            # Verificar se código já existe para esta empresa
+            cursor.execute('SELECT id FROM pecas WHERE codigo = %s AND empresa_id = %s', (codigo, empresa_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
+            
             cursor.execute('''
                 INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -3883,6 +3890,13 @@ def add_peca():
         else:
             conn = sqlite3.connect(DATABASE)
             cursor = conn.cursor()
+            
+            # Verificar se código já existe para esta empresa
+            cursor.execute('SELECT id FROM pecas WHERE codigo = ? AND empresa_id = ?', (codigo, empresa_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
+            
             cursor.execute('''
                 INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -3893,7 +3907,10 @@ def add_peca():
         
         return jsonify({'success': True, 'message': 'Peça adicionada com sucesso!'})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
+        error_msg = str(e)
+        if 'unique_codigo_empresa' in error_msg or 'UNIQUE constraint' in error_msg:
+            return jsonify({'success': False, 'message': f'Já existe uma peça com este código. Use outro código.'})
+        return jsonify({'success': False, 'message': error_msg})
 
 # Rota para editar peça
 @app.route('/pecas/edit/<int:peca_id>', methods=['POST'])
