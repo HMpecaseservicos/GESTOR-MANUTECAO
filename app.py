@@ -626,7 +626,7 @@ def login():
 def logout():
     """Rota de logout"""
     if current_user.is_authenticated:
-        log_action(current_user.id, 'LOGOUT', None, None, 'Logout realizado')
+        log_action(current_user.id, 'LOGOUT', 'Logout realizado')
     logout_user()
     flash('Você saiu do sistema com sucesso.', 'info')
     return redirect(url_for('login'))
