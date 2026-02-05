@@ -10,6 +10,7 @@
     <!-- FullCalendar CSS -->
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_css %}{% endblock %}
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -282,5 +283,6 @@
         return cores[tipo] || 'secondary';
     }
     </script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
