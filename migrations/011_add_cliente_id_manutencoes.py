@@ -10,7 +10,7 @@ from migrations.migration_manager import BaseMigration
 class Migration(BaseMigration):
     """Adicionar cliente_id em manutencoes para vincular ao cliente"""
     
-    version = 9
+    version = 11
     description = "Adicionar cliente_id na tabela manutencoes"
     
     def up(self):
