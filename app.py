@@ -3815,34 +3815,41 @@ def remover_peca_manutencao(manutencao_id, item_id):
 def pecas():
     from empresa_helpers import get_empresa_id
     
-    empresa_id = get_empresa_id()
-    
-    if Config.IS_POSTGRES:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        placeholder = '%s'
-    else:
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        placeholder = '?'
-    
-    cursor.execute(f'''
-        SELECT p.*, f.nome as fornecedor_nome, f.telefone as fornecedor_telefone, f.email as fornecedor_email
-        FROM pecas p 
-        JOIN fornecedores f ON p.fornecedor_id = f.id
-        WHERE p.empresa_id = {placeholder}
-    ''', (empresa_id,))
-    pecas = cursor.fetchall()
-    
-    # Buscar fornecedores para os selects (da empresa)
-    cursor.execute(f"SELECT * FROM fornecedores WHERE empresa_id = {placeholder}", (empresa_id,))
-    fornecedores = cursor.fetchall()
-    
-    conn.close()
-    return render_template('pecas.html', pecas=pecas, fornecedores=fornecedores)
+    try:
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            placeholder = '%s'
+        else:
+            conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            placeholder = '?'
+        
+        # Usar LEFT JOIN para não falhar quando não há fornecedor
+        cursor.execute(f'''
+            SELECT p.*, f.nome as fornecedor_nome, f.telefone as fornecedor_telefone, f.email as fornecedor_email
+            FROM pecas p 
+            LEFT JOIN fornecedores f ON p.fornecedor_id = f.id
+            WHERE p.empresa_id = {placeholder}
+        ''', (empresa_id,))
+        pecas_list = cursor.fetchall()
+        
+        # Buscar fornecedores para os selects (da empresa)
+        cursor.execute(f"SELECT id, nome FROM fornecedores WHERE empresa_id = {placeholder}", (empresa_id,))
+        fornecedores = cursor.fetchall()
+        
+        conn.close()
+        return render_template('pecas.html', pecas=pecas_list, fornecedores=fornecedores)
+    except Exception as e:
+        print(f"ERRO na rota /pecas: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('pecas.html', pecas=[], fornecedores=[])
 
 # Rota para adicionar nova peça
 @app.route('/pecas/add', methods=['POST'])
