@@ -5021,6 +5021,11 @@ def criar_tecnico():
         empresa_id = get_empresa_id()
         data = request.json
         
+        # Tratar campos vazios como NULL para PostgreSQL
+        data_admissao = data.get('data_admissao', '') or None
+        cpf = data.get('cpf', '') or None
+        email = data.get('email', '') or None
+        
         if Config.IS_POSTGRES:
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
@@ -5033,11 +5038,11 @@ def criar_tecnico():
             ''', (
                 empresa_id,
                 data['nome'],
-                data.get('cpf', ''),
+                cpf,
                 data.get('telefone', ''),
-                data.get('email', ''),
+                email,
                 data.get('especialidade', ''),
-                data.get('data_admissao', ''),
+                data_admissao,
                 data.get('status', 'Ativo')
             ))
             
@@ -5052,11 +5057,11 @@ def criar_tecnico():
             ''', (
                 empresa_id,
                 data['nome'],
-                data.get('cpf', ''),
+                cpf,
                 data.get('telefone', ''),
-                data.get('email', ''),
+                email,
                 data.get('especialidade', ''),
-                data.get('data_admissao', ''),
+                data_admissao,
                 data.get('status', 'Ativo')
             ))
             
