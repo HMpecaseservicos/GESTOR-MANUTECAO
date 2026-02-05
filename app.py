@@ -536,11 +536,17 @@ def cadastro():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT id FROM usuarios WHERE username = ?', (username,))
+        if Config.IS_POSTGRES:
+            cursor.execute('SELECT id FROM usuarios WHERE username = %s', (username,))
+        else:
+            cursor.execute('SELECT id FROM usuarios WHERE username = ?', (username,))
         if cursor.fetchone():
             erros.append('Este nome de usuário já está em uso')
         
-        cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
+        if Config.IS_POSTGRES:
+            cursor.execute('SELECT id FROM usuarios WHERE email = %s', (email,))
+        else:
+            cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
         if cursor.fetchone():
             erros.append('Este email já está cadastrado')
         
@@ -561,23 +567,39 @@ def cadastro():
             limite = limites.get(plano, limites['basico'])
             
             # Criar a empresa (com tipo_operacao - ETAPA 1 HÍBRIDO)
-            cursor.execute('''
-                INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
-                                     limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, datetime('now'))
-            ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
-                  plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
-            
-            empresa_id = cursor.lastrowid
+            if Config.IS_POSTGRES:
+                cursor.execute('''
+                    INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
+                                         limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
+                    VALUES (%s, %s, %s, %s, %s, true, %s, %s, %s, NOW())
+                    RETURNING id
+                ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
+                      plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
+                empresa_id = cursor.fetchone()[0]
+            else:
+                cursor.execute('''
+                    INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
+                                         limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, datetime('now'))
+                ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
+                      plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
+                empresa_id = cursor.lastrowid
             
             # Criar o usuário administrador
             password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
             
-            cursor.execute('''
-                INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
-                                     role, empresa_id, ativo, data_criacao)
-                VALUES (?, ?, ?, ?, ?, 'Admin', ?, 1, datetime('now'))
-            ''', (username, password_hash, nome, email, telefone, empresa_id))
+            if Config.IS_POSTGRES:
+                cursor.execute('''
+                    INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
+                                         role, empresa_id, ativo, data_criacao)
+                    VALUES (%s, %s, %s, %s, %s, 'Admin', %s, true, NOW())
+                ''', (username, password_hash, nome, email, telefone, empresa_id))
+            else:
+                cursor.execute('''
+                    INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
+                                         role, empresa_id, ativo, data_criacao)
+                    VALUES (?, ?, ?, ?, ?, 'Admin', ?, 1, datetime('now'))
+                ''', (username, password_hash, nome, email, telefone, empresa_id))
             
             conn.commit()
             conn.close()
