@@ -3846,6 +3846,7 @@ def pecas():
 
 # Rota para adicionar nova peça
 @app.route('/pecas/add', methods=['POST'])
+@csrf.exempt
 @login_required
 def add_peca():
     from empresa_helpers import get_empresa_id
@@ -3884,6 +3885,7 @@ def add_peca():
 
 # Rota para editar peça
 @app.route('/pecas/edit/<int:peca_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 def edit_peca(peca_id):
     from empresa_helpers import get_empresa_id
@@ -3924,6 +3926,7 @@ def edit_peca(peca_id):
 
 # Rota para deletar peça
 @app.route('/pecas/delete/<int:peca_id>', methods=['DELETE'])
+@csrf.exempt
 @login_required
 def delete_peca(peca_id):
     from empresa_helpers import get_empresa_id
@@ -3950,6 +3953,7 @@ def delete_peca(peca_id):
 
 # Rota para ajustar estoque
 @app.route('/pecas/estoque/<int:peca_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 def ajustar_estoque(peca_id):
     from empresa_helpers import get_empresa_id
