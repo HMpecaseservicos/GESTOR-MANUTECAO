@@ -1910,44 +1910,67 @@ def api_veiculos():
 @app.route('/veiculo/<int:veiculo_id>')
 @login_required
 def detalhes_veiculo(veiculo_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    from empresa_helpers import get_empresa_id
     
-    cursor.execute("SELECT * FROM veiculos WHERE id = ?", (veiculo_id,))
+    empresa_id = get_empresa_id()
+    
+    if Config.IS_POSTGRES:
+        import psycopg2
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
+        date_func = "CURRENT_DATE"
+    else:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        placeholder = '?'
+        date_func = "date('now')"
+    
+    # Buscar veículo com filtro por empresa_id (isolamento de dados)
+    cursor.execute(f"SELECT * FROM veiculos WHERE id = {placeholder} AND empresa_id = {placeholder}", 
+                   (veiculo_id, empresa_id))
     veiculo = cursor.fetchone()
     
-    cursor.execute("SELECT * FROM manutencoes WHERE veiculo_id = ? ORDER BY data_agendada DESC", (veiculo_id,))
+    # Se veículo não encontrado ou não pertence à empresa, retornar 404
+    if not veiculo:
+        conn.close()
+        abort(404)
+    
+    cursor.execute(f"SELECT * FROM manutencoes WHERE veiculo_id = {placeholder} ORDER BY data_agendada DESC", 
+                   (veiculo_id,))
     manutencoes = cursor.fetchall()
     
     # Busca a próxima manutenção agendada (status='Agendada' e data >= hoje)
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT data_agendada 
         FROM manutencoes 
-        WHERE veiculo_id = ? 
+        WHERE veiculo_id = {placeholder}
         AND status = 'Agendada' 
-        AND date(data_agendada) >= date('now')
+        AND date(data_agendada) >= {date_func}
         ORDER BY data_agendada ASC 
         LIMIT 1
     """, (veiculo_id,))
     proxima_manutencao = cursor.fetchone()
     proxima_data = proxima_manutencao[0] if proxima_manutencao else None
     
-    cursor.execute('''
+    cursor.execute(f'''
         SELECT DISTINCT p.*, f.nome as fornecedor_nome 
         FROM pecas p 
         JOIN fornecedores f ON p.fornecedor_id = f.id 
         JOIN manutencao_pecas mp ON p.id = mp.peca_id
         JOIN manutencoes m ON mp.manutencao_id = m.id
-        WHERE m.veiculo_id = ?
+        WHERE m.veiculo_id = {placeholder}
         ORDER BY p.nome
     ''', (veiculo_id,))
     pecas_compativeis = cursor.fetchall()
     
-    # Busca técnicos e fornecedores para o modal de agendamento
-    cursor.execute("SELECT * FROM tecnicos ORDER BY nome")
+    # Busca técnicos e fornecedores para o modal de agendamento (filtrado por empresa)
+    cursor.execute(f"SELECT * FROM tecnicos WHERE empresa_id = {placeholder} ORDER BY nome", 
+                   (empresa_id,))
     tecnicos = cursor.fetchall()
     
-    cursor.execute("SELECT * FROM fornecedores WHERE especialidade LIKE '%serviço%' OR especialidade LIKE '%Serviço%' ORDER BY nome")
+    cursor.execute(f"SELECT * FROM fornecedores WHERE empresa_id = {placeholder} AND (especialidade LIKE '%serviço%' OR especialidade LIKE '%Serviço%') ORDER BY nome", 
+                   (empresa_id,))
     fornecedores_servicos = cursor.fetchall()
     
     conn.close()
@@ -2357,12 +2380,33 @@ def obter_veiculo(veiculo_id):
 @login_required
 def excluir_veiculo(veiculo_id):
     """Excluir um veículo"""
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            placeholder = '%s'
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            placeholder = '?'
+        
+        # Verificar se o veículo pertence à empresa
+        cursor.execute(f"SELECT id FROM veiculos WHERE id = {placeholder} AND empresa_id = {placeholder}", 
+                       (veiculo_id, empresa_id))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({
+                'success': False,
+                'message': 'Veículo não encontrado ou sem permissão!'
+            }), 404
         
         # Verificar se o veículo tem manutenções associadas
-        cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE veiculo_id = ?", (veiculo_id,))
+        cursor.execute(f"SELECT COUNT(*) FROM manutencoes WHERE veiculo_id = {placeholder}", (veiculo_id,))
         count = cursor.fetchone()[0]
         
         if count > 0:
@@ -2373,7 +2417,8 @@ def excluir_veiculo(veiculo_id):
             }), 400
         
         # Excluir o veículo
-        cursor.execute("DELETE FROM veiculos WHERE id = ?", (veiculo_id,))
+        cursor.execute(f"DELETE FROM veiculos WHERE id = {placeholder} AND empresa_id = {placeholder}", 
+                       (veiculo_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -2392,11 +2437,19 @@ def excluir_veiculo(veiculo_id):
 @app.route('/manutencao')
 @login_required
 def manutencao():
+    from empresa_helpers import get_empresa_id
+    
+    empresa_id = get_empresa_id()
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Buscar manutenções com telefone de técnicos OU fornecedores
-    cursor.execute('''
+    if Config.IS_POSTGRES:
+        placeholder = '%s'
+    else:
+        placeholder = '?'
+    
+    # Buscar manutenções com telefone de técnicos OU fornecedores (FILTRADO POR EMPRESA)
+    cursor.execute(f'''
         SELECT 
             m.*, 
             v.placa, 
@@ -2404,20 +2457,23 @@ def manutencao():
             COALESCE(t.telefone, f.telefone) as telefone
         FROM manutencoes m 
         JOIN veiculos v ON m.veiculo_id = v.id 
-        LEFT JOIN tecnicos t ON m.tecnico = t.nome
-        LEFT JOIN fornecedores f ON m.tecnico = f.nome
+        LEFT JOIN tecnicos t ON m.tecnico = t.nome AND t.empresa_id = {placeholder}
+        LEFT JOIN fornecedores f ON m.tecnico = f.nome AND f.empresa_id = {placeholder}
+        WHERE m.empresa_id = {placeholder}
         ORDER BY m.id DESC
-    ''')
+    ''', (empresa_id, empresa_id, empresa_id))
     manutencoes = cursor.fetchall()
     
-    cursor.execute("SELECT id, placa, modelo FROM veiculos")
+    # Buscar veículos (FILTRADO POR EMPRESA)
+    cursor.execute(f"SELECT id, placa, modelo FROM veiculos WHERE empresa_id = {placeholder}", (empresa_id,))
     veiculos = cursor.fetchall()
     
-    cursor.execute("SELECT id, nome FROM tecnicos WHERE status='Ativo' ORDER BY nome")
+    # Buscar técnicos (FILTRADO POR EMPRESA)
+    cursor.execute(f"SELECT id, nome FROM tecnicos WHERE status='Ativo' AND empresa_id = {placeholder} ORDER BY nome", (empresa_id,))
     tecnicos = cursor.fetchall()
     
-    # Buscar TODOS os fornecedores que prestam serviços (especialidade contém 'Serviço' ou 'serviço')
-    cursor.execute("SELECT id, nome, telefone FROM fornecedores WHERE especialidade LIKE '%serviço%' OR especialidade LIKE '%Serviço%' ORDER BY nome")
+    # Buscar fornecedores que prestam serviços (FILTRADO POR EMPRESA)
+    cursor.execute(f"SELECT id, nome, telefone FROM fornecedores WHERE empresa_id = {placeholder} AND (especialidade LIKE '%%serviço%%' OR especialidade LIKE '%%Serviço%%') ORDER BY nome", (empresa_id,))
     fornecedores_servicos = cursor.fetchall()
     
     conn.close()
@@ -2445,13 +2501,13 @@ def criar_manutencao():
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
             
-            # Inserir manutenção
+            # Inserir manutenção (inclui empresa_id para isolamento de dados)
             cursor.execute('''
-                INSERT INTO manutencoes (veiculo_id, tipo, descricao, data_agendada, tecnico, status, custo_estimado)
+                INSERT INTO manutencoes (empresa_id, veiculo_id, tipo, descricao, data_agendada, tecnico, status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            ''', (data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
-                  data.get('tecnico'), status_inicial, data.get('custo_estimado')))
+            ''', (empresa_id, data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
+                  data.get('tecnico'), status_inicial))
             
             manutencao_id = cursor.fetchone()[0]
             
@@ -2517,24 +2573,37 @@ def criar_manutencao():
 @app.route('/manutencao/get/<int:manutencao_id>')
 @login_required
 def get_manutencao(manutencao_id):
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            placeholder = '%s'
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            placeholder = '?'
+        
+        # Buscar manutenção com filtro por empresa_id (isolamento de dados)
+        cursor.execute(f'''
             SELECT m.*, v.placa, v.modelo 
             FROM manutencoes m 
             JOIN veiculos v ON m.veiculo_id = v.id
-            WHERE m.id=?
-        ''', (manutencao_id,))
+            WHERE m.id = {placeholder} AND m.empresa_id = {placeholder}
+        ''', (manutencao_id, empresa_id))
         manutencao = cursor.fetchone()
         
         # Buscar peças utilizadas na manutenção
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario,
                    p.nome, p.codigo, (mp.quantidade * mp.preco_unitario) as subtotal
             FROM manutencao_pecas mp
             JOIN pecas p ON mp.peca_id = p.id
-            WHERE mp.manutencao_id = ?
+            WHERE mp.manutencao_id = {placeholder}
             ORDER BY mp.id DESC
         ''', (manutencao_id,))
         pecas_utilizadas = cursor.fetchall()
@@ -3338,10 +3407,23 @@ def edit_manutencao(manutencao_id):
 @app.route('/manutencao/delete/<int:manutencao_id>', methods=['DELETE'])
 @login_required
 def delete_manutencao(manutencao_id):
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM manutencoes WHERE id=?', (manutencao_id,))
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM manutencoes WHERE id = %s AND empresa_id = %s', 
+                           (manutencao_id, empresa_id))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM manutencoes WHERE id = ? AND empresa_id = ?', 
+                           (manutencao_id, empresa_id))
+        
         conn.commit()
         conn.close()
         
@@ -3353,7 +3435,10 @@ def delete_manutencao(manutencao_id):
 @app.route('/manutencao/status/<int:manutencao_id>', methods=['POST'])
 @login_required
 def update_status_manutencao(manutencao_id):
+    from empresa_helpers import get_empresa_id
+    
     try:
+        empresa_id = get_empresa_id()
         novo_status = request.form['status']
         data_realizada = None
         
@@ -3362,13 +3447,24 @@ def update_status_manutencao(manutencao_id):
             from datetime import datetime
             data_realizada = datetime.now().strftime('%Y-%m-%d')
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE manutencoes 
-            SET status=?, data_realizada=?
-            WHERE id=?
-        ''', (novo_status, data_realizada, manutencao_id))
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE manutencoes 
+                SET status = %s, data_realizada = %s
+                WHERE id = %s AND empresa_id = %s
+            ''', (novo_status, data_realizada, manutencao_id, empresa_id))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE manutencoes 
+                SET status = ?, data_realizada = ?
+                WHERE id = ? AND empresa_id = ?
+            ''', (novo_status, data_realizada, manutencao_id, empresa_id))
+        
         conn.commit()
         conn.close()
         
@@ -3380,67 +3476,95 @@ def update_status_manutencao(manutencao_id):
 @app.route('/manutencao/<int:manutencao_id>/pecas')
 @login_required
 def get_pecas_manutencao(manutencao_id):
-    conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
-               p.nome, p.codigo, p.preco,
-               (mp.quantidade * mp.preco_unitario) as subtotal
-        FROM manutencao_pecas mp
-        JOIN pecas p ON mp.peca_id = p.id
-        WHERE mp.manutencao_id = ?
-        ORDER BY mp.id DESC
-    ''', (manutencao_id,))
-    pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
+    if Config.IS_POSTGRES:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute('''
+            SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
+                   p.nome, p.codigo, p.preco,
+                   (mp.quantidade * mp.preco_unitario) as subtotal
+            FROM manutencao_pecas mp
+            JOIN pecas p ON mp.peca_id = p.id
+            WHERE mp.manutencao_id = %s
+            ORDER BY mp.id DESC
+        ''', (manutencao_id,))
+        pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
+    else:
+        conn = sqlite3.connect(DATABASE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
+                   p.nome, p.codigo, p.preco,
+                   (mp.quantidade * mp.preco_unitario) as subtotal
+            FROM manutencao_pecas mp
+            JOIN pecas p ON mp.peca_id = p.id
+            WHERE mp.manutencao_id = ?
+            ORDER BY mp.id DESC
+        ''', (manutencao_id,))
+        pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
+    
     conn.close()
     return jsonify(pecas_utilizadas)
 
 @app.route('/manutencao/<int:manutencao_id>/pecas/disponiveis')
 @login_required
 def get_pecas_disponiveis(manutencao_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    from empresa_helpers import get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    
+    if Config.IS_POSTGRES:
+        import psycopg2
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
+    else:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        placeholder = '?'
     
     # Buscar informações do veículo da manutenção
-    cursor.execute('''
+    cursor.execute(f'''
         SELECT v.modelo, v.marca, v.tipo
         FROM manutencoes m
         JOIN veiculos v ON m.veiculo_id = v.id
-        WHERE m.id = ?
+        WHERE m.id = {placeholder}
     ''', (manutencao_id,))
     veiculo = cursor.fetchone()
     
-    # Buscar TODAS as peças com estoque disponível
+    # Buscar TODAS as peças com estoque disponível (filtrado por empresa)
     # Priorizar peças compatíveis, mas mostrar todas
     if veiculo:
         marca = veiculo[1].lower()
         modelo = veiculo[0].lower()
         tipo = veiculo[2].lower()
         
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT p.*, f.nome as fornecedor_nome,
                    CASE 
                        WHEN LOWER(p.veiculo_compativel) = 'universal' THEN 1
-                       WHEN LOWER(p.veiculo_compativel) LIKE ? THEN 2
-                       WHEN LOWER(p.veiculo_compativel) LIKE ? THEN 3
-                       WHEN LOWER(p.veiculo_compativel) LIKE ? THEN 4
+                       WHEN LOWER(p.veiculo_compativel) LIKE {placeholder} THEN 2
+                       WHEN LOWER(p.veiculo_compativel) LIKE {placeholder} THEN 3
+                       WHEN LOWER(p.veiculo_compativel) LIKE {placeholder} THEN 4
                        ELSE 5
                    END as prioridade
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
-            WHERE p.quantidade_estoque > 0
+            WHERE p.quantidade_estoque > 0 AND p.empresa_id = {placeholder}
             ORDER BY prioridade, p.nome
-        ''', (f'%{marca}%', f'%{modelo}%', f'%{tipo}%'))
+        ''', (f'%{marca}%', f'%{modelo}%', f'%{tipo}%', empresa_id))
     else:
         # Se não conseguir identificar veículo, mostrar todas com estoque
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT p.*, f.nome as fornecedor_nome, 1 as prioridade
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
-            WHERE p.quantidade_estoque > 0
+            WHERE p.quantidade_estoque > 0 AND p.empresa_id = {placeholder}
             ORDER BY p.nome
-        ''')
+        ''', (empresa_id,))
     
     pecas_disponiveis = cursor.fetchall()
     conn.close()
@@ -3454,41 +3578,52 @@ def get_pecas_disponiveis(manutencao_id):
 @login_required
 def buscar_pecas_manutencao(manutencao_id):
     """Buscar peças por nome ou código para adicionar em manutenção"""
-    search_term = request.args.get('q', '').strip()
+    from empresa_helpers import get_empresa_id
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    search_term = request.args.get('q', '').strip()
+    empresa_id = get_empresa_id()
+    
+    if Config.IS_POSTGRES:
+        import psycopg2
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
+    else:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        placeholder = '?'
     
     if search_term:
-        # Buscar por nome, código ou compatibilidade
-        cursor.execute('''
+        # Buscar por nome, código ou compatibilidade (filtrado por empresa)
+        cursor.execute(f'''
             SELECT p.*, f.nome as fornecedor_nome
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
             WHERE p.quantidade_estoque > 0
+            AND p.empresa_id = {placeholder}
             AND (
-                LOWER(p.nome) LIKE ? OR 
-                LOWER(p.codigo) LIKE ? OR
-                LOWER(p.veiculo_compativel) LIKE ?
+                LOWER(p.nome) LIKE {placeholder} OR 
+                LOWER(p.codigo) LIKE {placeholder} OR
+                LOWER(p.veiculo_compativel) LIKE {placeholder}
             )
             ORDER BY 
                 CASE 
-                    WHEN LOWER(p.nome) LIKE ? THEN 1
-                    WHEN LOWER(p.codigo) LIKE ? THEN 2
+                    WHEN LOWER(p.nome) LIKE {placeholder} THEN 1
+                    WHEN LOWER(p.codigo) LIKE {placeholder} THEN 2
                     ELSE 3
                 END,
                 p.nome
-        ''', (f'%{search_term.lower()}%', f'%{search_term.lower()}%', f'%{search_term.lower()}%',
+        ''', (empresa_id, f'%{search_term.lower()}%', f'%{search_term.lower()}%', f'%{search_term.lower()}%',
               f'%{search_term.lower()}%', f'%{search_term.lower()}%'))
     else:
         # Se não há termo de busca, retornar todas com estoque
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT p.*, f.nome as fornecedor_nome
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
-            WHERE p.quantidade_estoque > 0
+            WHERE p.quantidade_estoque > 0 AND p.empresa_id = {placeholder}
             ORDER BY p.nome
-        ''')
+        ''', (empresa_id,))
     
     pecas = cursor.fetchall()
     conn.close()
@@ -3506,11 +3641,18 @@ def adicionar_peca_manutencao(manutencao_id):
         
         print(f"DEBUG: Adicionando peça {peca_id} (qtd: {quantidade}) à manutenção {manutencao_id}")
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            placeholder = '%s'
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            placeholder = '?'
         
         # Verificar se há estoque suficiente
-        cursor.execute('SELECT quantidade_estoque, preco FROM pecas WHERE id = ?', (peca_id,))
+        cursor.execute(f'SELECT quantidade_estoque, preco FROM pecas WHERE id = {placeholder}', (peca_id,))
         peca = cursor.fetchone()
         
         if not peca:
@@ -3523,30 +3665,30 @@ def adicionar_peca_manutencao(manutencao_id):
         # Adicionar peça à manutenção
         print(f"DEBUG: Inserindo na tabela manutencao_pecas")
         print(f"DEBUG: Valores - manutencao_id={manutencao_id}, peca_id={peca_id}, quantidade={quantidade}, preco={preco}")
-        cursor.execute('''
+        cursor.execute(f'''
             INSERT INTO manutencao_pecas (manutencao_id, peca_id, quantidade, preco_unitario)
-            VALUES (?, ?, ?, ?)
+            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})
         ''', (manutencao_id, peca_id, quantidade, preco))
         print(f"DEBUG: INSERT bem sucedido!")
         
         # Dar baixa no estoque
         print(f"DEBUG: Atualizando estoque")
-        cursor.execute('''
-            UPDATE pecas SET quantidade_estoque = quantidade_estoque - ?
-            WHERE id = ?
+        cursor.execute(f'''
+            UPDATE pecas SET quantidade_estoque = quantidade_estoque - {placeholder}
+            WHERE id = {placeholder}
         ''', (quantidade, peca_id))
         
         try:
             # Gerar despesa automática para a peça (opcional - não bloqueia se falhar)
-            cursor.execute('SELECT nome FROM pecas WHERE id = ?', (peca_id,))
+            cursor.execute(f'SELECT nome FROM pecas WHERE id = {placeholder}', (peca_id,))
             nome_peca = cursor.fetchone()[0]
             
-            cursor.execute('SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = ?', (manutencao_id,))
+            cursor.execute(f'SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = {placeholder}', (manutencao_id,))
             manutencao_info = cursor.fetchone()
             veiculo_id, data_realizada, data_agendada = manutencao_info
             
             # Buscar categoria "Peças e Componentes"
-            cursor.execute('SELECT id FROM categorias_despesa WHERE nome = ?', ('Peças e Componentes',))
+            cursor.execute(f'SELECT id FROM categorias_despesa WHERE nome = {placeholder}', ('Peças e Componentes',))
             categoria_peca = cursor.fetchone()
             categoria_id = categoria_peca[0] if categoria_peca else None
             
@@ -3555,9 +3697,9 @@ def adicionar_peca_manutencao(manutencao_id):
             data_despesa = data_realizada if data_realizada else data_agendada
             descricao_despesa = f"Peça: {nome_peca} (Qtd: {quantidade})"
             
-            cursor.execute('''
+            cursor.execute(f'''
                 INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
             ''', (descricao_despesa, valor_total, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
             print(f"DEBUG: Despesa automática criada")
         except Exception as despesa_error:
@@ -4875,8 +5017,8 @@ def relatorios():
             ''', params)
             manutencoes_emergenciais = cursor.fetchone()[0] or 0
             
-            # Veículos para dropdown
-            cursor.execute('SELECT id, placa, modelo FROM veiculos ORDER BY placa')
+            # Veículos para dropdown (FILTRADO POR EMPRESA)
+            cursor.execute('SELECT id, placa, modelo FROM veiculos WHERE empresa_id = ? ORDER BY placa', (empresa_id,))
             veiculos = cursor.fetchall()
             
             conn.close()
