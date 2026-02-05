@@ -4177,6 +4177,7 @@ def fornecedores():
     return render_template('fornecedores.html', fornecedores=fornecedores)
 
 @app.route('/fornecedores/criar', methods=['POST'])
+@csrf.exempt
 @login_required
 def criar_fornecedor():
     """Criar novo fornecedor"""
