@@ -3820,30 +3820,33 @@ def pecas():
         
         if Config.IS_POSTGRES:
             import psycopg2
-            from psycopg2.extras import RealDictCursor
             conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor = conn.cursor()  # Tuplas para compatibilidade com template
             placeholder = '%s'
         else:
             conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             placeholder = '?'
         
-        # Usar LEFT JOIN para não falhar quando não há fornecedor
+        # SELECT com colunas na ordem esperada pelo template:
+        # [0]=id, [1]=nome, [2]=codigo, [3]=veiculo_compativel, [4]=preco, 
+        # [5]=fornecedor_id, [6]=quantidade_estoque, [7]=fornecedor_nome,
+        # [8]=fornecedor_telefone, [9]=fornecedor_email
         cursor.execute(f'''
-            SELECT p.*, f.nome as fornecedor_nome, f.telefone as fornecedor_telefone, f.email as fornecedor_email
+            SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, 
+                   p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome,
+                   f.telefone as fornecedor_telefone, f.email as fornecedor_email
             FROM pecas p 
             LEFT JOIN fornecedores f ON p.fornecedor_id = f.id
             WHERE p.empresa_id = {placeholder}
         ''', (empresa_id,))
         pecas_list = cursor.fetchall()
         
-        # Buscar fornecedores para os selects (da empresa)
+        # Buscar fornecedores para os selects (da empresa) - tuplas
         cursor.execute(f"SELECT id, nome FROM fornecedores WHERE empresa_id = {placeholder}", (empresa_id,))
         fornecedores = cursor.fetchall()
         
-        print(f"DEBUG /pecas: empresa_id={empresa_id}, fornecedores={fornecedores}")
+        print(f"DEBUG /pecas: empresa_id={empresa_id}, pecas={len(pecas_list)}, fornecedores={fornecedores}")
         
         conn.close()
         return render_template('pecas.html', pecas=pecas_list, fornecedores=fornecedores)
