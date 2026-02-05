@@ -71,7 +71,7 @@
                         {% endif %}
                         <td>{{ veiculo[5] }}</td>
                         <td>
-                            <span class="badge bg-info">{{ "{:,}".format(veiculo[6]) }} km</span>
+                            <span class="badge bg-info">{{ "{:,}".format(veiculo[6]|default(0, true)) }} km</span>
                         </td>
                         <td>
                             {% if veiculo[7] %}
