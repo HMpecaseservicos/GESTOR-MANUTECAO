@@ -640,33 +640,71 @@ def logout():
 @login_required
 def configuracoes():
     """Página de configurações do usuário"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Buscar dados do usuário
-    cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = ?', 
-                   (current_user.id,))
-    row = cursor.fetchone()
-    usuario = {
-        'id': row[0],
-        'username': row[1],
-        'email': row[2],
-        'nome': row[3],
-        'telefone': row[4],
-        'role': row[5],
-        'empresa_id': row[6]
-    }
-    
-    # Buscar dados da empresa
-    empresa = None
-    if usuario['empresa_id']:
-        cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = ?', (usuario['empresa_id'],))
-        emp_row = cursor.fetchone()
-        if emp_row:
-            empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
-    
-    conn.close()
-    return render_template('configuracoes.html', usuario=usuario, empresa=empresa)
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Buscar dados do usuário
+            cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = %s', 
+                           (current_user.id,))
+            row = cursor.fetchone()
+            usuario = {
+                'id': row[0],
+                'username': row[1],
+                'email': row[2],
+                'nome': row[3],
+                'telefone': row[4],
+                'role': row[5],
+                'empresa_id': row[6]
+            }
+            
+            # Buscar dados da empresa
+            empresa = None
+            if usuario['empresa_id']:
+                cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = %s', (usuario['empresa_id'],))
+                emp_row = cursor.fetchone()
+                if emp_row:
+                    empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
+            
+            cursor.close()
+            conn.close()
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Buscar dados do usuário
+            cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = ?', 
+                           (current_user.id,))
+            row = cursor.fetchone()
+            usuario = {
+                'id': row[0],
+                'username': row[1],
+                'email': row[2],
+                'nome': row[3],
+                'telefone': row[4],
+                'role': row[5],
+                'empresa_id': row[6]
+            }
+            
+            # Buscar dados da empresa
+            empresa = None
+            if usuario['empresa_id']:
+                cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = ?', (usuario['empresa_id'],))
+                emp_row = cursor.fetchone()
+                if emp_row:
+                    empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
+            
+            conn.close()
+        
+        return render_template('configuracoes.html', usuario=usuario, empresa=empresa)
+    except Exception as e:
+        print(f"Erro em configuracoes: {e}")
+        import traceback
+        traceback.print_exc()
+        flash('Erro ao carregar configurações.', 'danger')
+        return redirect(url_for('dashboard'))
 
 
 @app.route('/atualizar_perfil', methods=['POST'])
@@ -677,24 +715,50 @@ def atualizar_perfil():
     email = request.form.get('email', '').strip()
     telefone = request.form.get('telefone', '').strip()
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se email já está em uso por outro usuário
+            cursor.execute('SELECT id FROM usuarios WHERE email = %s AND id != %s', (email, current_user.id))
+            if cursor.fetchone():
+                flash('Este email já está em uso por outro usuário.', 'danger')
+                cursor.close()
+                conn.close()
+                return redirect(url_for('configuracoes'))
+            
+            cursor.execute('''
+                UPDATE usuarios SET nome = %s, email = %s, telefone = %s WHERE id = %s
+            ''', (nome, email, telefone, current_user.id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Verificar se email já está em uso por outro usuário
+            cursor.execute('SELECT id FROM usuarios WHERE email = ? AND id != ?', (email, current_user.id))
+            if cursor.fetchone():
+                flash('Este email já está em uso por outro usuário.', 'danger')
+                conn.close()
+                return redirect(url_for('configuracoes'))
+            
+            cursor.execute('''
+                UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?
+            ''', (nome, email, telefone, current_user.id))
+            
+            conn.commit()
+            conn.close()
+        
+        flash('Perfil atualizado com sucesso!', 'success')
+    except Exception as e:
+        print(f"Erro ao atualizar perfil: {e}")
+        flash('Erro ao atualizar perfil.', 'danger')
     
-    # Verificar se email já está em uso por outro usuário
-    cursor.execute('SELECT id FROM usuarios WHERE email = ? AND id != ?', (email, current_user.id))
-    if cursor.fetchone():
-        flash('Este email já está em uso por outro usuário.', 'danger')
-        conn.close()
-        return redirect(url_for('configuracoes'))
-    
-    cursor.execute('''
-        UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?
-    ''', (nome, email, telefone, current_user.id))
-    
-    conn.commit()
-    conn.close()
-    
-    flash('Perfil atualizado com sucesso!', 'success')
     return redirect(url_for('configuracoes'))
 
 

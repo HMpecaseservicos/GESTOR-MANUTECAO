@@ -257,26 +257,29 @@ def contar_recursos_usados(cursor, empresa_id):
         'usuarios': 0
     }
     
-    # Contar clientes
-    cursor.execute("""
-        SELECT COUNT(*) FROM clientes 
-        WHERE empresa_id = %s AND ativo = true
-    """, (empresa_id,))
-    resultado['clientes'] = cursor.fetchone()[0]
-    
-    # Contar veículos
-    cursor.execute("""
-        SELECT COUNT(*) FROM veiculos 
-        WHERE empresa_id = %s AND ativo = true
-    """, (empresa_id,))
-    resultado['veiculos'] = cursor.fetchone()[0]
-    
-    # Contar usuários
-    cursor.execute("""
-        SELECT COUNT(*) FROM usuarios 
-        WHERE empresa_id = %s AND ativo = true
-    """, (empresa_id,))
-    resultado['usuarios'] = cursor.fetchone()[0]
+    try:
+        # Contar clientes (tabela clientes pode ter ativo)
+        cursor.execute("""
+            SELECT COUNT(*) FROM clientes 
+            WHERE empresa_id = %s
+        """, (empresa_id,))
+        resultado['clientes'] = cursor.fetchone()[0] or 0
+        
+        # Contar veículos (tabela veiculos NÃO tem coluna ativo)
+        cursor.execute("""
+            SELECT COUNT(*) FROM veiculos 
+            WHERE empresa_id = %s
+        """, (empresa_id,))
+        resultado['veiculos'] = cursor.fetchone()[0] or 0
+        
+        # Contar usuários
+        cursor.execute("""
+            SELECT COUNT(*) FROM usuarios 
+            WHERE empresa_id = %s AND ativo = true
+        """, (empresa_id,))
+        resultado['usuarios'] = cursor.fetchone()[0] or 0
+    except Exception as e:
+        print(f"Erro ao contar recursos: {e}")
     
     return resultado
 
