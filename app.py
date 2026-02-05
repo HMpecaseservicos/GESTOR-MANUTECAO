@@ -2480,12 +2480,17 @@ def manutencao():
     cursor.execute(f"SELECT id, nome, telefone FROM fornecedores WHERE empresa_id = {placeholder} AND (especialidade LIKE '%%serviço%%' OR especialidade LIKE '%%Serviço%%') ORDER BY nome", (empresa_id,))
     fornecedores_servicos = cursor.fetchall()
     
+    # Buscar clientes (FILTRADO POR EMPRESA) - para vincular à OS
+    cursor.execute(f"SELECT id, nome, telefone FROM clientes WHERE empresa_id = {placeholder} AND status = 'Ativo' ORDER BY nome", (empresa_id,))
+    clientes = cursor.fetchall()
+    
     conn.close()
     return render_template('manutencao.html', 
                          manutencoes=manutencoes, 
                          veiculos=veiculos, 
                          tecnicos=tecnicos,
-                         fornecedores_servicos=fornecedores_servicos)
+                         fornecedores_servicos=fornecedores_servicos,
+                         clientes=clientes)
 
 @app.route('/api/manutencao', methods=['POST'])
 @login_required
@@ -2595,7 +2600,7 @@ def get_manutencao(manutencao_id):
         # Buscar manutenção com filtro por empresa_id (isolamento de dados)
         cursor.execute(f'''
             SELECT m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada, 
-                   m.custo_mao_obra, m.status, m.tecnico, v.placa, v.modelo
+                   m.custo_mao_obra, m.status, m.tecnico, v.placa, v.modelo, m.cliente_id
             FROM manutencoes m 
             JOIN veiculos v ON m.veiculo_id = v.id
             WHERE m.id = {placeholder} AND m.empresa_id = {placeholder}
@@ -2648,7 +2653,8 @@ def get_manutencao(manutencao_id):
                     'status': manutencao[7],
                     'tecnico': manutencao[8],
                     'veiculo_placa': manutencao[9],
-                    'veiculo_modelo': manutencao[10]
+                    'veiculo_modelo': manutencao[10],
+                    'cliente_id': manutencao[11]
                 },
                 'pecas_utilizadas': [
                     {
@@ -2745,6 +2751,128 @@ def gerar_orcamento(manutencao_id):
         return jsonify({'success': True, 'message': 'Orçamento gerado com sucesso'})
     except Exception as e:
         print(f"Erro ao gerar orçamento: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/manutencao/<int:manutencao_id>/orcamento-whatsapp')
+@login_required
+def get_orcamento_whatsapp(manutencao_id):
+    """Gera mensagem de orçamento formatada para enviar ao cliente via WhatsApp"""
+    from empresa_helpers import is_servico, get_empresa_id
+    
+    if not is_servico():
+        return jsonify({'success': False, 'message': 'Recurso disponível apenas para modo Serviço'}), 403
+    
+    try:
+        empresa_id = get_empresa_id()
+        
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Buscar dados da manutenção com veículo e cliente
+        cursor.execute('''
+            SELECT m.id, m.descricao, m.data_agendada, m.tipo, m.cliente_id,
+                   v.placa, v.modelo, v.marca,
+                   c.nome as cliente_nome, c.telefone as cliente_telefone
+            FROM manutencoes m
+            JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN clientes c ON m.cliente_id = c.id
+            WHERE m.id = %s AND m.empresa_id = %s
+        ''', (manutencao_id, empresa_id))
+        manutencao = cursor.fetchone()
+        
+        if not manutencao:
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        
+        if not manutencao['cliente_id']:
+            return jsonify({'success': False, 'message': 'Esta ordem de serviço não tem um cliente vinculado. Por favor, edite e vincule um cliente.'}), 400
+        
+        if not manutencao['cliente_telefone']:
+            return jsonify({'success': False, 'message': f"O cliente {manutencao['cliente_nome']} não tem telefone cadastrado."}), 400
+        
+        # Buscar serviços da manutenção
+        cursor.execute('''
+            SELECT nome_servico, quantidade, valor_unitario, subtotal
+            FROM manutencao_servicos
+            WHERE manutencao_id = %s
+            ORDER BY id
+        ''', (manutencao_id,))
+        servicos = cursor.fetchall()
+        
+        # Buscar peças da manutenção
+        cursor.execute('''
+            SELECT p.nome, mp.quantidade, mp.preco_unitario, (mp.quantidade * mp.preco_unitario) as subtotal
+            FROM manutencao_pecas mp
+            JOIN pecas p ON mp.peca_id = p.id
+            WHERE mp.manutencao_id = %s
+        ''', (manutencao_id,))
+        pecas = cursor.fetchall()
+        
+        # Buscar empresa para nome fantasia
+        cursor.execute('SELECT nome_fantasia, telefone FROM empresas WHERE id = %s', (empresa_id,))
+        empresa = cursor.fetchone()
+        
+        conn.close()
+        
+        # Calcular totais
+        total_servicos = sum(float(s['subtotal'] or 0) for s in servicos)
+        total_pecas = sum(float(p['subtotal'] or 0) for p in pecas)
+        total_geral = total_servicos + total_pecas
+        
+        # Formatar lista de serviços
+        servicos_texto = ""
+        for s in servicos:
+            servicos_texto += f"\n• {s['nome_servico']} ({int(s['quantidade'])}x) - R$ {float(s['subtotal']):.2f}".replace('.', ',')
+        
+        # Formatar lista de peças
+        pecas_texto = ""
+        for p in pecas:
+            pecas_texto += f"\n• {p['nome']} ({int(p['quantidade'])}x) - R$ {float(p['subtotal']):.2f}".replace('.', ',')
+        
+        # Montar mensagem
+        mensagem = f"""*📋 ORÇAMENTO - {empresa['nome_fantasia'] if empresa else 'Oficina'}*
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Olá *{manutencao['cliente_nome']}*!
+
+Segue o orçamento para o serviço solicitado:
+
+*🚗 VEÍCULO*
+> {manutencao['marca']} {manutencao['modelo']}
+> Placa: {manutencao['placa']}
+
+*📝 DESCRIÇÃO*
+{manutencao['descricao']}
+
+*🔧 SERVIÇOS*{servicos_texto if servicos_texto else chr(10) + '• Nenhum serviço adicionado'}
+
+*⚙️ PEÇAS*{pecas_texto if pecas_texto else chr(10) + '• Nenhuma peça adicionada'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+*💰 TOTAL SERVIÇOS:* R$ {total_servicos:.2f}
+*💰 TOTAL PEÇAS:* R$ {total_pecas:.2f}
+*💵 TOTAL GERAL:* R$ {total_geral:.2f}
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Este orçamento é válido por 7 dias.
+
+*Para aprovar, responda:* ✅ APROVAR
+*Para recusar, responda:* ❌ RECUSAR
+
+_Ficamos à disposição para esclarecer qualquer dúvida!_
+📞 {empresa['telefone'] if empresa and empresa['telefone'] else ''}""".replace('.', ',').replace(',00', ',00').replace('R$', 'R$ ')
+        
+        return jsonify({
+            'success': True,
+            'cliente_nome': manutencao['cliente_nome'],
+            'cliente_telefone': manutencao['cliente_telefone'],
+            'mensagem': mensagem
+        })
+        
+    except Exception as e:
+        print(f"Erro ao gerar orçamento WhatsApp: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -3302,6 +3430,7 @@ def edit_manutencao(manutencao_id):
             custo = data.get('custo')
             status = data.get('status')
             tecnico = data.get('tecnico')
+            cliente_id = data.get('cliente_id')
             servicos_items = data.get('servicos', [])
         else:
             veiculo_id = request.form['veiculo_id']
@@ -3312,6 +3441,7 @@ def edit_manutencao(manutencao_id):
             custo = request.form.get('custo', None)
             status = request.form['status']
             tecnico = request.form['tecnico']
+            cliente_id = request.form.get('cliente_id', None)
             servicos_items = []
         
         # Converter campos vazios para None
@@ -3321,6 +3451,10 @@ def edit_manutencao(manutencao_id):
             custo = None
         else:
             custo = float(custo) if custo else None
+        if cliente_id == '' or cliente_id is None:
+            cliente_id = None
+        else:
+            cliente_id = int(cliente_id) if cliente_id else None
         
         empresa_id = get_empresa_id()
         
@@ -3344,9 +3478,9 @@ def edit_manutencao(manutencao_id):
             cursor.execute('''
                 UPDATE manutencoes 
                 SET veiculo_id=%s, tipo=%s, descricao=%s, data_agendada=%s, data_realizada=%s, 
-                    custo_total=%s, status=%s, tecnico=%s, updated_at=CURRENT_TIMESTAMP
+                    custo_total=%s, status=%s, tecnico=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
                 WHERE id=%s AND empresa_id=%s
-            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_update, status, tecnico, manutencao_id, empresa_id))
+            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_update, status, tecnico, cliente_id, manutencao_id, empresa_id))
             
             # Se é empresa SERVICO, processar itens de serviço
             if is_servico():

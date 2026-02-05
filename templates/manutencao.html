@@ -161,11 +161,25 @@
                                 {% if is_servico %}
                                     {# Ações para modo SERVICO #}
                                     {% if manutencao[7] == 'RASCUNHO' %}
+                                    {# Botão WhatsApp para enviar análise ao técnico #}
+                                    {% if manutencao[8] and manutencao[15] %}
+                                    <button class="btn btn-sm btn-outline-success" 
+                                            title="Enviar para Técnico Analisar via WhatsApp"
+                                            onclick="enviarParaTecnicoAnalisar(this)">
+                                        <i class="fab fa-whatsapp"></i>
+                                    </button>
+                                    {% endif %}
                                     <button class="btn btn-sm btn-outline-primary" title="Gerar Orçamento"
                                             onclick="gerarOrcamento('{{ manutencao[0] }}')">
                                         <i class="fas fa-file-invoice-dollar"></i>
                                     </button>
                                     {% elif manutencao[7] == 'ORCAMENTO' %}
+                                    {# Botão WhatsApp para enviar orçamento ao cliente #}
+                                    <button class="btn btn-sm btn-success" 
+                                            title="Enviar Orçamento ao Cliente via WhatsApp"
+                                            onclick="enviarOrcamentoCliente('{{ manutencao[0] }}')">
+                                        <i class="fab fa-whatsapp"></i> Cliente
+                                    </button>
                                     <button class="btn btn-sm btn-outline-success" title="Aprovar Orçamento"
                                             onclick="aprovarOrcamento('{{ manutencao[0] }}')">
                                         <i class="fas fa-check-circle"></i> Aprovar
@@ -175,6 +189,14 @@
                                         <i class="fas fa-file-pdf"></i>
                                     </button>
                                     {% elif manutencao[7] == 'APROVADO' %}
+                                    {# Botão WhatsApp para notificar técnico sobre execução #}
+                                    {% if manutencao[8] and manutencao[15] %}
+                                    <button class="btn btn-sm btn-success" 
+                                            title="Notificar Técnico para Iniciar Execução"
+                                            onclick="notificarTecnicoExecucao(this)">
+                                        <i class="fab fa-whatsapp"></i>
+                                    </button>
+                                    {% endif %}
                                     <button class="btn btn-sm btn-outline-info" title="Iniciar Execução"
                                             onclick="iniciarExecucao('{{ manutencao[0] }}')">
                                         <i class="fas fa-play"></i> Iniciar
@@ -435,6 +457,16 @@
                                 </optgroup>
                             </select>
                         </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Cliente (para WhatsApp)</label>
+                            <select class="form-select" id="edit-cliente" name="cliente_id">
+                                <option value="">Selecione o cliente</option>
+                                {% for cliente in clientes %}
+                                <option value="{{ cliente[0] }}" data-telefone="{{ cliente[2] }}">{{ cliente[1] }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Vincular cliente para envio de orçamento</small>
+                        </div>
                     </div>
                 </form>
                 
@@ -681,6 +713,7 @@ function editarManutencao(manutencaoId) {
                 document.getElementById('edit-custo').value = manutencao.custo || 0;
                 document.getElementById('edit-status').value = manutencao.status;
                 document.getElementById('edit-tecnico').value = manutencao.tecnico || '';
+                document.getElementById('edit-cliente').value = manutencao.cliente_id || '';
                 
                 // Verificar se status requer data realizada
                 verificarDataRealizadaObrigatoria(manutencao.status);
@@ -736,7 +769,8 @@ function salvarEdicaoManutencao() {
         data_realizada: document.getElementById('edit-data-realizada').value,
         custo: custoTotal.toFixed(2),
         status: document.getElementById('edit-status').value,
-        tecnico: document.getElementById('edit-tecnico').value
+        tecnico: document.getElementById('edit-tecnico').value,
+        cliente_id: document.getElementById('edit-cliente').value || null
     };
     
     // Coletar serviços (modo SERVICO)
@@ -1594,6 +1628,157 @@ _Por favor, confirme o recebimento desta OS respondendo esta mensagem._`;
         console.error('Erro:', error);
         alert('Erro ao iniciar manutenção: ' + error.message);
     });
+}
+
+// ===== FUNÇÕES WHATSAPP PARA MODO SERVICO =====
+
+// Enviar para técnico analisar (status RASCUNHO)
+function enviarParaTecnicoAnalisar(button) {
+    const row = button.closest('tr');
+    const id = row.getAttribute('data-id');
+    const placa = row.getAttribute('data-placa');
+    const modelo = row.getAttribute('data-modelo');
+    const tipo = row.getAttribute('data-tipo');
+    const descricao = row.getAttribute('data-descricao');
+    const data = row.getAttribute('data-data');
+    const tecnico = row.getAttribute('data-tecnico');
+    const telefone = row.getAttribute('data-telefone');
+    
+    if (!tecnico || tecnico === 'Não definido') {
+        alert('⚠️ Esta ordem de serviço não tem um técnico definido!\n\nPor favor, edite e atribua um técnico.');
+        return;
+    }
+    
+    if (!telefone) {
+        alert('⚠️ O técnico ' + tecnico + ' não tem telefone cadastrado!');
+        return;
+    }
+    
+    const mensagem = `*🔧 SOLICITAÇÃO DE ANÁLISE TÉCNICA*
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Olá *${tecnico}*!
+
+Você foi designado para analisar o seguinte serviço:
+
+*📋 OS N°:* ${id}
+*🚗 Veículo:* ${modelo} - ${placa}
+*📅 Data:* ${data}
+*🔧 Tipo:* ${tipo}
+
+*📝 DESCRIÇÃO:*
+${descricao}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Por favor, realize a análise e retorne com:
+✅ Lista de serviços necessários
+✅ Peças que serão utilizadas
+✅ Estimativa de tempo
+
+_Aguardamos seu retorno!_`;
+
+    const telefoneNumerico = telefone.replace(/\\D/g, '');
+    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+    
+    const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
+    window.open(url, '_blank');
+}
+
+// Enviar orçamento para cliente via WhatsApp
+function enviarOrcamentoCliente(manutencaoId) {
+    // Buscar dados da manutenção e cliente
+    fetch(`/manutencao/get/${manutencaoId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Erro ao carregar dados da manutenção');
+                return;
+            }
+            
+            const m = data.manutencao;
+            
+            // Buscar informações do cliente via API
+            fetch(`/api/manutencao/${manutencaoId}/orcamento-whatsapp`)
+                .then(resp => resp.json())
+                .then(orcamento => {
+                    if (!orcamento.success) {
+                        alert(orcamento.message || 'Erro ao gerar orçamento');
+                        return;
+                    }
+                    
+                    if (!orcamento.cliente_telefone) {
+                        alert('⚠️ Cliente não tem telefone cadastrado!\n\nPor favor, cadastre o telefone do cliente antes de enviar o orçamento.');
+                        return;
+                    }
+                    
+                    const telefoneNumerico = orcamento.cliente_telefone.replace(/\\D/g, '');
+                    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+                    
+                    const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(orcamento.mensagem)}`;
+                    window.open(url, '_blank');
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Erro ao preparar orçamento: ' + error.message);
+                });
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            alert('Erro ao carregar manutenção: ' + error.message);
+        });
+}
+
+// Notificar técnico sobre execução aprovada
+function notificarTecnicoExecucao(button) {
+    const row = button.closest('tr');
+    const id = row.getAttribute('data-id');
+    const placa = row.getAttribute('data-placa');
+    const modelo = row.getAttribute('data-modelo');
+    const tipo = row.getAttribute('data-tipo');
+    const descricao = row.getAttribute('data-descricao');
+    const data = row.getAttribute('data-data');
+    const tecnico = row.getAttribute('data-tecnico');
+    const telefone = row.getAttribute('data-telefone');
+    
+    if (!tecnico || tecnico === 'Não definido') {
+        alert('⚠️ Esta ordem de serviço não tem um técnico definido!');
+        return;
+    }
+    
+    if (!telefone) {
+        alert('⚠️ O técnico ' + tecnico + ' não tem telefone cadastrado!');
+        return;
+    }
+    
+    const mensagem = `*✅ ORÇAMENTO APROVADO - INICIAR EXECUÇÃO*
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Olá *${tecnico}*!
+
+O orçamento foi *APROVADO* pelo cliente!
+
+*📋 OS N°:* ${id}
+*🚗 Veículo:* ${modelo} - ${placa}
+*📅 Data Agendada:* ${data}
+*🔧 Tipo:* ${tipo}
+
+*📝 SERVIÇO:*
+${descricao}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*🚀 Você pode iniciar a execução!*
+
+Por favor, mantenha-nos informados sobre o andamento.
+
+_Bom trabalho!_`;
+
+    const telefoneNumerico = telefone.replace(/\\D/g, '');
+    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+    
+    const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
+    window.open(url, '_blank');
 }
 
 
