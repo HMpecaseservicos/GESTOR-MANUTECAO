@@ -5012,36 +5012,65 @@ def get_manutencoes_calendario():
 @app.route('/api/tecnico', methods=['POST'])
 @login_required
 def criar_tecnico():
+    from empresa_helpers import get_empresa_id
+    
     conn = None
     try:
         print("DEBUG: Recebendo requisição POST /api/tecnico")
-        print("DEBUG: Headers:", dict(request.headers))
-        print("DEBUG: JSON data:", request.json)
         
+        empresa_id = get_empresa_id()
         data = request.json
-        conn = sqlite3.connect(DATABASE, timeout=30.0)
-        cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO tecnicos (nome, cpf, telefone, email, especialidade, data_admissao, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['nome'],
-            data.get('cpf', ''),
-            data.get('telefone', ''),
-            data.get('email', ''),
-            data.get('especialidade', ''),
-            data.get('data_admissao', ''),
-            data.get('status', 'Ativo')
-        ))
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO tecnicos (empresa_id, nome, cpf, telefone, email, especialidade, data_admissao, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                empresa_id,
+                data['nome'],
+                data.get('cpf', ''),
+                data.get('telefone', ''),
+                data.get('email', ''),
+                data.get('especialidade', ''),
+                data.get('data_admissao', ''),
+                data.get('status', 'Ativo')
+            ))
+            
+            tecnico_id = cursor.fetchone()[0]
+        else:
+            conn = sqlite3.connect(DATABASE, timeout=30.0)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO tecnicos (empresa_id, nome, cpf, telefone, email, especialidade, data_admissao, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                empresa_id,
+                data['nome'],
+                data.get('cpf', ''),
+                data.get('telefone', ''),
+                data.get('email', ''),
+                data.get('especialidade', ''),
+                data.get('data_admissao', ''),
+                data.get('status', 'Ativo')
+            ))
+            
+            tecnico_id = cursor.lastrowid
         
         conn.commit()
-        tecnico_id = cursor.lastrowid
+        conn.close()
         
         print(f"DEBUG: Técnico criado com ID {tecnico_id}")
         return jsonify({'success': True, 'id': tecnico_id, 'message': 'Técnico cadastrado com sucesso!'})
     except Exception as e:
         print(f"DEBUG ERRO: {str(e)}")
+        import traceback
+        traceback.print_exc()
         if conn:
             conn.rollback()
         return jsonify({'success': False, 'message': str(e)})
@@ -5052,25 +5081,51 @@ def criar_tecnico():
 @app.route('/api/tecnico/<int:tecnico_id>', methods=['PUT'])
 @login_required
 def editar_tecnico(tecnico_id):
+    from empresa_helpers import get_empresa_id
+    
     try:
+        empresa_id = get_empresa_id()
         data = request.json
-        conn = get_db_connection()
-        cursor = conn.cursor()
         
-        cursor.execute('''
-            UPDATE tecnicos 
-            SET nome=?, cpf=?, telefone=?, email=?, especialidade=?, data_admissao=?, status=?
-            WHERE id=?
-        ''', (
-            data['nome'],
-            data.get('cpf', ''),
-            data.get('telefone', ''),
-            data.get('email', ''),
-            data.get('especialidade', ''),
-            data.get('data_admissao', ''),
-            data.get('status', 'Ativo'),
-            tecnico_id
-        ))
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE tecnicos 
+                SET nome=%s, cpf=%s, telefone=%s, email=%s, especialidade=%s, data_admissao=%s, status=%s
+                WHERE id=%s AND empresa_id=%s
+            ''', (
+                data['nome'],
+                data.get('cpf', ''),
+                data.get('telefone', ''),
+                data.get('email', ''),
+                data.get('especialidade', ''),
+                data.get('data_admissao', ''),
+                data.get('status', 'Ativo'),
+                tecnico_id,
+                empresa_id
+            ))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE tecnicos 
+                SET nome=?, cpf=?, telefone=?, email=?, especialidade=?, data_admissao=?, status=?
+                WHERE id=? AND empresa_id=?
+            ''', (
+                data['nome'],
+                data.get('cpf', ''),
+                data.get('telefone', ''),
+                data.get('email', ''),
+                data.get('especialidade', ''),
+                data.get('data_admissao', ''),
+                data.get('status', 'Ativo'),
+                tecnico_id,
+                empresa_id
+            ))
         
         conn.commit()
         conn.close()
@@ -5082,10 +5137,21 @@ def editar_tecnico(tecnico_id):
 @app.route('/api/tecnico/<int:tecnico_id>', methods=['DELETE'])
 @login_required
 def excluir_tecnico(tecnico_id):
+    from empresa_helpers import get_empresa_id
+    
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM tecnicos WHERE id=?', (tecnico_id,))
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM tecnicos WHERE id=%s AND empresa_id=%s', (tecnico_id, empresa_id))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM tecnicos WHERE id=? AND empresa_id=?', (tecnico_id, empresa_id))
+        
         conn.commit()
         conn.close()
         
