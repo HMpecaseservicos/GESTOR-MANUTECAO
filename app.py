@@ -4175,15 +4175,13 @@ def fornecedores():
     
     if Config.IS_POSTGRES:
         import psycopg2
-        from psycopg2.extras import RealDictCursor
         conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM fornecedores WHERE empresa_id = %s", (empresa_id,))
+        cursor = conn.cursor()  # Tuplas para compatibilidade com template
+        cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = %s", (empresa_id,))
     else:
         conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM fornecedores WHERE empresa_id = ?", (empresa_id,))
+        cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = ?", (empresa_id,))
     
     fornecedores = cursor.fetchall()
     conn.close()
