@@ -189,10 +189,10 @@ def verificar_limite_clientes(cursor, empresa_id):
     if limite is None:  # Plano ilimitado
         return True, None
     
-    # Contar clientes ativos
+    # Contar clientes ativos (coluna status, não ativo)
     cursor.execute("""
         SELECT COUNT(*) FROM clientes 
-        WHERE empresa_id = %s AND ativo = true
+        WHERE empresa_id = %s AND status = 'ATIVO'
     """, (empresa_id,))
     total = cursor.fetchone()[0]
     
@@ -211,10 +211,10 @@ def verificar_limite_veiculos(cursor, empresa_id):
     if limite is None:  # Plano ilimitado
         return True, None
     
-    # Contar veículos ativos
+    # Contar veículos ativos (coluna status, não ativo)
     cursor.execute("""
         SELECT COUNT(*) FROM veiculos 
-        WHERE empresa_id = %s AND ativo = true
+        WHERE empresa_id = %s AND status = 'ATIVO'
     """, (empresa_id,))
     total = cursor.fetchone()[0]
     
