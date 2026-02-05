@@ -2,241 +2,745 @@
 
 {% block title %}Peças{% endblock %}
 
-{% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h1 class="display-6">Gestão de Peças</h1>
-        <p class="text-muted">Controle de estoque e peças para manutenção</p>
-    </div>
-</div>
+{% block extra_css %}
+<style>
+/* ===== ESTILOS PÁGINA PEÇAS PROFISSIONAL ===== */
 
-<div class="row mb-3">
-    <div class="col-md-6">
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaPecaModal">
-            <i class="fas fa-plus"></i> Nova Peça
-        </button>
-        <button class="btn btn-warning ms-2" onclick="filtrarEstoqueBaixo()" id="btnEstoqueBaixo">
-            <i class="fas fa-exclamation-triangle"></i> Estoque Baixo
-        </button>
-    </div>
-    <div class="col-md-6">
-        <div class="input-group">
-            <input type="text" class="form-control" placeholder="Buscar por nome ou código..." id="searchPecas">
-            <button class="btn btn-outline-secondary" type="button">
-                <i class="fas fa-search"></i>
+/* Header com gradiente */
+.page-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 15px;
+    padding: 25px 30px;
+    margin-bottom: 25px;
+    color: white;
+    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+}
+
+.page-header h1 {
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.page-header .breadcrumb {
+    background: transparent;
+    margin: 0;
+    padding: 0;
+}
+
+.page-header .breadcrumb-item a {
+    color: rgba(255,255,255,0.8);
+}
+
+.page-header .breadcrumb-item.active {
+    color: white;
+}
+
+/* Stats Cards com animação */
+.stats-card {
+    border-radius: 15px;
+    border: none;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.stats-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+}
+
+.stats-card .card-body {
+    padding: 20px;
+}
+
+.stats-card .stats-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 15px;
+}
+
+.stats-card .stats-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.stats-card .stats-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-top: 5px;
+}
+
+/* Gradientes para cards */
+.bg-gradient-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.bg-gradient-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+.bg-gradient-warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.bg-gradient-danger { background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%); }
+.bg-gradient-info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+
+/* Barra de filtros */
+.filter-bar {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.filter-bar .form-control, 
+.filter-bar .form-select {
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    padding: 10px 15px;
+}
+
+.filter-bar .form-control:focus,
+.filter-bar .form-select:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+/* Tabela moderna */
+.table-container {
+    background: white;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.05);
+}
+
+.table-modern {
+    margin: 0;
+}
+
+.table-modern thead {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.table-modern thead th {
+    border: none;
+    padding: 15px;
+    font-weight: 600;
+    color: #495057;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.table-modern thead th:hover {
+    background: #e9ecef;
+}
+
+.table-modern thead th i.sort-icon {
+    margin-left: 5px;
+    opacity: 0.3;
+}
+
+.table-modern thead th.sorted i.sort-icon {
+    opacity: 1;
+    color: #667eea;
+}
+
+.table-modern tbody tr {
+    transition: all 0.2s;
+    border-bottom: 1px solid #f1f3f5;
+}
+
+.table-modern tbody tr:hover {
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.table-modern tbody td {
+    padding: 15px;
+    vertical-align: middle;
+}
+
+/* Badges de categoria */
+.badge-categoria {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+    font-size: 0.75rem;
+}
+
+/* Cards mobile */
+.peca-card-mobile {
+    display: none;
+}
+
+@media (max-width: 992px) {
+    .table-container { display: none; }
+    .peca-card-mobile { display: block; }
+    
+    .peca-card {
+        background: white;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        border-left: 4px solid #667eea;
+    }
+    
+    .peca-card .peca-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 12px;
+    }
+    
+    .peca-card .peca-title {
+        font-weight: 600;
+        font-size: 1rem;
+        margin: 0;
+    }
+    
+    .peca-card .peca-code {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+    
+    .peca-card .peca-info {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    
+    .peca-card .peca-info-item label {
+        font-size: 0.75rem;
+        color: #6c757d;
+        display: block;
+    }
+    
+    .peca-card .peca-info-item span {
+        font-weight: 500;
+    }
+}
+
+/* Modal categoria */
+.categoria-color-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.categoria-color-picker .color-option {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.categoria-color-picker .color-option:hover,
+.categoria-color-picker .color-option.selected {
+    transform: scale(1.1);
+    border-color: white;
+    box-shadow: 0 0 0 2px #667eea;
+}
+
+/* Confirmação de exclusão */
+.confirm-delete-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+}
+
+.confirm-delete-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.confirm-delete-box {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    max-width: 400px;
+    text-align: center;
+    transform: scale(0.9);
+    transition: transform 0.3s;
+}
+
+.confirm-delete-overlay.show .confirm-delete-box {
+    transform: scale(1);
+}
+
+.confirm-delete-box .delete-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    font-size: 2rem;
+    color: white;
+}
+
+/* Toast de feedback */
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+}
+
+.toast-custom {
+    background: white;
+    border-radius: 10px;
+    padding: 15px 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.toast-custom.success { border-left: 4px solid #11998e; }
+.toast-custom.error { border-left: 4px solid #ff416c; }
+.toast-custom.warning { border-left: 4px solid #f5576c; }
+
+/* Paginação */
+.pagination-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #f8f9fa;
+    border-radius: 0 0 15px 15px;
+}
+
+.pagination-info {
+    color: #6c757d;
+    font-size: 0.875rem;
+}
+
+.pagination-controls .btn {
+    border-radius: 8px;
+    padding: 8px 15px;
+}
+
+/* Loading skeleton */
+.skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Botão flutuante adicionar categoria */
+.btn-float-category {
+    position: fixed;
+    bottom: 100px;
+    right: 30px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.3s;
+    z-index: 100;
+}
+
+.btn-float-category:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Header da página -->
+<div class="page-header">
+    <div class="row align-items-center">
+        <div class="col-md-8">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('dashboard') }}"><i class="fas fa-home"></i> Dashboard</a></li>
+                    <li class="breadcrumb-item active">Peças</li>
+                </ol>
+            </nav>
+            <h1><i class="fas fa-cogs"></i> Gestão de Peças</h1>
+            <p class="mb-0 opacity-75">Controle completo do seu estoque de peças e componentes</p>
+        </div>
+        <div class="col-md-4 text-md-end mt-3 mt-md-0">
+            <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#novaPecaModal">
+                <i class="fas fa-plus"></i> Nova Peça
             </button>
         </div>
     </div>
 </div>
 
-<div class="card">
-    <div class="card-header bg-primary text-white">
-        <h5 class="mb-0"><i class="fas fa-cogs"></i> Catálogo de Peças</h5>
+<!-- Cards de estatísticas -->
+<div class="row mb-4">
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stats-card card">
+            <div class="card-body">
+                <div class="stats-icon bg-gradient-primary text-white">
+                    <i class="fas fa-boxes"></i>
+                </div>
+                <div class="stats-value">{{ pecas|length }}</div>
+                <div class="stats-label">Total de Peças</div>
+            </div>
+        </div>
     </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Código</th>
-                        <th>Nome</th>
-                        <th>Compatibilidade</th>
-                        <th>Preço</th>
-                        <th>Estoque</th>
-                        <th>Fornecedor</th>
-                        <th>Status</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stats-card card" onclick="filtrarStatus('disponivel')">
+            <div class="card-body">
+                <div class="stats-icon bg-gradient-success text-white">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stats-value">
+                    {% set count = namespace(value=0) %}
                     {% for peca in pecas %}
-                    <tr>
-                        <td>
-                            <strong class="text-primary">{{ peca[2] }}</strong>
-                        </td>
-                        <td>
-                            <strong>{{ peca[1] }}</strong>
-                        </td>
-                        <td>
-                            <small class="text-muted">{{ peca[3] }}</small>
-                        </td>
-                        <td>
-                            <span class="text-success">R$ {{ "%.2f"|format(peca[4]) }}</span>
-                        </td>
-                        <td>
-                            {% if peca[6] == 0 %}
-                                <span class="badge bg-danger">{{ peca[6] }} un.</span>
-                            {% elif peca[6] < 6 %}
-                                <span class="badge bg-warning">{{ peca[6] }} un.</span>
-                            {% else %}
-                                <span class="badge bg-success">{{ peca[6] }} un.</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <small>{{ peca[7] }}</small>
-                        </td>
-                        <td>
-                            {% if peca[6] == 0 %}
-                                <span class="badge bg-danger">Sem Estoque</span>
-                            {% elif peca[6] < 6 %}
-                                <span class="badge bg-warning">Estoque Baixo</span>
-                            {% else %}
-                                <span class="badge bg-success">Disponível</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-outline-primary btn-detalhes" title="Ver Detalhes" 
-                                        data-peca-id="{{ peca[0] }}"
-                                        data-peca-codigo="{{ peca[2] }}"
-                                        data-peca-nome="{{ peca[1] }}"
-                                        data-peca-compatibilidade="{{ peca[3] }}"
-                                        data-peca-preco="{{ peca[4] }}"
-                                        data-peca-estoque="{{ peca[6] }}"
-                                        data-peca-fornecedor="{{ peca[7] }}">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-warning btn-editar" title="Editar"
-                                        data-peca-id="{{ peca[0] }}">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                {% if peca[6] < 6 %}
-                                <button class="btn btn-sm btn-outline-success btn-solicitar" 
-                                        title="Solicitar ao Fornecedor via WhatsApp"
-                                        data-peca-codigo="{{ peca[2] }}"
-                                        data-peca-nome="{{ peca[1] }}"
-                                        data-peca-estoque="{{ peca[6] }}"
-                                        data-peca-preco="{{ peca[4] }}"
-                                        data-fornecedor-nome="{{ peca[7] }}"
-                                        data-fornecedor-telefone="{{ peca[8] if peca[8] else '' }}"
-                                        data-fornecedor-email="{{ peca[9] if peca[9] else '' }}">
-                                    <i class="fab fa-whatsapp"></i> Solicitar
-                                </button>
-                                {% else %}
-                                <button class="btn btn-sm btn-outline-secondary" title="Estoque OK" disabled>
-                                    <i class="fas fa-check"></i>
-                                </button>
-                                {% endif %}
-                                <button class="btn btn-sm btn-outline-danger btn-excluir" title="Excluir"
-                                        data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
+                        {% if peca[6] >= 6 %}{% set count.value = count.value + 1 %}{% endif %}
                     {% endfor %}
-                </tbody>
-            </table>
+                    {{ count.value }}
+                </div>
+                <div class="stats-label">Disponíveis</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stats-card card" onclick="filtrarStatus('baixo')">
+            <div class="card-body">
+                <div class="stats-icon bg-gradient-warning text-white">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stats-value">
+                    {% set count = namespace(value=0) %}
+                    {% for peca in pecas %}
+                        {% if peca[6] > 0 and peca[6] < 6 %}{% set count.value = count.value + 1 %}{% endif %}
+                    {% endfor %}
+                    {{ count.value }}
+                </div>
+                <div class="stats-label">Estoque Baixo</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stats-card card">
+            <div class="card-body">
+                <div class="stats-icon bg-gradient-info text-white">
+                    <i class="fas fa-dollar-sign"></i>
+                </div>
+                <div class="stats-value">R$ {{ "%.0f"|format(valor_total_estoque) }}</div>
+                <div class="stats-label">Valor em Estoque</div>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Estatísticas de Estoque -->
-<div class="row mt-4">
-    <div class="col-md-3">
-        <div class="card text-white bg-info">
-            <div class="card-body text-center">
-                <i class="fas fa-cogs fa-2x mb-2"></i>
-                <h5>Total de Peças</h5>
-                <h3>{{ pecas|length }}</h3>
+<!-- Barra de filtros -->
+<div class="filter-bar">
+    <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label small text-muted">Buscar</label>
+            <div class="input-group">
+                <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+                <input type="text" class="form-control" id="searchPecas" placeholder="Nome, código ou compatibilidade...">
             </div>
         </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-white bg-success">
-            <div class="card-body text-center">
-                <i class="fas fa-check-circle fa-2x mb-2"></i>
-                <h5>Disponíveis</h5>
-                <h3>
-                    {% set count = namespace(value=0) %}
-                    {% for peca in pecas %}
-                        {% if peca[6] >= 6 %}
-                            {% set count.value = count.value + 1 %}
-                        {% endif %}
-                    {% endfor %}
-                    {{ count.value }}
-                </h3>
-            </div>
+        <div class="col-md-2">
+            <label class="form-label small text-muted">Categoria</label>
+            <select class="form-select" id="filterCategoria">
+                <option value="">Todas</option>
+                {% for cat in categorias %}
+                <option value="{{ cat[0] }}">{{ cat[1] }}</option>
+                {% endfor %}
+            </select>
         </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-white bg-warning">
-            <div class="card-body text-center">
-                <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
-                <h5>Estoque Baixo</h5>
-                <h3>
-                    {% set count = namespace(value=0) %}
-                    {% for peca in pecas %}
-                        {% if peca[6] > 0 and peca[6] < 6 %}
-                            {% set count.value = count.value + 1 %}
-                        {% endif %}
-                    {% endfor %}
-                    {{ count.value }}
-                </h3>
-            </div>
+        <div class="col-md-2">
+            <label class="form-label small text-muted">Fornecedor</label>
+            <select class="form-select" id="filterFornecedor">
+                <option value="">Todos</option>
+                {% for forn in fornecedores %}
+                <option value="{{ forn[0] }}">{{ forn[1] }}</option>
+                {% endfor %}
+            </select>
         </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-white bg-danger">
-            <div class="card-body text-center">
-                <i class="fas fa-times-circle fa-2x mb-2"></i>
-                <h5>Sem Estoque</h5>
-                <h3>
-                    {% set count = namespace(value=0) %}
-                    {% for peca in pecas %}
-                        {% if peca[6] == 0 %}
-                            {% set count.value = count.value + 1 %}
-                        {% endif %}
-                    {% endfor %}
-                    {{ count.value }}
-                </h3>
-            </div>
+        <div class="col-md-2">
+            <label class="form-label small text-muted">Status</label>
+            <select class="form-select" id="filterStatus">
+                <option value="">Todos</option>
+                <option value="disponivel">Disponível</option>
+                <option value="baixo">Estoque Baixo</option>
+                <option value="zerado">Sem Estoque</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-outline-secondary w-100" onclick="limparFiltros()">
+                <i class="fas fa-times"></i> Limpar
+            </button>
         </div>
     </div>
 </div>
+
+<!-- Tabela Desktop -->
+<div class="table-container">
+    <div class="table-responsive">
+        <table class="table table-modern" id="tabelaPecas">
+            <thead>
+                <tr>
+                    <th onclick="ordenarPor('codigo')">Código <i class="fas fa-sort sort-icon"></i></th>
+                    <th onclick="ordenarPor('nome')">Nome <i class="fas fa-sort sort-icon"></i></th>
+                    <th onclick="ordenarPor('categoria')">Categoria <i class="fas fa-sort sort-icon"></i></th>
+                    <th>Compatibilidade</th>
+                    <th onclick="ordenarPor('preco')">Preço <i class="fas fa-sort sort-icon"></i></th>
+                    <th onclick="ordenarPor('estoque')">Estoque <i class="fas fa-sort sort-icon"></i></th>
+                    <th>Fornecedor</th>
+                    <th>Status</th>
+                    <th style="width: 150px;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for peca in pecas %}
+                <tr data-peca-id="{{ peca[0] }}" 
+                    data-categoria="{{ peca[10] or '' }}" 
+                    data-fornecedor="{{ peca[5] or '' }}"
+                    data-status="{% if peca[6] == 0 %}zerado{% elif peca[6] < 6 %}baixo{% else %}disponivel{% endif %}">
+                    <td>
+                        <span class="badge bg-primary bg-opacity-10 text-primary">{{ peca[2] }}</span>
+                    </td>
+                    <td>
+                        <strong>{{ peca[1] }}</strong>
+                    </td>
+                    <td>
+                        {% if peca[11] %}
+                        <span class="badge badge-categoria" style="background-color: {{ peca[12] or '#6c757d' }}20; color: {{ peca[12] or '#6c757d' }};">
+                            <i class="{{ peca[13] or 'fas fa-tag' }}"></i> {{ peca[11] }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted small">Sem categoria</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <small class="text-muted">{{ peca[3] or '-' }}</small>
+                    </td>
+                    <td>
+                        <span class="text-success fw-bold">R$ {{ "%.2f"|format(peca[4]) }}</span>
+                    </td>
+                    <td>
+                        {% if peca[6] == 0 %}
+                            <span class="badge bg-danger">{{ peca[6] }} un.</span>
+                        {% elif peca[6] < 6 %}
+                            <span class="badge bg-warning text-dark">{{ peca[6] }} un.</span>
+                        {% else %}
+                            <span class="badge bg-success">{{ peca[6] }} un.</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <small>{{ peca[7] or '-' }}</small>
+                    </td>
+                    <td>
+                        {% if peca[6] == 0 %}
+                            <span class="badge bg-danger bg-opacity-10 text-danger">Sem Estoque</span>
+                        {% elif peca[6] < 6 %}
+                            <span class="badge bg-warning bg-opacity-10 text-warning">Baixo</span>
+                        {% else %}
+                            <span class="badge bg-success bg-opacity-10 text-success">OK</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary btn-editar" title="Editar" data-peca-id="{{ peca[0] }}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-outline-info btn-estoque" title="Ajustar Estoque" data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}" data-peca-estoque="{{ peca[6] }}">
+                                <i class="fas fa-boxes"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-excluir" title="Excluir" data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center py-5">
+                        <i class="fas fa-box-open fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">Nenhuma peça cadastrada ainda</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaPecaModal">
+                            <i class="fas fa-plus"></i> Cadastrar primeira peça
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Paginação -->
+    <div class="pagination-container" id="paginationContainer" style="display: none;">
+        <div class="pagination-info">
+            Mostrando <span id="paginationStart">1</span>-<span id="paginationEnd">10</span> de <span id="paginationTotal">{{ pecas|length }}</span> peças
+        </div>
+        <div class="pagination-controls">
+            <button class="btn btn-outline-secondary btn-sm" id="btnPrevPage" disabled>
+                <i class="fas fa-chevron-left"></i> Anterior
+            </button>
+            <span class="mx-2">Página <span id="currentPage">1</span></span>
+            <button class="btn btn-outline-secondary btn-sm" id="btnNextPage">
+                Próxima <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Cards Mobile -->
+<div class="peca-card-mobile">
+    {% for peca in pecas %}
+    <div class="peca-card" data-peca-id="{{ peca[0] }}"
+         data-categoria="{{ peca[10] or '' }}" 
+         data-fornecedor="{{ peca[5] or '' }}"
+         data-status="{% if peca[6] == 0 %}zerado{% elif peca[6] < 6 %}baixo{% else %}disponivel{% endif %}">
+        <div class="peca-header">
+            <div>
+                <h6 class="peca-title">{{ peca[1] }}</h6>
+                <span class="peca-code">{{ peca[2] }}</span>
+            </div>
+            {% if peca[6] == 0 %}
+                <span class="badge bg-danger">Sem Estoque</span>
+            {% elif peca[6] < 6 %}
+                <span class="badge bg-warning text-dark">Baixo</span>
+            {% else %}
+                <span class="badge bg-success">OK</span>
+            {% endif %}
+        </div>
+        <div class="peca-info">
+            <div class="peca-info-item">
+                <label>Categoria</label>
+                <span>{{ peca[11] or 'Sem categoria' }}</span>
+            </div>
+            <div class="peca-info-item">
+                <label>Estoque</label>
+                <span>{{ peca[6] }} un.</span>
+            </div>
+            <div class="peca-info-item">
+                <label>Preço</label>
+                <span class="text-success">R$ {{ "%.2f"|format(peca[4]) }}</span>
+            </div>
+            <div class="peca-info-item">
+                <label>Fornecedor</label>
+                <span>{{ peca[7] or '-' }}</span>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary flex-fill btn-editar" data-peca-id="{{ peca[0] }}">
+                <i class="fas fa-edit"></i> Editar
+            </button>
+            <button class="btn btn-sm btn-outline-danger btn-excluir" data-peca-id="{{ peca[0] }}" data-peca-nome="{{ peca[1] }}">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Botão flutuante para gerenciar categorias -->
+<button class="btn-float-category" data-bs-toggle="modal" data-bs-target="#gerenciarCategoriasModal" title="Gerenciar Categorias">
+    <i class="fas fa-tags"></i>
+</button>
 
 <!-- Modal Nova Peça -->
 <div class="modal fade" id="novaPecaModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-plus"></i> Nova Peça</h5>
+            <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Nova Peça</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="novaPecaForm">
                     <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label">Nome da Peça *</label>
+                            <input type="text" class="form-control" id="nome" name="nome" required placeholder="Ex: Filtro de óleo">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Código *</label>
+                            <input type="text" class="form-control" id="codigo" name="codigo" required placeholder="Ex: FLT-001">
+                        </div>
+                    </div>
+                    <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Nome da Peça</label>
-                            <input type="text" class="form-control" id="nome" name="nome" required>
+                            <label class="form-label">Categoria</label>
+                            <div class="input-group">
+                                <select class="form-select" id="categoria_id" name="categoria_id">
+                                    <option value="">Selecione uma categoria</option>
+                                    {% for cat in categorias %}
+                                    <option value="{{ cat[0] }}">{{ cat[1] }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#novaCategoriaModal" title="Nova Categoria">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Código</label>
-                            <input type="text" class="form-control" id="codigo" name="codigo" required>
+                            <label class="form-label">Fornecedor</label>
+                            <select class="form-select" id="fornecedor_id" name="fornecedor_id">
+                                <option value="">Selecione um fornecedor</option>
+                                {% for forn in fornecedores %}
+                                <option value="{{ forn[0] }}">{{ forn[1] }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Veículo Compatível</label>
+                        <label class="form-label">Veículos/Máquinas Compatíveis</label>
                         <input type="text" class="form-control" id="veiculo_compativel" name="veiculo_compativel" 
-                               placeholder="Ex: Volvo FH Series, Mercedes Actros...">
+                               placeholder="Ex: Volvo FH, Mercedes Actros, Colheitadeira John Deere...">
                     </div>
                     <div class="row">
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">Preço</label>
-                            <input type="number" class="form-control" id="preco" name="preco" step="0.01" min="0" required>
+                            <label class="form-label">Preço Unitário *</label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                <input type="number" class="form-control" id="preco" name="preco" step="0.01" min="0" required placeholder="0,00">
+                            </div>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">Quantidade Inicial</label>
-                            <input type="number" class="form-control" id="quantidade_estoque" name="quantidade_estoque" min="0" required>
+                            <label class="form-label">Quantidade Inicial *</label>
+                            <input type="number" class="form-control" id="quantidade_estoque" name="quantidade_estoque" min="0" required placeholder="0">
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">Fornecedor</label>
-                            <select class="form-select" id="fornecedor" name="fornecedor_id" required>
-                                <option value="">Selecione o fornecedor</option>
-                                {% for fornecedor in fornecedores %}
-                                <option value="{{ fornecedor['id'] if fornecedor is mapping else fornecedor[0] }}">{{ fornecedor['nome'] if fornecedor is mapping else fornecedor[1] }}</option>
-                                {% endfor %}
-                            </select>
+                            <label class="form-label">Estoque Mínimo</label>
+                            <input type="number" class="form-control" id="estoque_minimo" name="estoque_minimo" min="0" value="5" placeholder="5">
                         </div>
                     </div>
                     <div class="mb-3">
@@ -247,82 +751,9 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary" onclick="salvarPeca()">
-                    <i class="fas fa-save"></i> Salvar
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal Detalhes da Peça -->
-<div class="modal fade" id="detalhesPecaModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title"><i class="fas fa-info-circle"></i> Detalhes da Peça</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <div class="card border-primary">
-                            <div class="card-body">
-                                <h6 class="text-primary"><i class="fas fa-barcode"></i> Identificação</h6>
-                                <hr>
-                                <div class="row mb-2">
-                                    <div class="col-5"><strong>Código:</strong></div>
-                                    <div class="col-7"><span class="badge bg-primary" id="detalhe-codigo">-</span></div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-5"><strong>Nome:</strong></div>
-                                    <div class="col-7" id="detalhe-nome">-</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card border-success">
-                            <div class="card-body">
-                                <h6 class="text-success"><i class="fas fa-dollar-sign"></i> Valores</h6>
-                                <hr>
-                                <div class="row mb-2">
-                                    <div class="col-5"><strong>Preço Unit.:</strong></div>
-                                    <div class="col-7"><span class="text-success fs-5" id="detalhe-preco">-</span></div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-5"><strong>Estoque:</strong></div>
-                                    <div class="col-7"><span id="detalhe-estoque-badge">-</span></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="card border-warning">
-                            <div class="card-body">
-                                <h6 class="text-warning"><i class="fas fa-car"></i> Compatibilidade</h6>
-                                <hr>
-                                <p id="detalhe-compatibilidade" class="mb-0">-</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card border-info">
-                            <div class="card-body">
-                                <h6 class="text-info"><i class="fas fa-truck"></i> Fornecedor</h6>
-                                <hr>
-                                <p id="detalhe-fornecedor" class="mb-0">-</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    <i class="fas fa-times"></i> Fechar
+                    <i class="fas fa-save"></i> Salvar Peça
                 </button>
             </div>
         </div>
@@ -339,53 +770,137 @@
             </div>
             <div class="modal-body">
                 <form id="editarPecaForm">
-                    <input type="hidden" id="edit-peca-id">
+                    <input type="hidden" id="edit_peca_id">
                     <div class="row">
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-8 mb-3">
                             <label class="form-label">Nome da Peça *</label>
-                            <input type="text" class="form-control" id="edit-nome" required>
+                            <input type="text" class="form-control" id="edit_nome" name="nome" required>
                         </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label class="form-label">Código *</label>
-                            <input type="text" class="form-control" id="edit-codigo" required>
+                            <input type="text" class="form-control" id="edit_codigo" name="codigo" required>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Veículo Compatível</label>
-                            <input type="text" class="form-control" id="edit-veiculo">
+                            <label class="form-label">Categoria</label>
+                            <select class="form-select" id="edit_categoria_id" name="categoria_id">
+                                <option value="">Sem categoria</option>
+                                {% for cat in categorias %}
+                                <option value="{{ cat[0] }}">{{ cat[1] }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Preço (R$) *</label>
-                            <input type="number" step="0.01" class="form-control" id="edit-preco" required>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Quantidade em Estoque *</label>
-                            <input type="number" class="form-control" id="edit-estoque" required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Fornecedor *</label>
-                            <select class="form-select" id="edit-fornecedor" required>
-                                <option value="">Selecione...</option>
-                                {% for fornecedor in fornecedores %}
-                                <option value="{{ fornecedor[0] }}">{{ fornecedor[1] }}</option>
+                            <label class="form-label">Fornecedor</label>
+                            <select class="form-select" id="edit_fornecedor_id" name="fornecedor_id">
+                                <option value="">Sem fornecedor</option>
+                                {% for forn in fornecedores %}
+                                <option value="{{ forn[0] }}">{{ forn[1] }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Descrição</label>
-                        <textarea class="form-control" id="edit-descricao" rows="3"></textarea>
+                        <label class="form-label">Veículos/Máquinas Compatíveis</label>
+                        <input type="text" class="form-control" id="edit_veiculo_compativel" name="veiculo_compativel">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Preço Unitário *</label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                <input type="number" class="form-control" id="edit_preco" name="preco" step="0.01" min="0" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Quantidade em Estoque *</label>
+                            <input type="number" class="form-control" id="edit_quantidade_estoque" name="quantidade_estoque" min="0" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Estoque Mínimo</label>
+                            <input type="number" class="form-control" id="edit_estoque_minimo" name="estoque_minimo" min="0">
+                        </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-warning" onclick="salvarEdicao()">
-                    <i class="fas fa-save"></i> Salvar Alterações
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" onclick="atualizarPeca()">
+                    <i class="fas fa-save"></i> Atualizar
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Gerenciar Categorias -->
+<div class="modal fade" id="gerenciarCategoriasModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h5 class="modal-title"><i class="fas fa-tags"></i> Gerenciar Categorias</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="listaCategorias" class="mb-3">
+                    {% for cat in categorias %}
+                    <div class="d-flex align-items-center justify-content-between p-2 mb-2 rounded" style="background: {{ cat[2] or '#6c757d' }}15;">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="{{ cat[3] or 'fas fa-tag' }}" style="color: {{ cat[2] or '#6c757d' }};"></i>
+                            <span>{{ cat[1] }}</span>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="excluirCategoria({{ cat[0] }}, '{{ cat[1] }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    {% else %}
+                    <p class="text-muted text-center">Nenhuma categoria cadastrada</p>
+                    {% endfor %}
+                </div>
+                <hr>
+                <h6><i class="fas fa-plus"></i> Nova Categoria</h6>
+                <form id="novaCategoriaForm">
+                    <div class="mb-3">
+                        <label class="form-label">Nome da Categoria *</label>
+                        <input type="text" class="form-control" id="cat_nome" placeholder="Ex: Peças Hidráulicas, Pneus, Filtros...">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cor</label>
+                        <div class="categoria-color-picker">
+                            <div class="color-option selected" style="background: #667eea;" data-color="#667eea"></div>
+                            <div class="color-option" style="background: #11998e;" data-color="#11998e"></div>
+                            <div class="color-option" style="background: #f5576c;" data-color="#f5576c"></div>
+                            <div class="color-option" style="background: #f093fb;" data-color="#f093fb"></div>
+                            <div class="color-option" style="background: #4facfe;" data-color="#4facfe"></div>
+                            <div class="color-option" style="background: #fa709a;" data-color="#fa709a"></div>
+                            <div class="color-option" style="background: #fee140;" data-color="#fee140"></div>
+                            <div class="color-option" style="background: #6c757d;" data-color="#6c757d"></div>
+                        </div>
+                        <input type="hidden" id="cat_cor" value="#667eea">
+                    </div>
+                    <button type="button" class="btn btn-primary w-100" onclick="criarCategoria()">
+                        <i class="fas fa-plus"></i> Criar Categoria
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Categoria (rápido) -->
+<div class="modal fade" id="novaCategoriaModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h6 class="modal-title"><i class="fas fa-plus"></i> Nova Categoria</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" class="form-control" id="quick_cat_nome" placeholder="Nome da categoria">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-sm" onclick="criarCategoriaRapida()">Criar</button>
             </div>
         </div>
     </div>
@@ -393,590 +908,403 @@
 
 <!-- Modal Ajustar Estoque -->
 <div class="modal fade" id="ajustarEstoqueModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
-                <h5 class="modal-title"><i class="fas fa-boxes"></i> Ajustar Estoque da Peça</h5>
+                <h5 class="modal-title"><i class="fas fa-boxes"></i> Ajustar Estoque</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <input type="hidden" id="estoque-peca-id">
-                
-                <!-- Informações da Peça -->
-                <div class="alert alert-info">
-                    <h6><i class="fas fa-info-circle"></i> Peça Selecionada</h6>
-                    <strong id="estoque-peca-nome"></strong>
-                </div>
-                
-                <!-- Estoque Atual -->
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="card border-primary">
-                            <div class="card-body text-center">
-                                <h6 class="text-primary">📦 Estoque Atual</h6>
-                                <h2 class="text-primary"><strong id="estoque-atual">0</strong> un.</h2>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card border-success">
-                            <div class="card-body text-center">
-                                <h6 class="text-success">📈 Novo Estoque</h6>
-                                <h2 class="text-success"><strong id="preview-novo-estoque">0</strong> un.</h2>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Campo de Ajuste -->
+                <input type="hidden" id="estoque_peca_id">
+                <p class="mb-2"><strong id="estoque_peca_nome"></strong></p>
+                <p class="text-muted small">Estoque atual: <span id="estoque_atual" class="badge bg-secondary"></span></p>
                 <div class="mb-3">
-                    <label class="form-label fw-bold">
-                        <i class="fas fa-edit"></i> Ajustar Quantidade em Estoque:
-                    </label>
-                    <div class="input-group">
-                        <button class="btn btn-outline-danger" type="button" onclick="decrementarEstoque()">
-                            <i class="fas fa-minus"></i>
-                        </button>
-                        <input type="number" class="form-control text-center fs-4" id="nova-quantidade" 
-                               min="0" required onchange="atualizarPreview()" oninput="atualizarPreview()">
-                        <button class="btn btn-outline-success" type="button" onclick="incrementarEstoque()">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                    <small class="text-muted">
-                        💡 Use este campo para ajustar o estoque após entrada/saída de peças
-                    </small>
+                    <label class="form-label">Tipo de Ajuste</label>
+                    <select class="form-select" id="tipo_ajuste">
+                        <option value="entrada">Entrada (adicionar)</option>
+                        <option value="saida">Saída (remover)</option>
+                        <option value="definir">Definir valor</option>
+                    </select>
                 </div>
-                
-                <!-- Atalhos Rápidos -->
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Atalhos Rápidos:</label>
-                    <div class="btn-group w-100" role="group">
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(-10)">
-                            -10
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(-5)">
-                            -5
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(-1)">
-                            -1
-                        </button>
-                        <button type="button" class="btn btn-outline-warning" onclick="zerarEstoque()">
-                            Zerar
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(1)">
-                            +1
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(5)">
-                            +5
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="ajustarRapido(10)">
-                            +10
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Dica -->
-                <div class="alert alert-warning mb-0">
-                    <i class="fas fa-lightbulb"></i> <strong>Dica:</strong> 
-                    Este ajuste substitui o valor atual do estoque. Para adicionar ou remover, 
-                    use os botões +/- ou os atalhos rápidos.
+                    <label class="form-label">Quantidade</label>
+                    <input type="number" class="form-control" id="qtd_ajuste" min="0" value="1">
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    <i class="fas fa-times"></i> Cancelar
-                </button>
-                <button type="button" class="btn btn-info" onclick="salvarEstoque()">
-                    <i class="fas fa-save"></i> Atualizar Estoque
+                <button type="button" class="btn btn-info" onclick="confirmarAjusteEstoque()">
+                    <i class="fas fa-check"></i> Confirmar
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Modal Confirmar Exclusão -->
-<div class="modal fade" id="confirmarExclusaoModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title"><i class="fas fa-trash"></i> Confirmar Exclusão</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="excluir-peca-id">
-                <p>Tem certeza que deseja excluir a peça:</p>
-                <p><strong id="excluir-peca-nome"></strong></p>
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    Esta ação não pode ser desfeita!
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-danger" onclick="confirmarExclusao()">
-                    <i class="fas fa-trash"></i> Excluir Definitivamente
-                </button>
-            </div>
+<!-- Overlay de confirmação de exclusão -->
+<div class="confirm-delete-overlay" id="confirmDeleteOverlay">
+    <div class="confirm-delete-box">
+        <div class="delete-icon">
+            <i class="fas fa-trash"></i>
+        </div>
+        <h5>Excluir Peça?</h5>
+        <p class="text-muted" id="deleteItemName">Esta ação não pode ser desfeita.</p>
+        <input type="hidden" id="deletePecaId">
+        <div class="d-flex gap-2 justify-content-center mt-4">
+            <button class="btn btn-outline-secondary" onclick="fecharConfirmDelete()">Cancelar</button>
+            <button class="btn btn-danger" onclick="confirmarExclusao()">
+                <i class="fas fa-trash"></i> Excluir
+            </button>
         </div>
     </div>
 </div>
 
+<!-- Container de toasts -->
+<div class="toast-container" id="toastContainer"></div>
+
+{% endblock %}
+
+{% block extra_js %}
 <script>
-// Função para carregar dados da peça para edição
-function editarPeca(pecaId) {
-    console.log('Editando peça ID:', pecaId);
+// ===== VARIÁVEIS GLOBAIS =====
+let pecasData = [];
+let currentPage = 1;
+const itemsPerPage = 15;
+let currentSort = { column: null, direction: 'asc' };
+
+// ===== INICIALIZAÇÃO =====
+document.addEventListener('DOMContentLoaded', function() {
+    // Configurar busca
+    document.getElementById('searchPecas').addEventListener('input', debounce(filtrarPecas, 300));
     
-    fetch(`/pecas/get/${pecaId}`)
-        .then(response => {
-            console.log('Response status:', response.status);
-            return response.json();
-        })
-        .then(data => {
-            console.log('Dados recebidos:', data);
-            if (data.success) {
-                const peca = data.peca;
-                document.getElementById('edit-peca-id').value = peca.id;
-                document.getElementById('edit-nome').value = peca.nome;
-                document.getElementById('edit-codigo').value = peca.codigo;
-                document.getElementById('edit-veiculo').value = peca.veiculo_compativel || '';
-                document.getElementById('edit-preco').value = peca.preco;
-                document.getElementById('edit-estoque').value = peca.quantidade_estoque;
-                document.getElementById('edit-fornecedor').value = peca.fornecedor_id;
-                document.getElementById('edit-descricao').value = peca.descricao || '';
-                
-                const modal = new bootstrap.Modal(document.getElementById('editarPecaModal'));
-                modal.show();
-            } else {
-                alert('Erro: ' + data.message);
-            }
-        })
-        .catch(error => {
-            alert('Erro ao carregar dados da peça: ' + error.message);
-            console.error('Erro completo:', error);
+    // Configurar filtros
+    document.getElementById('filterCategoria').addEventListener('change', filtrarPecas);
+    document.getElementById('filterFornecedor').addEventListener('change', filtrarPecas);
+    document.getElementById('filterStatus').addEventListener('change', filtrarPecas);
+    
+    // Configurar seletor de cores
+    document.querySelectorAll('.color-option').forEach(opt => {
+        opt.addEventListener('click', function() {
+            document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+            this.classList.add('selected');
+            document.getElementById('cat_cor').value = this.dataset.color;
         });
+    });
+    
+    // Configurar botões de ação
+    configurarBotoesAcao();
+});
+
+// ===== FUNÇÕES DE UTILIDADE =====
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
 }
 
-// Função para salvar edição
-function salvarEdicao() {
-    console.log('Salvando edição...');
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast-custom ${type}`;
+    toast.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle text-success' : type === 'error' ? 'times-circle text-danger' : 'exclamation-circle text-warning'}"></i>
+        <span>${message}</span>
+    `;
+    container.appendChild(toast);
     
-    const formData = new FormData();
-    formData.append('nome', document.getElementById('edit-nome').value);
-    formData.append('codigo', document.getElementById('edit-codigo').value);
-    formData.append('veiculo_compativel', document.getElementById('edit-veiculo').value);
-    formData.append('preco', document.getElementById('edit-preco').value);
-    formData.append('quantidade_estoque', document.getElementById('edit-estoque').value);
-    formData.append('fornecedor_id', document.getElementById('edit-fornecedor').value);
-    formData.append('descricao', document.getElementById('edit-descricao').value);
+    setTimeout(() => toast.remove(), 4000);
+}
+
+// ===== FILTROS =====
+function filtrarPecas() {
+    const search = document.getElementById('searchPecas').value.toLowerCase();
+    const categoria = document.getElementById('filterCategoria').value;
+    const fornecedor = document.getElementById('filterFornecedor').value;
+    const status = document.getElementById('filterStatus').value;
     
-    const pecaId = document.getElementById('edit-peca-id').value;
-    console.log('ID da peça:', pecaId);
+    // Filtrar tabela
+    document.querySelectorAll('#tabelaPecas tbody tr[data-peca-id]').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const matchSearch = !search || text.includes(search);
+        const matchCategoria = !categoria || row.dataset.categoria == categoria;
+        const matchFornecedor = !fornecedor || row.dataset.fornecedor == fornecedor;
+        const matchStatus = !status || row.dataset.status === status;
+        
+        row.style.display = (matchSearch && matchCategoria && matchFornecedor && matchStatus) ? '' : 'none';
+    });
     
-    // Validar campos obrigatórios
-    if (!document.getElementById('edit-nome').value || 
-        !document.getElementById('edit-codigo').value || 
-        !document.getElementById('edit-preco').value || 
-        !document.getElementById('edit-fornecedor').value) {
-        alert('Por favor, preencha todos os campos obrigatórios!');
-        return;
-    }
-    
-    // Obter CSRF token
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-    
-    fetch(`/pecas/edit/${pecaId}`, {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': csrfToken
-        },
-        body: formData
-    })
-    .then(response => {
-        console.log('Response status:', response.status);
-        return response.json();
-    })
-    .then(data => {
-        console.log('Resposta do servidor:', data);
-        if (data.success) {
-            alert('Peça atualizada com sucesso!');
-            location.reload();
-        } else {
-            alert('Erro: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Erro ao salvar alterações: ' + error.message);
-        console.error('Erro completo:', error);
+    // Filtrar cards mobile
+    document.querySelectorAll('.peca-card[data-peca-id]').forEach(card => {
+        const text = card.textContent.toLowerCase();
+        const matchSearch = !search || text.includes(search);
+        const matchCategoria = !categoria || card.dataset.categoria == categoria;
+        const matchFornecedor = !fornecedor || card.dataset.fornecedor == fornecedor;
+        const matchStatus = !status || card.dataset.status === status;
+        
+        card.style.display = (matchSearch && matchCategoria && matchFornecedor && matchStatus) ? '' : 'none';
     });
 }
 
-// Função para ajustar estoque
-function ajustarEstoque(pecaId, pecaNome, estoqueAtual) {
-    document.getElementById('estoque-peca-id').value = pecaId;
-    document.getElementById('estoque-peca-nome').textContent = pecaNome;
-    document.getElementById('estoque-atual').textContent = estoqueAtual;
-    document.getElementById('nova-quantidade').value = estoqueAtual;
-    document.getElementById('preview-novo-estoque').textContent = estoqueAtual;
+function filtrarStatus(status) {
+    document.getElementById('filterStatus').value = status;
+    filtrarPecas();
+}
+
+function limparFiltros() {
+    document.getElementById('searchPecas').value = '';
+    document.getElementById('filterCategoria').value = '';
+    document.getElementById('filterFornecedor').value = '';
+    document.getElementById('filterStatus').value = '';
+    filtrarPecas();
+}
+
+// ===== ORDENAÇÃO =====
+function ordenarPor(coluna) {
+    const table = document.getElementById('tabelaPecas');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr[data-peca-id]'));
     
-    const modal = new bootstrap.Modal(document.getElementById('ajustarEstoqueModal'));
-    modal.show();
-}
-
-// Atualizar preview do novo estoque
-function atualizarPreview() {
-    const novaQtd = parseInt(document.getElementById('nova-quantidade').value) || 0;
-    document.getElementById('preview-novo-estoque').textContent = novaQtd;
-}
-
-// Incrementar estoque
-function incrementarEstoque() {
-    const input = document.getElementById('nova-quantidade');
-    input.value = parseInt(input.value || 0) + 1;
-    atualizarPreview();
-}
-
-// Decrementar estoque
-function decrementarEstoque() {
-    const input = document.getElementById('nova-quantidade');
-    const novoValor = parseInt(input.value || 0) - 1;
-    input.value = novoValor >= 0 ? novoValor : 0;
-    atualizarPreview();
-}
-
-// Ajuste rápido (adicionar ou remover)
-function ajustarRapido(valor) {
-    const input = document.getElementById('nova-quantidade');
-    const novoValor = parseInt(input.value || 0) + valor;
-    input.value = novoValor >= 0 ? novoValor : 0;
-    atualizarPreview();
-}
-
-// Zerar estoque
-function zerarEstoque() {
-    if (confirm('Tem certeza que deseja zerar o estoque desta peça?')) {
-        document.getElementById('nova-quantidade').value = 0;
-        atualizarPreview();
-    }
-}
-
-// Função para salvar novo estoque
-function salvarEstoque() {
-    const novaQtd = document.getElementById('nova-quantidade').value;
-    const estoqueAtual = parseInt(document.getElementById('estoque-atual').textContent);
-    const diferenca = parseInt(novaQtd) - estoqueAtual;
-    
-    let mensagem = `Confirmar ajuste de estoque?\n\n`;
-    mensagem += `Estoque atual: ${estoqueAtual} un.\n`;
-    mensagem += `Novo estoque: ${novaQtd} un.\n`;
-    mensagem += `Diferença: ${diferenca > 0 ? '+' : ''}${diferenca} un.`;
-    
-    if (!confirm(mensagem)) {
-        return;
+    // Determinar direção
+    if (currentSort.column === coluna) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.column = coluna;
+        currentSort.direction = 'asc';
     }
     
-    const formData = new FormData();
-    formData.append('quantidade', novaQtd);
+    // Índices das colunas
+    const colIndex = { codigo: 0, nome: 1, categoria: 2, preco: 4, estoque: 5 };
+    const idx = colIndex[coluna];
     
-    const pecaId = document.getElementById('estoque-peca-id').value;
-    
-    fetch(`/pecas/estoque/${pecaId}`, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('✅ Estoque atualizado com sucesso!');
-            location.reload();
-        } else {
-            alert('❌ Erro: ' + data.message);
+    rows.sort((a, b) => {
+        let valA = a.cells[idx].textContent.trim();
+        let valB = b.cells[idx].textContent.trim();
+        
+        // Converter para número se necessário
+        if (coluna === 'preco') {
+            valA = parseFloat(valA.replace('R$', '').replace(',', '.')) || 0;
+            valB = parseFloat(valB.replace('R$', '').replace(',', '.')) || 0;
+        } else if (coluna === 'estoque') {
+            valA = parseInt(valA) || 0;
+            valB = parseInt(valB) || 0;
         }
-    })
-    .catch(error => {
-        alert('❌ Erro ao atualizar estoque');
-        console.error(error);
+        
+        if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+        return 0;
     });
-}
-
-// Função para confirmar exclusão
-function excluirPeca(pecaId, pecaNome) {
-    document.getElementById('excluir-peca-id').value = pecaId;
-    document.getElementById('excluir-peca-nome').textContent = pecaNome;
     
-    const modal = new bootstrap.Modal(document.getElementById('confirmarExclusaoModal'));
-    modal.show();
-}
-
-// Função para executar exclusão
-function confirmarExclusao() {
-    const pecaId = document.getElementById('excluir-peca-id').value;
+    // Reordenar DOM
+    rows.forEach(row => tbody.appendChild(row));
     
-    fetch(`/pecas/delete/${pecaId}`, {
-        method: 'DELETE'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Peça excluída com sucesso!');
-            location.reload();
-        } else {
-            alert('Erro: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Erro ao excluir peça');
-        console.error(error);
-    });
+    // Atualizar ícones
+    table.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
+    event.target.closest('th').classList.add('sorted');
 }
 
-// Função para salvar nova peça
+// ===== CRUD PEÇAS =====
 function salvarPeca() {
-    // Validação dos campos obrigatórios
-    const nome = document.getElementById('nome').value.trim();
-    const codigo = document.getElementById('codigo').value.trim();
-    const preco = document.getElementById('preco').value.trim();
-    const quantidade = document.getElementById('quantidade_estoque').value.trim();
-    const fornecedor = document.getElementById('fornecedor').value;
-    
-    if (!nome || !codigo || !preco || !quantidade || !fornecedor) {
-        alert('Por favor, preencha todos os campos obrigatórios.');
-        return;
-    }
-    
-    const formData = new FormData();
-    formData.append('nome', nome);
-    formData.append('codigo', codigo);
-    formData.append('veiculo_compativel', document.getElementById('veiculo_compativel').value.trim());
-    formData.append('preco', preco);
-    formData.append('quantidade_estoque', quantidade);
-    formData.append('fornecedor_id', fornecedor);
-    // Não enviando descricao pois o backend não aceita
+    const form = document.getElementById('novaPecaForm');
+    const formData = new FormData(form);
     
     fetch('/pecas/add', {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
         if (data.success) {
-            alert('Peça adicionada com sucesso!');
-            location.reload();
+            showToast('Peça adicionada com sucesso!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('novaPecaModal')).hide();
+            setTimeout(() => location.reload(), 1000);
         } else {
-            alert('Erro: ' + data.message);
+            showToast(data.message, 'error');
         }
     })
-    .catch(error => {
-        alert('Erro ao salvar peça');
-        console.error(error);
+    .catch(err => showToast('Erro ao salvar peça', 'error'));
+}
+
+function configurarBotoesAcao() {
+    // Botões editar
+    document.querySelectorAll('.btn-editar').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const pecaId = this.dataset.pecaId;
+            // Carregar dados da peça para o modal de edição
+            const row = document.querySelector(`tr[data-peca-id="${pecaId}"]`);
+            if (row) {
+                document.getElementById('edit_peca_id').value = pecaId;
+                document.getElementById('edit_codigo').value = row.cells[0].textContent.trim();
+                document.getElementById('edit_nome').value = row.cells[1].textContent.trim();
+                document.getElementById('edit_categoria_id').value = row.dataset.categoria || '';
+                document.getElementById('edit_veiculo_compativel').value = row.cells[3].textContent.trim();
+                document.getElementById('edit_preco').value = row.cells[4].textContent.replace('R$', '').trim().replace(',', '.');
+                document.getElementById('edit_quantidade_estoque').value = parseInt(row.cells[5].textContent) || 0;
+                document.getElementById('edit_fornecedor_id').value = row.dataset.fornecedor || '';
+                
+                new bootstrap.Modal(document.getElementById('editarPecaModal')).show();
+            }
+        });
+    });
+    
+    // Botões estoque
+    document.querySelectorAll('.btn-estoque').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.getElementById('estoque_peca_id').value = this.dataset.pecaId;
+            document.getElementById('estoque_peca_nome').textContent = this.dataset.pecaNome;
+            document.getElementById('estoque_atual').textContent = this.dataset.pecaEstoque + ' un.';
+            document.getElementById('qtd_ajuste').value = 1;
+            
+            new bootstrap.Modal(document.getElementById('ajustarEstoqueModal')).show();
+        });
+    });
+    
+    // Botões excluir
+    document.querySelectorAll('.btn-excluir').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.getElementById('deletePecaId').value = this.dataset.pecaId;
+            document.getElementById('deleteItemName').textContent = `Deseja excluir "${this.dataset.pecaNome}"? Esta ação não pode ser desfeita.`;
+            document.getElementById('confirmDeleteOverlay').classList.add('show');
+        });
     });
 }
 
-// Função para solicitar peça ao fornecedor via WhatsApp
-function solicitarPecaWhatsApp(codigo, nome, estoque, preco, fornecedorNome, fornecedorTelefone, fornecedorEmail) {
-    // Validar se há telefone
-    if (!fornecedorTelefone) {
-        alert('O fornecedor ' + fornecedorNome + ' nao tem telefone cadastrado!\n\nPor favor, cadastre o telefone antes de enviar a solicitacao.');
-        return;
-    }
+function atualizarPeca() {
+    const pecaId = document.getElementById('edit_peca_id').value;
+    const form = document.getElementById('editarPecaForm');
+    const formData = new FormData(form);
     
-    // Validar estoque e definir urgência
-    const estoqueNum = parseInt(estoque);
-    let urgencia = '';
-    let quantidadeSugerida = 20;
-    
-    if (estoqueNum === 0) {
-        urgencia = '*URGENTE - SEM ESTOQUE*';
-        quantidadeSugerida = 10;
-    } else if (estoqueNum <= 2) {
-        urgencia = '*URGENTE - CRITICO*';
-        quantidadeSugerida = 5;
-    } else if (estoqueNum <= 5) {
-        urgencia = 'Estoque Baixo';
-        quantidadeSugerida = 2;
-    } else {
-        urgencia = 'Reposicao Programada';
-        quantidadeSugerida = 5;
-    }
-    
-    // Confirmar ação
-    if (!confirm('Deseja enviar solicitacao de compra para ' + fornecedorNome + ' via WhatsApp?\n\nPeca: ' + nome + '\nEstoque atual: ' + estoque + ' unidades')) {
-        return;
-    }
-    
-    // Obter data atual
-    const hoje = new Date();
-    const dataFormatada = hoje.toLocaleDateString('pt-BR');
-    
-    // Montar mensagem profissional
-    const mensagem = `*SOLICITACAO DE COMPRA*
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${urgencia}
-
- *DADOS DA PEÇA*
-> Codigo: ${codigo}
-> Nome: ${nome}
-> Preco Ultimo: R$ ${parseFloat(preco).toFixed(2)}
-
-*SITUACAO DO ESTOQUE*
-> Estoque Atual: ${estoque} unidades
-> Quantidade Solicitada: ${quantidadeSugerida} unidades
-
-*INFORMACOES*
-Data da Solicitacao: ${dataFormatada}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Por favor, confirme:
-- Disponibilidade
-- Preco atual
-- Prazo de entrega
-
-_Aguardo retorno._
-
-_Departamento de Compra_`;
-
-    // Limpar telefone (remover caracteres não numéricos)
-    const telefoneNumerico = fornecedorTelefone.replace(/\D/g, '');
-    
-    // Adicionar código do país se necessário (Brasil = 55)
-    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
-    
-    // Abrir WhatsApp em nova aba
-    const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
-    window.open(url, '_blank');
-    
-    console.log('Solicitacao enviada para:', fornecedorNome, '- Tel:', telefoneCompleto);
+    fetch(`/pecas/edit/${pecaId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Peça atualizada!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('editarPecaModal')).hide();
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
 }
 
-
-// Delegated click handlers for buttons that use data-attributes rather than inline onclick
-document.addEventListener('click', function (e) {
-    const solicitarBtn = e.target.closest('.btn-solicitar');
-    if (solicitarBtn) {
-        const codigo = solicitarBtn.dataset.pecaCodigo;
-        const nome = solicitarBtn.dataset.pecaNome;
-        const estoque = solicitarBtn.dataset.pecaEstoque;
-        const preco = solicitarBtn.dataset.pecaPreco;
-        const fornecedorNome = solicitarBtn.dataset.fornecedorNome;
-        const fornecedorTelefone = solicitarBtn.dataset.fornecedorTelefone;
-        const fornecedorEmail = solicitarBtn.dataset.fornecedorEmail;
-        
-        solicitarPecaWhatsApp(codigo, nome, estoque, preco, fornecedorNome, fornecedorTelefone, fornecedorEmail);
-        return;
-    }
-    
-    const detalhesBtn = e.target.closest('.btn-detalhes');
-    if (detalhesBtn) {
-        const codigo = detalhesBtn.dataset.pecaCodigo;
-        const nome = detalhesBtn.dataset.pecaNome;
-        const compatibilidade = detalhesBtn.dataset.pecaCompatibilidade;
-        const preco = detalhesBtn.dataset.pecaPreco;
-        const estoque = detalhesBtn.dataset.pecaEstoque;
-        const fornecedor = detalhesBtn.dataset.pecaFornecedor;
-        
-        // Preencher modal com dados
-        document.getElementById('detalhe-codigo').textContent = codigo;
-        document.getElementById('detalhe-nome').textContent = nome;
-        document.getElementById('detalhe-preco').textContent = 'R$ ' + parseFloat(preco).toFixed(2);
-        document.getElementById('detalhe-compatibilidade').textContent = compatibilidade || 'Não especificado';
-        document.getElementById('detalhe-fornecedor').textContent = fornecedor;
-        
-        // Estoque com badge colorido
-        const estoqueNum = parseInt(estoque);
-        let badgeClass = 'bg-success';
-        if (estoqueNum === 0) badgeClass = 'bg-danger';
-        else if (estoqueNum < 5) badgeClass = 'bg-danger';
-        else if (estoqueNum < 10) badgeClass = 'bg-warning';
-        
-        document.getElementById('detalhe-estoque-badge').innerHTML = 
-            `<span class="badge ${badgeClass}">${estoqueNum} unidades</span>`;
-        
-        // Abrir modal
-        const modal = new bootstrap.Modal(document.getElementById('detalhesPecaModal'));
-        modal.show();
-        return;
-    }
-    
-    const editarBtn = e.target.closest('.btn-editar');
-    if (editarBtn) {
-        const id = editarBtn.dataset.pecaId;
-        if (id !== undefined) {
-            editarPeca(id);
-        }
-        return;
-    }
-
-    const excluirBtn = e.target.closest('.btn-excluir');
-    if (excluirBtn) {
-        const id = excluirBtn.dataset.pecaId;
-        const nome = excluirBtn.dataset.pecaNome || '';
-        if (id !== undefined) {
-            excluirPeca(id, nome);
-        }
-        return;
-    }
-});
-
-// Variável para controlar o estado do filtro
-let filtroEstoqueBaixoAtivo = false;
-
-// Filtrar peças com estoque baixo (< 6 unidades)
-function filtrarEstoqueBaixo() {
-    const rows = document.querySelectorAll('table.table tbody tr');
-    const btn = document.getElementById('btnEstoqueBaixo');
-    let contadorVisiveis = 0;
-    
-    filtroEstoqueBaixoAtivo = !filtroEstoqueBaixoAtivo;
-    
-    if (filtroEstoqueBaixoAtivo) {
-        // Ativa o filtro - mostra apenas estoque baixo
-        rows.forEach(row => {
-            const estoqueTd = row.querySelector('td:nth-child(5)');
-            if (estoqueTd) {
-                const estoqueBadge = estoqueTd.querySelector('span.badge');
-                if (estoqueBadge) {
-                    const estoqueTexto = estoqueBadge.textContent.trim();
-                    const estoqueNumero = parseInt(estoqueTexto.split(' ')[0]);
-                    
-                    console.log('Estoque encontrado:', estoqueTexto, '-> Número:', estoqueNumero);
-                    
-                    if (estoqueNumero < 6) {
-                        row.style.display = '';
-                        contadorVisiveis++;
-                    } else {
-                        row.style.display = 'none';
-                    }
-                }
-            }
-        });
-        
-        // Feedback visual no botão
-        btn.classList.remove('btn-warning');
-        btn.classList.add('btn-danger');
-        btn.innerHTML = '<i class="fas fa-exclamation-circle"></i> Filtro Ativo (' + contadorVisiveis + ')';
-        
-        // Mostra notificação
-        if (contadorVisiveis === 0) {
-            alert('✅ Ótimas notícias! Nenhuma peça com estoque baixo no momento.');
-        }
-        
-    } else {
-        // Desativa o filtro - mostra todas
-        rows.forEach(row => {
-            row.style.display = '';
-            contadorVisiveis++;
-        });
-        
-        // Restaura botão original
-        btn.classList.remove('btn-danger');
-        btn.classList.add('btn-warning');
-        btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Estoque Baixo';
-    }
-    
-    console.log(`Filtro Estoque Baixo: ${filtroEstoqueBaixoAtivo ? 'ATIVO' : 'INATIVO'} - ${contadorVisiveis} peças visíveis`);
+function fecharConfirmDelete() {
+    document.getElementById('confirmDeleteOverlay').classList.remove('show');
 }
 
+function confirmarExclusao() {
+    const pecaId = document.getElementById('deletePecaId').value;
+    
+    fetch(`/pecas/delete/${pecaId}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+        fecharConfirmDelete();
+        if (data.success) {
+            showToast('Peça excluída!', 'success');
+            // Remover da DOM
+            document.querySelector(`tr[data-peca-id="${pecaId}"]`)?.remove();
+            document.querySelector(`.peca-card[data-peca-id="${pecaId}"]`)?.remove();
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
+}
+
+function confirmarAjusteEstoque() {
+    const pecaId = document.getElementById('estoque_peca_id').value;
+    const tipo = document.getElementById('tipo_ajuste').value;
+    const qtd = parseInt(document.getElementById('qtd_ajuste').value);
+    
+    const formData = new FormData();
+    formData.append('tipo', tipo);
+    formData.append('quantidade', qtd);
+    
+    fetch(`/pecas/estoque/${pecaId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Estoque atualizado!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('ajustarEstoqueModal')).hide();
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
+}
+
+// ===== CRUD CATEGORIAS =====
+function criarCategoria() {
+    const nome = document.getElementById('cat_nome').value.trim();
+    const cor = document.getElementById('cat_cor').value;
+    
+    if (!nome) {
+        showToast('Digite o nome da categoria', 'warning');
+        return;
+    }
+    
+    fetch('/api/categorias-pecas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, cor, icone: 'fas fa-tag' })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Categoria criada!', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
+}
+
+function criarCategoriaRapida() {
+    const nome = document.getElementById('quick_cat_nome').value.trim();
+    
+    if (!nome) {
+        showToast('Digite o nome da categoria', 'warning');
+        return;
+    }
+    
+    fetch('/api/categorias-pecas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, cor: '#667eea', icone: 'fas fa-tag' })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            // Adicionar ao select
+            const option = new Option(data.categoria.nome, data.categoria.id);
+            document.getElementById('categoria_id').add(option);
+            document.getElementById('categoria_id').value = data.categoria.id;
+            
+            bootstrap.Modal.getInstance(document.getElementById('novaCategoriaModal')).hide();
+            showToast('Categoria criada!', 'success');
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
+}
+
+function excluirCategoria(id, nome) {
+    if (!confirm(`Excluir categoria "${nome}"?`)) return;
+    
+    fetch(`/api/categorias-pecas/${id}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Categoria excluída!', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+        }
+    });
+}
 </script>
 {% endblock %}

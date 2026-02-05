@@ -3821,7 +3821,7 @@ def pecas():
         if Config.IS_POSTGRES:
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()  # Tuplas para compatibilidade com template
+            cursor = conn.cursor()
             placeholder = '%s'
         else:
             conn = sqlite3.connect(DATABASE)
@@ -3831,30 +3831,225 @@ def pecas():
         # SELECT com colunas na ordem esperada pelo template:
         # [0]=id, [1]=nome, [2]=codigo, [3]=veiculo_compativel, [4]=preco, 
         # [5]=fornecedor_id, [6]=quantidade_estoque, [7]=fornecedor_nome,
-        # [8]=fornecedor_telefone, [9]=fornecedor_email
+        # [8]=fornecedor_telefone, [9]=fornecedor_email, [10]=categoria_id,
+        # [11]=categoria_nome, [12]=categoria_cor, [13]=categoria_icone
         cursor.execute(f'''
             SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, 
                    p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome,
-                   f.telefone as fornecedor_telefone, f.email as fornecedor_email
+                   f.telefone as fornecedor_telefone, f.email as fornecedor_email,
+                   p.categoria_id, c.nome as categoria_nome, c.cor as categoria_cor, c.icone as categoria_icone
             FROM pecas p 
             LEFT JOIN fornecedores f ON p.fornecedor_id = f.id
+            LEFT JOIN categorias_pecas c ON p.categoria_id = c.id
             WHERE p.empresa_id = {placeholder}
+            ORDER BY p.nome
         ''', (empresa_id,))
         pecas_list = cursor.fetchall()
         
-        # Buscar fornecedores para os selects (da empresa) - tuplas
+        # Buscar fornecedores para os selects (da empresa)
         cursor.execute(f"SELECT id, nome FROM fornecedores WHERE empresa_id = {placeholder}", (empresa_id,))
         fornecedores = cursor.fetchall()
         
-        print(f"DEBUG /pecas: empresa_id={empresa_id}, pecas={len(pecas_list)}, fornecedores={fornecedores}")
+        # Buscar categorias para os selects (da empresa)
+        ativo_val = 'true' if Config.IS_POSTGRES else '1'
+        cursor.execute(f"SELECT id, nome, cor, icone FROM categorias_pecas WHERE empresa_id = {placeholder} AND ativo = {ativo_val} ORDER BY nome", (empresa_id,))
+        categorias = cursor.fetchall()
+        
+        # Calcular valor total do estoque
+        cursor.execute(f"SELECT COALESCE(SUM(preco * quantidade_estoque), 0) FROM pecas WHERE empresa_id = {placeholder}", (empresa_id,))
+        valor_total_estoque = cursor.fetchone()[0] or 0
         
         conn.close()
-        return render_template('pecas.html', pecas=pecas_list, fornecedores=fornecedores)
+        return render_template('pecas.html', 
+                             pecas=pecas_list, 
+                             fornecedores=fornecedores, 
+                             categorias=categorias,
+                             valor_total_estoque=valor_total_estoque)
     except Exception as e:
         print(f"ERRO na rota /pecas: {e}")
         import traceback
         traceback.print_exc()
-        return render_template('pecas.html', pecas=[], fornecedores=[])
+        return render_template('pecas.html', pecas=[], fornecedores=[], categorias=[], valor_total_estoque=0)
+
+# =============================================
+# ROTAS - CATEGORIAS DE PEÇAS
+# =============================================
+
+@app.route('/api/categorias-pecas', methods=['GET'])
+@login_required
+def listar_categorias_pecas():
+    """Listar categorias de peças da empresa"""
+    from empresa_helpers import get_empresa_id
+    
+    try:
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, nome, descricao, cor, icone, ativo 
+                FROM categorias_pecas 
+                WHERE empresa_id = %s 
+                ORDER BY nome
+            ''', (empresa_id,))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, nome, descricao, cor, icone, ativo 
+                FROM categorias_pecas 
+                WHERE empresa_id = ? 
+                ORDER BY nome
+            ''', (empresa_id,))
+        
+        categorias = cursor.fetchall()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'categorias': [
+                {'id': c[0], 'nome': c[1], 'descricao': c[2], 'cor': c[3], 'icone': c[4], 'ativo': c[5]}
+                for c in categorias
+            ]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/categorias-pecas', methods=['POST'])
+@csrf.exempt
+@login_required
+def criar_categoria_peca():
+    """Criar nova categoria de peça"""
+    from empresa_helpers import get_empresa_id
+    
+    try:
+        empresa_id = get_empresa_id()
+        data = request.get_json(force=True)
+        
+        nome = data.get('nome', '').strip()
+        if not nome:
+            return jsonify({'success': False, 'message': 'Nome da categoria é obrigatório'})
+        
+        descricao = data.get('descricao', '')
+        cor = data.get('cor', '#6c757d')
+        icone = data.get('icone', 'fas fa-tag')
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Verificar se já existe
+            cursor.execute('SELECT id FROM categorias_pecas WHERE empresa_id = %s AND nome = %s', (empresa_id, nome))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': f'Já existe uma categoria "{nome}"'})
+            
+            cursor.execute('''
+                INSERT INTO categorias_pecas (empresa_id, nome, descricao, cor, icone)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id
+            ''', (empresa_id, nome, descricao, cor, icone))
+            categoria_id = cursor.fetchone()[0]
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT id FROM categorias_pecas WHERE empresa_id = ? AND nome = ?', (empresa_id, nome))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': f'Já existe uma categoria "{nome}"'})
+            
+            cursor.execute('''
+                INSERT INTO categorias_pecas (empresa_id, nome, descricao, cor, icone)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (empresa_id, nome, descricao, cor, icone))
+            categoria_id = cursor.lastrowid
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Categoria criada com sucesso!',
+            'categoria': {'id': categoria_id, 'nome': nome, 'cor': cor, 'icone': icone}
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/categorias-pecas/<int:categoria_id>', methods=['PUT'])
+@csrf.exempt
+@login_required
+def editar_categoria_peca(categoria_id):
+    """Editar categoria de peça"""
+    from empresa_helpers import get_empresa_id
+    
+    try:
+        empresa_id = get_empresa_id()
+        data = request.get_json(force=True)
+        
+        nome = data.get('nome', '').strip()
+        descricao = data.get('descricao', '')
+        cor = data.get('cor', '#6c757d')
+        icone = data.get('icone', 'fas fa-tag')
+        ativo = data.get('ativo', True)
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE categorias_pecas 
+                SET nome = %s, descricao = %s, cor = %s, icone = %s, ativo = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND empresa_id = %s
+            ''', (nome, descricao, cor, icone, ativo, categoria_id, empresa_id))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE categorias_pecas 
+                SET nome = ?, descricao = ?, cor = ?, icone = ?, ativo = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND empresa_id = ?
+            ''', (nome, descricao, cor, icone, ativo, categoria_id, empresa_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Categoria atualizada!'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/categorias-pecas/<int:categoria_id>', methods=['DELETE'])
+@csrf.exempt
+@login_required
+def excluir_categoria_peca(categoria_id):
+    """Excluir categoria de peça"""
+    from empresa_helpers import get_empresa_id
+    
+    try:
+        empresa_id = get_empresa_id()
+        
+        if Config.IS_POSTGRES:
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            # Remover referências nas peças
+            cursor.execute('UPDATE pecas SET categoria_id = NULL WHERE categoria_id = %s AND empresa_id = %s', (categoria_id, empresa_id))
+            # Excluir categoria
+            cursor.execute('DELETE FROM categorias_pecas WHERE id = %s AND empresa_id = %s', (categoria_id, empresa_id))
+        else:
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute('UPDATE pecas SET categoria_id = NULL WHERE categoria_id = ? AND empresa_id = ?', (categoria_id, empresa_id))
+            cursor.execute('DELETE FROM categorias_pecas WHERE id = ? AND empresa_id = ?', (categoria_id, empresa_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Categoria excluída!'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
 
 # Rota para adicionar nova peça
 @app.route('/pecas/add', methods=['POST'])
@@ -3867,10 +4062,13 @@ def add_peca():
         empresa_id = get_empresa_id()
         nome = request.form['nome']
         codigo = request.form['codigo']
-        veiculo_compativel = request.form['veiculo_compativel']
+        veiculo_compativel = request.form.get('veiculo_compativel', '')
         preco = float(request.form['preco'])
         quantidade_estoque = int(request.form['quantidade_estoque'])
-        fornecedor_id = int(request.form['fornecedor_id'])
+        fornecedor_id = request.form.get('fornecedor_id')
+        fornecedor_id = int(fornecedor_id) if fornecedor_id else None
+        categoria_id = request.form.get('categoria_id')
+        categoria_id = int(categoria_id) if categoria_id else None
         
         if Config.IS_POSTGRES:
             import psycopg2
@@ -3884,9 +4082,9 @@ def add_peca():
                 return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
             
             cursor.execute('''
-                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id))
+                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id))
         else:
             conn = sqlite3.connect(DATABASE)
             cursor = conn.cursor()
@@ -3898,9 +4096,9 @@ def add_peca():
                 return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
             
             cursor.execute('''
-                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id))
+                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id))
         
         conn.commit()
         conn.close()
@@ -3923,10 +4121,13 @@ def edit_peca(peca_id):
         empresa_id = get_empresa_id()
         nome = request.form['nome']
         codigo = request.form['codigo']
-        veiculo_compativel = request.form['veiculo_compativel']
+        veiculo_compativel = request.form.get('veiculo_compativel', '')
         preco = float(request.form['preco'])
         quantidade_estoque = int(request.form['quantidade_estoque'])
-        fornecedor_id = int(request.form['fornecedor_id'])
+        fornecedor_id = request.form.get('fornecedor_id')
+        fornecedor_id = int(fornecedor_id) if fornecedor_id else None
+        categoria_id = request.form.get('categoria_id')
+        categoria_id = int(categoria_id) if categoria_id else None
         
         if Config.IS_POSTGRES:
             import psycopg2
@@ -3934,17 +4135,17 @@ def edit_peca(peca_id):
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE pecas 
-                SET nome=%s, codigo=%s, veiculo_compativel=%s, preco=%s, quantidade_estoque=%s, fornecedor_id=%s
+                SET nome=%s, codigo=%s, veiculo_compativel=%s, preco=%s, quantidade_estoque=%s, fornecedor_id=%s, categoria_id=%s
                 WHERE id=%s AND empresa_id=%s
-            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, peca_id, empresa_id))
+            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id, peca_id, empresa_id))
         else:
             conn = sqlite3.connect(DATABASE)
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE pecas 
-                SET nome=?, codigo=?, veiculo_compativel=?, preco=?, quantidade_estoque=?, fornecedor_id=?
+                SET nome=?, codigo=?, veiculo_compativel=?, preco=?, quantidade_estoque=?, fornecedor_id=?, categoria_id=?
                 WHERE id=? AND empresa_id=?
-            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, peca_id, empresa_id))
+            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id, peca_id, empresa_id))
         
         conn.commit()
         conn.close()
