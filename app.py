@@ -74,6 +74,33 @@ DATABASE = Config.DATABASE_PATH
 REPORTS_DIR = Config.REPORTS_FOLDER
 UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 
+# =============================================
+# HELPER DE CONEXÃO COM BANCO DE DADOS
+# =============================================
+
+def get_db_connection():
+    """
+    Retorna conexão com o banco de dados correto (PostgreSQL ou SQLite).
+    IMPORTANTE: Sempre usar esta função em vez de sqlite3.connect(DATABASE)
+    """
+    if Config.IS_POSTGRES:
+        import psycopg2
+        return psycopg2.connect(Config.DATABASE_URL)
+    else:
+        return sqlite3.connect(DATABASE)
+
+
+def get_db_cursor(conn):
+    """
+    Retorna cursor do banco. Para PostgreSQL, retorna cursor com RealDictCursor.
+    """
+    if Config.IS_POSTGRES:
+        from psycopg2.extras import RealDictCursor
+        return conn.cursor(cursor_factory=RealDictCursor)
+    else:
+        return conn.cursor()
+
+
 # Inicializar extensões de segurança
 csrf = CSRFProtect(app)
 login_manager.init_app(app)
@@ -293,23 +320,24 @@ def moeda_br_filter(valor):
 # SISTEMA DE BANCO DE DADOS PROFISSIONAL
 # =============================================
 
-def get_db_connection(optimize=False):
+# NOTA: A função get_db_connection() principal está definida acima (linha ~80)
+# com suporte a PostgreSQL e SQLite
+
+def get_db_connection_optimized():
     """
-    Cria uma conexão com o banco de dados
-    optimize=True: Aplica otimizações avançadas (use apenas quando necessário)
+    Cria uma conexão otimizada (apenas SQLite - para desenvolvimento)
+    Em produção (PostgreSQL), usa conexão padrão
     """
-    conn = sqlite3.connect(DATABASE, timeout=30.0)
-    
-    if optimize:
+    if Config.IS_POSTGRES:
+        import psycopg2
+        return psycopg2.connect(Config.DATABASE_URL)
+    else:
+        conn = sqlite3.connect(DATABASE, timeout=30.0)
         conn.execute('PRAGMA journal_mode=WAL;')
         conn.execute('PRAGMA synchronous=NORMAL;')
         conn.execute('PRAGMA temp_store=MEMORY;')
         conn.execute('PRAGMA mmap_size=268435456;')  # 256MB
-    else:
-        # Configurações básicas e seguras
-        conn.execute('PRAGMA journal_mode=WAL;')
-    
-    return conn
+        return conn
 
 # Usar database_manager para inicialização
 def init_db():
@@ -317,7 +345,7 @@ def init_db():
     success = db_manager.init_database()
     if success:
         # Inicializar tabelas de autenticação
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         init_auth_tables(conn)
         conn.close()
         # Inserir dados de exemplo se necessário
@@ -1746,7 +1774,7 @@ def veiculos():
 @login_required
 def api_veiculos():
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT id, tipo, marca, modelo, placa, ano, quilometragem, proxima_manutencao, status
@@ -1776,7 +1804,7 @@ def api_veiculos():
 @app.route('/veiculo/<int:veiculo_id>')
 @login_required
 def detalhes_veiculo(veiculo_id):
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute("SELECT * FROM veiculos WHERE id = ?", (veiculo_id,))
@@ -2224,7 +2252,7 @@ def obter_veiculo(veiculo_id):
 def excluir_veiculo(veiculo_id):
     """Excluir um veículo"""
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Verificar se o veículo tem manutenções associadas
@@ -2258,7 +2286,7 @@ def excluir_veiculo(veiculo_id):
 @app.route('/manutencao')
 @login_required
 def manutencao():
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # Buscar manutenções com telefone de técnicos OU fornecedores
@@ -2384,7 +2412,7 @@ def criar_manutencao():
 @login_required
 def get_manutencao(manutencao_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT m.*, v.placa, v.modelo 
@@ -3019,7 +3047,7 @@ def atualizar_status_manutencao(manutencao_id):
         if not novo_status:
             return jsonify({'success': False, 'message': 'Status não fornecido'})
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -3205,7 +3233,7 @@ def edit_manutencao(manutencao_id):
 @login_required
 def delete_manutencao(manutencao_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM manutencoes WHERE id=?', (manutencao_id,))
         conn.commit()
@@ -3228,7 +3256,7 @@ def update_status_manutencao(manutencao_id):
             from datetime import datetime
             data_realizada = datetime.now().strftime('%Y-%m-%d')
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE manutencoes 
@@ -3246,7 +3274,7 @@ def update_status_manutencao(manutencao_id):
 @app.route('/manutencao/<int:manutencao_id>/pecas')
 @login_required
 def get_pecas_manutencao(manutencao_id):
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('''
@@ -3265,7 +3293,7 @@ def get_pecas_manutencao(manutencao_id):
 @app.route('/manutencao/<int:manutencao_id>/pecas/disponiveis')
 @login_required
 def get_pecas_disponiveis(manutencao_id):
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # Buscar informações do veículo da manutenção
@@ -3322,7 +3350,7 @@ def buscar_pecas_manutencao(manutencao_id):
     """Buscar peças por nome ou código para adicionar em manutenção"""
     search_term = request.args.get('q', '').strip()
     
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     if search_term:
@@ -3372,7 +3400,7 @@ def adicionar_peca_manutencao(manutencao_id):
         
         print(f"DEBUG: Adicionando peça {peca_id} (qtd: {quantidade}) à manutenção {manutencao_id}")
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Verificar se há estoque suficiente
@@ -3448,7 +3476,7 @@ def adicionar_peca_manutencao(manutencao_id):
 @login_required
 def remover_peca_manutencao(manutencao_id, item_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Buscar informações da peça para devolver ao estoque
@@ -3486,7 +3514,7 @@ def remover_peca_manutencao(manutencao_id, item_id):
 @app.route('/pecas')
 @login_required
 def pecas():
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT p.*, f.nome as fornecedor_nome, f.telefone as fornecedor_telefone, f.email as fornecedor_email
@@ -3514,7 +3542,7 @@ def add_peca():
         quantidade_estoque = int(request.form['quantidade_estoque'])
         fornecedor_id = int(request.form['fornecedor_id'])
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO pecas (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id)
@@ -3539,7 +3567,7 @@ def edit_peca(peca_id):
         quantidade_estoque = int(request.form['quantidade_estoque'])
         fornecedor_id = int(request.form['fornecedor_id'])
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE pecas 
@@ -3558,7 +3586,7 @@ def edit_peca(peca_id):
 @login_required
 def delete_peca(peca_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM pecas WHERE id=?', (peca_id,))
         conn.commit()
@@ -3575,7 +3603,7 @@ def ajustar_estoque(peca_id):
     try:
         nova_quantidade = int(request.form['quantidade'])
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('UPDATE pecas SET quantidade_estoque=? WHERE id=?', (nova_quantidade, peca_id))
         conn.commit()
@@ -3590,7 +3618,7 @@ def ajustar_estoque(peca_id):
 @login_required
 def get_peca(peca_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT p.*, f.nome as fornecedor_nome 
@@ -3630,7 +3658,7 @@ def get_peca(peca_id):
 @admin_required
 def empresas():
     """Página de gestão de empresas"""
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM empresas ORDER BY nome")
     empresas = cursor.fetchall()
@@ -3644,7 +3672,7 @@ def criar_empresa():
     """Criar nova empresa"""
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -3694,7 +3722,7 @@ def atualizar_empresa(empresa_id):
     """Atualizar empresa"""
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Atualizar apenas o campo ativo ou todos os campos
@@ -3751,7 +3779,7 @@ def atualizar_empresa(empresa_id):
 @app.route('/fornecedores')
 @login_required
 def fornecedores():
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM fornecedores")
     fornecedores = cursor.fetchall()
@@ -3764,7 +3792,7 @@ def criar_fornecedor():
     """Criar novo fornecedor"""
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -3800,7 +3828,7 @@ def criar_fornecedor():
 @login_required
 def detalhes_fornecedor(fornecedor_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, nome, contato, telefone, email, especialidade
@@ -3841,7 +3869,7 @@ def editar_fornecedor(fornecedor_id):
     try:
         dados = request.get_json()
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
@@ -3871,7 +3899,7 @@ def editar_fornecedor(fornecedor_id):
 @login_required
 def excluir_fornecedor(fornecedor_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Verifica se o fornecedor existe
@@ -4304,7 +4332,7 @@ def toggle_status_cliente(cliente_id):
 @app.route('/tecnicos')
 @login_required
 def tecnicos():
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM tecnicos ORDER BY nome")
     tecnicos = cursor.fetchall()
@@ -4315,7 +4343,7 @@ def tecnicos():
 @login_required
 def buscar_tecnico(tecnico_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM tecnicos WHERE id=?", (tecnico_id,))
         tecnico = cursor.fetchone()
@@ -4341,7 +4369,7 @@ def buscar_tecnico(tecnico_id):
 @login_required
 def historico_tecnico(tecnico_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Busca manutenções realizadas pelo técnico
@@ -4379,7 +4407,7 @@ def historico_tecnico(tecnico_id):
 def get_manutencoes_calendario():
     """Retorna manutenções formatadas para o FullCalendar"""
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Buscar todas as manutenções com informações do veículo
@@ -4480,7 +4508,7 @@ def criar_tecnico():
 def editar_tecnico(tecnico_id):
     try:
         data = request.json
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -4509,7 +4537,7 @@ def editar_tecnico(tecnico_id):
 @login_required
 def excluir_tecnico(tecnico_id):
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM tecnicos WHERE id=?', (tecnico_id,))
         conn.commit()
@@ -4522,7 +4550,7 @@ def excluir_tecnico(tecnico_id):
 @app.route('/relatorios')
 @login_required
 def relatorios():
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # Obter filtros da query string
@@ -5792,7 +5820,7 @@ def exportar_csv():
 def gerar_catalogo_pdf():
     """Gera um PDF detalhado com todas as peças do catálogo"""
     # Buscar todas as peças do banco
-    conn = sqlite3.connect(DATABASE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
@@ -5978,7 +6006,7 @@ def chatbot():
     
     # Reconhecer números das opções do menu e atalhos
     if mensagem == '1' or 'próxima' in mensagem or 'agendada' in mensagem or 'manutenção' in mensagem:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT v.placa, m.tipo, m.data_agendada 
@@ -6000,7 +6028,7 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '4' or 'estoque' in mensagem or 'baixo' in mensagem:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10")
         alertas = cursor.fetchall()
@@ -6014,7 +6042,7 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '2' or ('catálogo' in mensagem and 'pdf' not in mensagem) or ('catalogo' in mensagem and 'pdf' not in mensagem) or ('peças' in mensagem and 'pdf' not in mensagem) or ('pecas' in mensagem and 'pdf' not in mensagem):
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM pecas")
         total_pecas = cursor.fetchone()[0]
@@ -6047,7 +6075,7 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '5' or 'fornecedor' in mensagem or 'contato' in mensagem:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores LIMIT 3")
         fornecedores = cursor.fetchall()
@@ -6395,7 +6423,7 @@ def financeiro():
 @login_required
 def get_categorias_entrada():
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id, nome, descricao FROM categorias_entrada ORDER BY nome')
         categorias = [{'id': row[0], 'nome': row[1], 'descricao': row[2]} for row in cursor.fetchall()]
@@ -6408,7 +6436,7 @@ def get_categorias_entrada():
 @login_required
 def get_categorias_despesa():
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id, nome, descricao FROM categorias_despesa ORDER BY nome')
         categorias = [{'id': row[0], 'nome': row[1], 'descricao': row[2]} for row in cursor.fetchall()]
@@ -6433,7 +6461,7 @@ def get_categorias_despesa_alt():
 @login_required
 def get_entradas():
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
@@ -6506,7 +6534,7 @@ def create_entrada():
 @login_required
 def get_despesas():
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
@@ -6591,7 +6619,7 @@ def get_resumo_financeiro():
         except ValueError:
             periodo_int = 30
         
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Total de entradas
