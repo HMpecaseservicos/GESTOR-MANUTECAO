@@ -3570,7 +3570,7 @@ def get_pecas_disponiveis(manutencao_id):
         tipo = veiculo[2].lower()
         
         cursor.execute(f'''
-            SELECT p.*, f.nome as fornecedor_nome,
+            SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome,
                    CASE 
                        WHEN LOWER(p.veiculo_compativel) = 'universal' THEN 1
                        WHEN LOWER(p.veiculo_compativel) LIKE {placeholder} THEN 2
@@ -3586,7 +3586,7 @@ def get_pecas_disponiveis(manutencao_id):
     else:
         # Se não conseguir identificar veículo, mostrar todas com estoque
         cursor.execute(f'''
-            SELECT p.*, f.nome as fornecedor_nome, 1 as prioridade
+            SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome, 1 as prioridade
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
             WHERE p.quantidade_estoque > 0 AND p.empresa_id = {placeholder}
@@ -3623,7 +3623,7 @@ def buscar_pecas_manutencao(manutencao_id):
     if search_term:
         # Buscar por nome, código ou compatibilidade (filtrado por empresa)
         cursor.execute(f'''
-            SELECT p.*, f.nome as fornecedor_nome
+            SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
             WHERE p.quantidade_estoque > 0
@@ -3645,7 +3645,7 @@ def buscar_pecas_manutencao(manutencao_id):
     else:
         # Se não há termo de busca, retornar todas com estoque
         cursor.execute(f'''
-            SELECT p.*, f.nome as fornecedor_nome
+            SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome
             FROM pecas p
             JOIN fornecedores f ON p.fornecedor_id = f.id
             WHERE p.quantidade_estoque > 0 AND p.empresa_id = {placeholder}
