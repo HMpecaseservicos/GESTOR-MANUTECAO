@@ -4172,6 +4172,7 @@ def fornecedores():
     from empresa_helpers import get_empresa_id
     
     empresa_id = get_empresa_id()
+    print(f"DEBUG /fornecedores: empresa_id={empresa_id}")
     
     if Config.IS_POSTGRES:
         import psycopg2
@@ -4183,9 +4184,10 @@ def fornecedores():
         cursor = conn.cursor()
         cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = ?", (empresa_id,))
     
-    fornecedores = cursor.fetchall()
+    fornecedores_list = cursor.fetchall()
+    print(f"DEBUG /fornecedores: resultado={fornecedores_list}")
     conn.close()
-    return render_template('fornecedores.html', fornecedores=fornecedores)
+    return render_template('fornecedores.html', fornecedores=fornecedores_list)
 
 @app.route('/fornecedores/criar', methods=['POST'])
 @csrf.exempt
