@@ -58,6 +58,7 @@ from io import StringIO, BytesIO
 from config import Config
 from auth import login_manager, bcrypt, init_auth_tables, authenticate_user, admin_required, tecnico_required, log_action
 from database_manager import db_manager
+from empresa_helpers import super_admin_required
 
 # =============================================
 # CONFIGURAÇÃO DA APLICAÇÃO
@@ -3760,9 +3761,9 @@ def get_peca(peca_id):
 
 @app.route('/empresas')
 @login_required
-@admin_required
+@super_admin_required
 def empresas():
-    """Página de gestão de empresas"""
+    """Página de gestão de empresas - Apenas Super Admin"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM empresas ORDER BY nome")
@@ -3772,9 +3773,9 @@ def empresas():
 
 @app.route('/api/empresas', methods=['POST'])
 @login_required
-@admin_required
+@super_admin_required
 def criar_empresa():
-    """Criar nova empresa"""
+    """Criar nova empresa - Apenas Super Admin"""
     try:
         data = request.json
         conn = get_db_connection()
@@ -3822,9 +3823,9 @@ def criar_empresa():
 
 @app.route('/api/empresas/<int:empresa_id>', methods=['PUT'])
 @login_required
-@admin_required
+@super_admin_required
 def atualizar_empresa(empresa_id):
-    """Atualizar empresa"""
+    """Atualizar empresa - Apenas Super Admin"""
     try:
         data = request.json
         conn = get_db_connection()

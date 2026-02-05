@@ -21,6 +21,16 @@ class User(UserMixin):
         self.role = role or 'OPERADOR'  # Default para OPERADOR
         self.empresa_id = empresa_id
         self.is_demo = is_demo  # Flag para usuários de demonstração
+    
+    @property
+    def is_super_admin(self):
+        """Verifica se é o super administrador do sistema (dono do SaaS)"""
+        return self.username == 'admin'
+    
+    @property
+    def is_empresa_admin(self):
+        """Verifica se é administrador da empresa (cliente do SaaS)"""
+        return self.role in ['Admin', 'ADMIN'] and not self.is_super_admin
 
 @login_manager.user_loader
 def load_user(user_id):
