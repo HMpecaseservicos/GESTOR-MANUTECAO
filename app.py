@@ -741,10 +741,22 @@ def alterar_minha_senha():
 # ROTAS DE PLANOS E MONETIZAÇÃO (ETAPA 15)
 # =============================================
 
+def is_demo_user():
+    """Verifica se o usuário atual é um usuário demo"""
+    if not current_user.is_authenticated:
+        return False
+    return getattr(current_user, 'is_demo', False)
+
+
 @app.route('/planos')
 def planos():
     """Página pública de planos e preços"""
     from empresa_helpers import get_planos_disponiveis, get_plano, get_plano_info, get_plano_upgrade_sugerido
+    
+    # Bloquear usuários demo
+    if is_demo_user():
+        flash('Acesso restrito. Usuários de demonstração não podem acessar a área de planos.', 'warning')
+        return redirect(url_for('dashboard'))
     
     planos_lista = get_planos_disponiveis()
     
@@ -770,6 +782,10 @@ def api_solicitar_upgrade():
     Cria notificação interna e pode enviar email futuramente.
     """
     from empresa_helpers import create_notification, get_empresa_id
+    
+    # Bloquear usuários demo
+    if is_demo_user():
+        return jsonify({'success': False, 'message': 'Usuários de demonstração não podem solicitar upgrades'}), 403
     
     data = request.form
     nome = data.get('nome', '').strip()

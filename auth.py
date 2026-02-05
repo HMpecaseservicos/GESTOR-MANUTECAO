@@ -14,12 +14,13 @@ login_manager = LoginManager()
 bcrypt = Bcrypt()
 
 class User(UserMixin):
-    def __init__(self, id, username, password, role, empresa_id=None):
+    def __init__(self, id, username, password, role, empresa_id=None, is_demo=False):
         self.id = id
         self.username = username
         self.password = password
         self.role = role or 'OPERADOR'  # Default para OPERADOR
         self.empresa_id = empresa_id
+        self.is_demo = is_demo  # Flag para usuários de demonstração
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -31,19 +32,19 @@ def load_user(user_id):
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
-            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = %s', (user_id,))
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id, COALESCE(is_demo, false) FROM usuarios WHERE id = %s', (user_id,))
             user_data = cursor.fetchone()
             cursor.close()
             conn.close()
         else:
             conn = sqlite3.connect('database/frota.db')
             cursor = conn.cursor()
-            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE id = ?', (user_id,))
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id, COALESCE(is_demo, 0) FROM usuarios WHERE id = ?', (user_id,))
             user_data = cursor.fetchone()
             conn.close()
         
         if user_data:
-            return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
+            return User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4], bool(user_data[5]))
         return None
     except Exception as e:
         print(f"Erro ao carregar usuário: {e}")
@@ -90,14 +91,14 @@ def authenticate_user(username, password):
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
-            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = %s AND ativo = true', (username,))
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id, COALESCE(is_demo, false) FROM usuarios WHERE username = %s AND ativo = true', (username,))
             user_data = cursor.fetchone()
             cursor.close()
             conn.close()
         else:
             conn = sqlite3.connect('database/frota.db')
             cursor = conn.cursor()
-            cursor.execute('SELECT id, username, password_hash, role, empresa_id FROM usuarios WHERE username = ? AND ativo = 1', (username,))
+            cursor.execute('SELECT id, username, password_hash, role, empresa_id, COALESCE(is_demo, 0) FROM usuarios WHERE username = ? AND ativo = 1', (username,))
             user_data = cursor.fetchone()
             conn.close()
         
@@ -107,7 +108,7 @@ def authenticate_user(username, password):
         if not bcrypt.check_password_hash(user_data[2], password):
             return None, 'Senha incorreta'
         
-        user = User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4])
+        user = User(user_data[0], user_data[1], user_data[2], user_data[3], user_data[4], bool(user_data[5]))
         return user, None
         
     except Exception as e:
