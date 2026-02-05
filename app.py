@@ -2450,17 +2450,19 @@ def manutencao():
     
     # Buscar manutenções com telefone de técnicos OU fornecedores (FILTRADO POR EMPRESA)
     # Ordem: id, veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_total, status, tecnico, 
-    #        observacoes, km_veiculo, data_criacao, custo_mao_obra, placa, modelo, telefone
+    #        observacoes, km_veiculo, data_criacao, custo_mao_obra, placa, modelo, telefone, cliente_nome
     cursor.execute(f'''
         SELECT 
             m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada,
             m.custo_total, m.status, m.tecnico, m.observacoes, m.km_veiculo, 
             m.data_criacao, m.custo_mao_obra,
-            v.placa, 
-            v.modelo, 
-            COALESCE(t.telefone, f.telefone) as telefone
+            COALESCE(v.placa, 'S/Veículo') as placa, 
+            COALESCE(v.modelo, '') as modelo, 
+            COALESCE(t.telefone, f.telefone) as telefone,
+            c.nome as cliente_nome
         FROM manutencoes m 
-        JOIN veiculos v ON m.veiculo_id = v.id 
+        LEFT JOIN veiculos v ON m.veiculo_id = v.id 
+        LEFT JOIN clientes c ON m.cliente_id = c.id
         LEFT JOIN tecnicos t ON m.tecnico = t.nome AND t.empresa_id = {placeholder}
         LEFT JOIN fornecedores f ON m.tecnico = f.nome AND f.empresa_id = {placeholder}
         WHERE m.empresa_id = {placeholder}
@@ -2468,8 +2470,8 @@ def manutencao():
     ''', (empresa_id, empresa_id, empresa_id))
     manutencoes = cursor.fetchall()
     
-    # Buscar veículos (FILTRADO POR EMPRESA)
-    cursor.execute(f"SELECT id, placa, modelo FROM veiculos WHERE empresa_id = {placeholder}", (empresa_id,))
+    # Buscar veículos (FILTRADO POR EMPRESA) - inclui cliente_id para filtrar por cliente
+    cursor.execute(f"SELECT id, placa, modelo, cliente_id FROM veiculos WHERE empresa_id = {placeholder} ORDER BY placa", (empresa_id,))
     veiculos = cursor.fetchall()
     
     # Buscar técnicos (FILTRADO POR EMPRESA)
@@ -2504,18 +2506,32 @@ def criar_manutencao():
     # Status inicial baseado no modo da empresa
     status_inicial = 'RASCUNHO' if is_servico() else 'Agendada'
     
+    # Pegar cliente_id para modo SERVICO
+    cliente_id = data.get('cliente_id') if is_servico() else None
+    if cliente_id == '' or cliente_id == 'null':
+        cliente_id = None
+    elif cliente_id:
+        cliente_id = int(cliente_id)
+    
+    # Veiculo pode ser opcional no modo SERVICO
+    veiculo_id = data.get('veiculo_id')
+    if veiculo_id == '' or veiculo_id == 'null' or veiculo_id is None:
+        veiculo_id = None
+    else:
+        veiculo_id = int(veiculo_id)
+    
     try:
         if Config.IS_POSTGRES:
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
             
-            # Inserir manutenção (inclui empresa_id para isolamento de dados)
+            # Inserir manutenção (inclui empresa_id e cliente_id para isolamento de dados)
             cursor.execute('''
-                INSERT INTO manutencoes (empresa_id, veiculo_id, tipo, descricao, data_agendada, tecnico, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO manutencoes (empresa_id, veiculo_id, cliente_id, tipo, descricao, data_agendada, tecnico, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            ''', (empresa_id, data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
+            ''', (empresa_id, veiculo_id, cliente_id, data['tipo'], data['descricao'], data['data_agendada'], 
                   data.get('tecnico'), status_inicial))
             
             manutencao_id = cursor.fetchone()[0]

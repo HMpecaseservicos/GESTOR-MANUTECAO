@@ -58,7 +58,12 @@
                 <thead class="table-light">
                     <tr>
                         <th>ID</th>
+                        {% if is_servico %}
+                        <th>Cliente</th>
+                        <th>Veículo/Equip.</th>
+                        {% else %}
                         <th>Veículo</th>
+                        {% endif %}
                         <th>Tipo</th>
                         <th>Descrição</th>
                         <th>Data Agendada</th>
@@ -81,12 +86,31 @@
                         data-tipo="{{ manutencao[2] }}"
                         data-data="{{ manutencao[4] }}"
                         data-tecnico="{{ manutencao[8] if manutencao[8] else 'Não definido' }}"
-                        data-telefone="{{ manutencao[15] if manutencao[15] else '' }}">
+                        data-telefone="{{ manutencao[15] if manutencao[15] else '' }}"
+                        data-cliente="{{ manutencao[16] if manutencao[16] else '' }}">
                         <td><strong>#{{ manutencao[0] }}</strong></td>
+                        {% if is_servico %}
+                        <td>
+                            {% if manutencao[16] %}
+                            <strong class="text-success"><i class="fas fa-user"></i> {{ manutencao[16] }}</strong>
+                            {% else %}
+                            <small class="text-muted"><i class="fas fa-user-slash"></i> Sem cliente</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if manutencao[13] != 'S/Veículo' %}
+                            <small class="text-primary">{{ manutencao[13] }}</small><br>
+                            <small class="text-muted">{{ manutencao[14] }}</small>
+                            {% else %}
+                            <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        {% else %}
                         <td>
                             <strong class="text-primary">{{ manutencao[13] }}</strong><br>
                             <small class="text-muted">{{ manutencao[14] }}</small>
                         </td>
+                        {% endif %}
                         <td>
                             {% if manutencao[2] == 'Preventiva' %}
                                 <span class="badge bg-info">{{ manutencao[2] }}</span>
@@ -250,11 +274,120 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-plus"></i> Nova Manutenção</h5>
+                <h5 class="modal-title"><i class="fas fa-plus"></i> {% if is_servico %}Nova Ordem de Serviço{% else %}Nova Manutenção{% endif %}</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="novaManutencaoForm">
+                    {% if is_servico %}
+                    <!-- MODO SERVIÇO: Primeiro o cliente -->
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-user text-primary"></i> Cliente *</label>
+                            <select class="form-select" name="cliente_id" id="nova-cliente-select" required onchange="carregarVeiculosCliente(this.value, 'nova')">
+                                <option value="">Selecione o cliente</option>
+                                {% for cliente in clientes %}
+                                <option value="{{ cliente[0] }}" data-telefone="{{ cliente[2] }}">{{ cliente[1] }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Cliente que solicitou o serviço</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-car text-secondary"></i> Veículo/Equipamento</label>
+                            <select class="form-select" name="veiculo_id" id="nova-veiculo-select">
+                                <option value="">Selecione o veículo ou equipamento</option>
+                                {% for veiculo in veiculos %}
+                                <option value="{{ veiculo[0] }}" data-cliente="{{ veiculo[3] if veiculo|length > 3 else '' }}">{{ veiculo[1] }} - {{ veiculo[2] }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Opcional - Selecione após escolher o cliente</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-tag text-info"></i> Tipo de Serviço *</label>
+                            <select class="form-select" name="tipo" required>
+                                <option value="">Selecione o tipo</option>
+                                <option value="Manutenção">🔧 Manutenção</option>
+                                <option value="Reparo">🛠️ Reparo</option>
+                                <option value="Instalação">📦 Instalação</option>
+                                <option value="Revisão">🔍 Revisão</option>
+                                <option value="Diagnóstico">🩺 Diagnóstico</option>
+                                <option value="Troca de Peças">⚙️ Troca de Peças</option>
+                                <option value="Elétrica">⚡ Serviço Elétrico</option>
+                                <option value="Hidráulica">💧 Serviço Hidráulico</option>
+                                <option value="Pintura">🎨 Pintura/Funilaria</option>
+                                <option value="Personalização">✨ Personalização</option>
+                                <option value="Outro">📋 Outro</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-flag text-warning"></i> Prioridade *</label>
+                            <select class="form-select" name="prioridade" required>
+                                <option value="Baixa">🟢 Baixa</option>
+                                <option value="Média" selected>🟡 Média</option>
+                                <option value="Alta">🟠 Alta</option>
+                                <option value="Urgente">🔴 Urgente</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><i class="fas fa-clipboard-list text-primary"></i> Descrição do Serviço *</label>
+                        <textarea class="form-control" name="descricao" rows="3" required
+                                  placeholder="Descreva detalhadamente o serviço a ser realizado, problemas relatados pelo cliente, etc..."></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label"><i class="fas fa-calendar text-success"></i> Data Agendada *</label>
+                            <input type="date" class="form-control" name="data_agendada" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label"><i class="fas fa-user-cog text-secondary"></i> Técnico Responsável</label>
+                            <select class="form-select" name="tecnico">
+                                <option value="">A definir</option>
+                                <optgroup label="👨‍🔧 Técnicos Internos">
+                                    {% for tecnico in tecnicos %}
+                                    <option value="{{ tecnico[1] }}">{{ tecnico[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% if fornecedores_servicos %}
+                                <optgroup label="🏢 Empresas Terceirizadas">
+                                    {% for fornecedor in fornecedores_servicos %}
+                                    <option value="{{ fornecedor[1] }}">{{ fornecedor[1] }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                                <optgroup label="📋 Outros">
+                                    <option value="Externo">Serviço Externo</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label"><i class="fas fa-dollar-sign text-warning"></i> Custo Estimado</label>
+                            <input type="number" class="form-control" name="custo_estimado" 
+                                   step="0.01" placeholder="0.00">
+                        </div>
+                    </div>
+                    
+                    <!-- Seção Serviços Prestados -->
+                    <hr class="my-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0"><i class="fas fa-tools text-primary"></i> Serviços a Realizar</h6>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="adicionarItemServico('nova')">
+                            <i class="fas fa-plus"></i> Adicionar Serviço
+                        </button>
+                    </div>
+                    <div id="nova-servicos-container">
+                        <!-- Itens serão adicionados aqui via JS -->
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12 text-end">
+                            <strong>Total de Serviços: <span id="nova-total-servicos" class="text-success">R$ 0,00</span></strong>
+                        </div>
+                    </div>
+                    
+                    {% else %}
+                    <!-- MODO FROTA: Padrão atual -->
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Veículo</label>
@@ -290,15 +423,11 @@
                             <label class="form-label">Responsável pela Manutenção</label>
                             <select class="form-select" name="tecnico" required>
                                 <option value="">Selecione o responsável</option>
-                                
-                                <!-- Técnicos Internos -->
                                 <optgroup label="👨‍🔧 Técnicos Internos">
                                     {% for tecnico in tecnicos %}
                                     <option value="{{ tecnico[1] }}">{{ tecnico[1] }}</option>
                                     {% endfor %}
                                 </optgroup>
-                                
-                                <!-- Fornecedores de Serviços -->
                                 {% if fornecedores_servicos %}
                                 <optgroup label="🏢 Empresas Terceirizadas">
                                     {% for fornecedor in fornecedores_servicos %}
@@ -306,8 +435,6 @@
                                     {% endfor %}
                                 </optgroup>
                                 {% endif %}
-                                
-                                <!-- Outros -->
                                 <optgroup label="📋 Outros">
                                     <option value="Externo">Serviço Externo (Não Cadastrado)</option>
                                 </optgroup>
@@ -331,31 +458,13 @@
                                    step="0.01" placeholder="0.00">
                         </div>
                     </div>
-                    
-                    {% if is_servico %}
-                    <!-- Seção Serviços Prestados (modo SERVICO) -->
-                    <hr class="my-3">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="mb-0"><i class="fas fa-tools text-primary"></i> Serviços Prestados</h6>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="adicionarItemServico('nova')">
-                            <i class="fas fa-plus"></i> Adicionar Serviço
-                        </button>
-                    </div>
-                    <div id="nova-servicos-container">
-                        <!-- Itens serão adicionados aqui via JS -->
-                    </div>
-                    <div class="row mt-3">
-                        <div class="col-12 text-end">
-                            <strong>Total de Serviços: <span id="nova-total-servicos" class="text-success">R$ 0,00</span></strong>
-                        </div>
-                    </div>
                     {% endif %}
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary" onclick="agendarManutencao()">
-                    <i class="fas fa-save"></i> Agendar
+                    <i class="fas fa-save"></i> {% if is_servico %}Criar OS{% else %}Agendar{% endif %}
                 </button>
             </div>
         </div>
@@ -367,12 +476,69 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Manutenção</h5>
+                <h5 class="modal-title"><i class="fas fa-edit"></i> {% if is_servico %}Editar Ordem de Serviço{% else %}Editar Manutenção{% endif %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="editarManutencaoForm">
                     <input type="hidden" id="edit-manutencao-id">
+                    {% if is_servico %}
+                    <!-- MODO SERVIÇO -->
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-user text-primary"></i> Cliente *</label>
+                            <select class="form-select" id="edit-cliente" name="cliente_id" onchange="carregarVeiculosCliente(this.value, 'edit')">
+                                <option value="">Selecione o cliente</option>
+                                {% for cliente in clientes %}
+                                <option value="{{ cliente[0] }}" data-telefone="{{ cliente[2] }}">{{ cliente[1] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-car text-secondary"></i> Veículo/Equipamento</label>
+                            <select class="form-select" id="edit-veiculo" name="veiculo_id">
+                                <option value="">Selecione (opcional)</option>
+                                {% for veiculo in veiculos %}
+                                <option value="{{ veiculo[0] }}" data-cliente="{{ veiculo[3] if veiculo|length > 3 else '' }}">{{ veiculo[1] }} - {{ veiculo[2] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label"><i class="fas fa-tag text-info"></i> Tipo de Serviço *</label>
+                            <select class="form-select" id="edit-tipo" name="tipo" required>
+                                <option value="Manutenção">🔧 Manutenção</option>
+                                <option value="Reparo">🛠️ Reparo</option>
+                                <option value="Instalação">📦 Instalação</option>
+                                <option value="Revisão">🔍 Revisão</option>
+                                <option value="Diagnóstico">🩺 Diagnóstico</option>
+                                <option value="Troca de Peças">⚙️ Troca de Peças</option>
+                                <option value="Elétrica">⚡ Serviço Elétrico</option>
+                                <option value="Hidráulica">💧 Serviço Hidráulico</option>
+                                <option value="Pintura">🎨 Pintura/Funilaria</option>
+                                <option value="Personalização">✨ Personalização</option>
+                                <option value="Outro">📋 Outro</option>
+                                <!-- Tipos antigos para compatibilidade -->
+                                <option value="Preventiva">Preventiva</option>
+                                <option value="Corretiva">Corretiva</option>
+                                <option value="Emergencial">Emergencial</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Status *</label>
+                            <select class="form-select" id="edit-status" name="status" required onchange="verificarDataRealizadaObrigatoria(this.value)">
+                                <option value="RASCUNHO">📝 Rascunho</option>
+                                <option value="ORCAMENTO">📋 Orçamento</option>
+                                <option value="APROVADO">✅ Aprovado</option>
+                                <option value="EM_EXECUCAO">⚙️ Em Execução</option>
+                                <option value="FINALIZADO">🏁 Finalizado</option>
+                                <option value="CANCELADO">❌ Cancelado</option>
+                            </select>
+                        </div>
+                    </div>
+                    {% else %}
+                    <!-- MODO FROTA -->
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Veículo *</label>
@@ -391,6 +557,7 @@
                             </select>
                         </div>
                     </div>
+                    {% endif %}
                     <div class="mb-3">
                         <label class="form-label">Descrição *</label>
                         <textarea class="form-control" id="edit-descricao" name="descricao" rows="3" required></textarea>
@@ -412,24 +579,17 @@
                             <input type="number" class="form-control" id="edit-custo" name="custo" step="0.01" placeholder="0.00">
                             <small class="text-muted">Custo das peças será somado automaticamente</small>
                         </div>
+                        {% if not is_servico %}
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Status *</label>
                             <select class="form-select" id="edit-status" name="status" required>
-                                {% if is_servico %}
-                                <option value="RASCUNHO">📝 Rascunho</option>
-                                <option value="ORCAMENTO">📋 Orçamento</option>
-                                <option value="APROVADO">✅ Aprovado</option>
-                                <option value="EM_EXECUCAO">⚙️ Em Execução</option>
-                                <option value="FINALIZADO">🏁 Finalizado</option>
-                                <option value="CANCELADO">❌ Cancelado</option>
-                                {% else %}
                                 <option value="Agendada">Agendada</option>
                                 <option value="Em Andamento">Em Andamento</option>
                                 <option value="Concluída">Concluída</option>
                                 <option value="Cancelada">Cancelada</option>
-                                {% endif %}
                             </select>
                         </div>
+                        {% endif %}
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Responsável</label>
                             <select class="form-select" id="edit-tecnico" name="tecnico">
@@ -456,16 +616,6 @@
                                     <option value="Externo">Serviço Externo (Não Cadastrado)</option>
                                 </optgroup>
                             </select>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Cliente (para WhatsApp)</label>
-                            <select class="form-select" id="edit-cliente" name="cliente_id">
-                                <option value="">Selecione o cliente</option>
-                                {% for cliente in clientes %}
-                                <option value="{{ cliente[0] }}" data-telefone="{{ cliente[2] }}">{{ cliente[1] }}</option>
-                                {% endfor %}
-                            </select>
-                            <small class="text-muted">Vincular cliente para envio de orçamento</small>
                         </div>
                     </div>
                 </form>

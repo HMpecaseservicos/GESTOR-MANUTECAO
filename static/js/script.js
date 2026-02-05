@@ -187,16 +187,66 @@ function limparModalVeiculo() {
     }
 }
 
+// ===== CARREGAR VEÍCULOS POR CLIENTE =====
+function carregarVeiculosCliente(clienteId, prefix) {
+    const veiculoSelect = document.getElementById(prefix + '-veiculo-select');
+    if (!veiculoSelect) return;
+    
+    // Manter todas as opções originais
+    const todasOpcoes = veiculoSelect.querySelectorAll('option');
+    
+    if (!clienteId) {
+        // Se nenhum cliente selecionado, mostrar todos os veículos
+        todasOpcoes.forEach(opt => opt.style.display = '');
+        veiculoSelect.value = '';
+        return;
+    }
+    
+    // Filtrar veículos por cliente
+    let temVeiculoDoCliente = false;
+    todasOpcoes.forEach(opt => {
+        if (opt.value === '') {
+            opt.style.display = '';
+        } else {
+            const clienteDoVeiculo = opt.getAttribute('data-cliente');
+            if (clienteDoVeiculo == clienteId || !clienteDoVeiculo) {
+                opt.style.display = '';
+                if (clienteDoVeiculo == clienteId) temVeiculoDoCliente = true;
+            } else {
+                opt.style.display = 'none';
+            }
+        }
+    });
+    
+    veiculoSelect.value = '';
+}
+
 // ===== MAINTENANCE MANAGEMENT =====
 function agendarManutencao() {
     const form = document.getElementById('novaManutencaoForm');
     const formData = new FormData(form);
     const data = Object.fromEntries(formData);
     
-    // Validação
-    if (!data.veiculo_id || !data.tipo || !data.data_agendada) {
-        showAlert('Por favor, preencha todos os campos obrigatórios.', 'warning');
-        return;
+    // Verificar se é modo SERVIÇO (tem campo cliente_id)
+    const isServicoMode = document.getElementById('nova-cliente-select') !== null;
+    
+    // Validação condicional
+    if (isServicoMode) {
+        // Modo SERVIÇO: cliente obrigatório, veículo opcional
+        if (!data.cliente_id) {
+            showAlert('Por favor, selecione o cliente.', 'warning');
+            return;
+        }
+        if (!data.tipo || !data.data_agendada || !data.descricao) {
+            showAlert('Por favor, preencha todos os campos obrigatórios (Tipo, Descrição, Data).', 'warning');
+            return;
+        }
+    } else {
+        // Modo FROTA: veículo obrigatório
+        if (!data.veiculo_id || !data.tipo || !data.data_agendada) {
+            showAlert('Por favor, preencha todos os campos obrigatórios.', 'warning');
+            return;
+        }
     }
     
     // Coletar serviços prestados (modo SERVICO)
