@@ -114,9 +114,10 @@ def get_user_role():
 def is_admin():
     """
     Verifica se o usuário logado é ADMIN da empresa.
-    Retorna True apenas se explicitamente configurado como ADMIN.
+    Retorna True para 'ADMIN' ou 'Admin' (case insensitive).
     """
-    return get_user_role() == 'ADMIN'
+    role = get_user_role()
+    return role.upper() == 'ADMIN' if role else False
 
 
 def is_operador():
@@ -124,7 +125,8 @@ def is_operador():
     Verifica se o usuário logado é OPERADOR (acesso limitado).
     Retorna True se for OPERADOR ou se não houver role definido.
     """
-    return get_user_role() != 'ADMIN'
+    role = get_user_role()
+    return role.upper() != 'ADMIN' if role else True
 
 
 def admin_required(f):
