@@ -2635,9 +2635,12 @@ def get_manutencao(manutencao_id):
         # Buscar manutenção com filtro por empresa_id (isolamento de dados)
         cursor.execute(f'''
             SELECT m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada, 
-                   m.custo_mao_obra, m.status, m.tecnico, v.placa, v.modelo, m.cliente_id
+                   m.custo_mao_obra, m.status, m.tecnico, 
+                   COALESCE(v.placa, 'S/Veículo') as placa, 
+                   COALESCE(v.modelo, '') as modelo, 
+                   m.cliente_id
             FROM manutencoes m 
-            JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
             WHERE m.id = {placeholder} AND m.empresa_id = {placeholder}
         ''', (manutencao_id, empresa_id))
         manutencao = cursor.fetchone()
