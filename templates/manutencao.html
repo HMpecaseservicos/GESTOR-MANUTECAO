@@ -68,7 +68,7 @@
                         <th>Descrição</th>
                         <th>Data Agendada</th>
                         <th>Data Realizada</th>
-                        <th>Custo</th>
+                        <th>{% if is_servico %}Valor{% else %}Custo{% endif %}</th>
                         <th>Status</th>
                         <th>Técnico</th>
                         <th>Ações</th>
@@ -386,7 +386,7 @@
                             </select>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label class="form-label"><i class="fas fa-dollar-sign text-warning"></i> Custo Estimado</label>
+                            <label class="form-label"><i class="fas fa-dollar-sign text-warning"></i> {% if is_servico %}Valor Estimado{% else %}Custo Estimado{% endif %}</label>
                             <input type="number" class="form-control" name="custo_estimado" 
                                    step="0.01" placeholder="0.00">
                         </div>
@@ -476,7 +476,7 @@
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Custo Estimado</label>
+                            <label class="form-label">{% if is_servico %}Valor Estimado{% else %}Custo Estimado{% endif %}</label>
                             <input type="number" class="form-control" name="custo_estimado" 
                                    step="0.01" placeholder="0.00">
                         </div>
@@ -598,9 +598,9 @@
                     </div>
                     <div class="row">
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">Custo Mão de Obra (R$)</label>
+                            <label class="form-label">{% if is_servico %}Valor Mão de Obra (R$){% else %}Custo Mão de Obra (R$){% endif %}</label>
                             <input type="number" class="form-control" id="edit-custo" name="custo" step="0.01" placeholder="0.00">
-                            <small class="text-muted">Custo das peças será somado automaticamente</small>
+                            <small class="text-muted">{% if is_servico %}Valor das peças será somado automaticamente{% else %}Custo das peças será somado automaticamente{% endif %}</small>
                         </div>
                         {% if not is_servico %}
                         <div class="col-md-4 mb-3">
@@ -685,7 +685,7 @@
                                 <span id="edit-total-pecas" class="text-success fs-5">R$ 0,00</span>
                             </div>
                             <div class="col-md-6 text-end">
-                                <strong>Custo Total:</strong>
+                                <strong>{% if is_servico %}Valor Total:{% else %}Custo Total:{% endif %}</strong>
                                 <span id="edit-custo-total" class="text-primary fs-5">R$ 0,00</span>
                             </div>
                         </div>
@@ -1755,35 +1755,38 @@ function iniciarViaWhatsApp(button) {
             // Formatar data para melhor visualização
             const dataFormatada = new Date(data + 'T00:00:00').toLocaleDateString('pt-BR');
             
-            // Formatar mensagem do WhatsApp de forma profissional
-            const mensagem = `*ORDEM DE SERVICO - MANUTENCAO*
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*OS N°:* ${id}
-*Status:* EM ANDAMENTO
-
-*DADOS DO VEICULO*
-> Modelo: ${modelo}
-> Placa: ${placa}
-> Tipo de Manutencao: ${tipo}
-
-*AGENDAMENTO*
-Data: ${data}
-
-*DESCRICAO DO SERVICO*
-${descricao}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-_Atenciosamente,_
-_Departamento de Manutencao_
-
-_Por favor, confirme o recebimento desta OS respondendo esta mensagem._`;
+            // Formatar mensagem profissional
+            const nomeEmpresa = '{{ empresa.nome if empresa else "Empresa" }}';
+            const mensagem = [
+                `*${nomeEmpresa.toUpperCase()}*`,
+                `Ordem de Servico N. ${id}`,
+                ``,
+                `─────────────────────────`,
+                ``,
+                `*Status:* Em Andamento`,
+                `*Data:* ${data}`,
+                ``,
+                `*Veiculo*`,
+                `  ${modelo}`,
+                `  Placa: ${placa}`,
+                `  Tipo: ${tipo}`,
+                ``,
+                `*Descricao do Servico*`,
+                `  ${descricao}`,
+                ``,
+                `─────────────────────────`,
+                ``,
+                `Confirme o recebimento`,
+                `respondendo esta mensagem.`,
+                ``,
+                `_${nomeEmpresa}_`
+            ].join('\n');
 
             // Limpar telefone (remover caracteres não numéricos)
             const telefoneNumerico = telefone.replace(/\D/g, '');
             
             // Adicionar código do país se necessário (Brasil = 55)
-            const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+            const telefoneCompleto = telefoneNumerico.startsWith('55') ? telefoneNumerico : '55' + telefoneNumerico;
             
             // Abrir WhatsApp em nova aba
             const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
@@ -1827,32 +1830,39 @@ function enviarParaTecnicoAnalisar(button) {
         return;
     }
     
-    const mensagem = `*🔧 SOLICITAÇÃO DE ANÁLISE TÉCNICA*
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const nomeEmpresa = '{{ empresa.nome if empresa else "Empresa" }}';
+    const mensagem = [
+        `*${nomeEmpresa.toUpperCase()}*`,
+        `Solicitacao de Analise Tecnica`,
+        ``,
+        `─────────────────────────`,
+        ``,
+        `Ola *${tecnico}*,`,
+        ``,
+        `Voce foi designado para analisar`,
+        `o seguinte servico:`,
+        ``,
+        `*OS N.:* ${id}`,
+        `*Veiculo:* ${modelo}`,
+        `*Placa:* ${placa}`,
+        `*Data:* ${data}`,
+        `*Tipo:* ${tipo}`,
+        ``,
+        `*Descricao*`,
+        `  ${descricao}`,
+        ``,
+        `─────────────────────────`,
+        ``,
+        `Retorne com:`,
+        `  - Servicos necessarios`,
+        `  - Pecas a utilizar`,
+        `  - Estimativa de tempo`,
+        ``,
+        `_${nomeEmpresa}_`
+    ].join('\n');
 
-Olá *${tecnico}*!
-
-Você foi designado para analisar o seguinte serviço:
-
-*📋 OS N°:* ${id}
-*🚗 Veículo:* ${modelo} - ${placa}
-*📅 Data:* ${data}
-*🔧 Tipo:* ${tipo}
-
-*📝 DESCRIÇÃO:*
-${descricao}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Por favor, realize a análise e retorne com:
-✅ Lista de serviços necessários
-✅ Peças que serão utilizadas
-✅ Estimativa de tempo
-
-_Aguardamos seu retorno!_`;
-
-    const telefoneNumerico = telefone.replace(/\\D/g, '');
-    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+    const telefoneNumerico = telefone.replace(/\D/g, '');
+    const telefoneCompleto = telefoneNumerico.startsWith('55') ? telefoneNumerico : '55' + telefoneNumerico;
     
     const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
     window.open(url, '_blank');
@@ -1860,45 +1870,28 @@ _Aguardamos seu retorno!_`;
 
 // Enviar orçamento para cliente via WhatsApp
 function enviarOrcamentoCliente(manutencaoId) {
-    // Buscar dados da manutenção e cliente
-    fetch(`/manutencao/get/${manutencaoId}`)
-        .then(response => response.json())
-        .then(data => {
-            if (!data.success) {
-                alert('Erro ao carregar dados da manutenção');
+    fetch(`/api/manutencao/${manutencaoId}/orcamento-whatsapp`)
+        .then(resp => resp.json())
+        .then(orcamento => {
+            if (!orcamento.success) {
+                alert(orcamento.message || 'Erro ao gerar orçamento');
                 return;
             }
             
-            const m = data.manutencao;
+            if (!orcamento.cliente_telefone) {
+                alert('Cliente nao tem telefone cadastrado.\nCadastre o telefone antes de enviar.');
+                return;
+            }
             
-            // Buscar informações do cliente via API
-            fetch(`/api/manutencao/${manutencaoId}/orcamento-whatsapp`)
-                .then(resp => resp.json())
-                .then(orcamento => {
-                    if (!orcamento.success) {
-                        alert(orcamento.message || 'Erro ao gerar orçamento');
-                        return;
-                    }
-                    
-                    if (!orcamento.cliente_telefone) {
-                        alert('⚠️ Cliente não tem telefone cadastrado!\n\nPor favor, cadastre o telefone do cliente antes de enviar o orçamento.');
-                        return;
-                    }
-                    
-                    const telefoneNumerico = orcamento.cliente_telefone.replace(/\\D/g, '');
-                    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
-                    
-                    const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(orcamento.mensagem)}`;
-                    window.open(url, '_blank');
-                })
-                .catch(error => {
-                    console.error('Erro:', error);
-                    alert('Erro ao preparar orçamento: ' + error.message);
-                });
+            const telefoneNumerico = orcamento.cliente_telefone.replace(/\D/g, '');
+            const telefoneCompleto = telefoneNumerico.startsWith('55') ? telefoneNumerico : '55' + telefoneNumerico;
+            
+            const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(orcamento.mensagem)}`;
+            window.open(url, '_blank');
         })
         .catch(error => {
             console.error('Erro:', error);
-            alert('Erro ao carregar manutenção: ' + error.message);
+            alert('Erro ao preparar orcamento: ' + error.message);
         });
 }
 
@@ -1924,31 +1917,36 @@ function notificarTecnicoExecucao(button) {
         return;
     }
     
-    const mensagem = `*✅ ORÇAMENTO APROVADO - INICIAR EXECUÇÃO*
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const nomeEmpresa = '{{ empresa.nome if empresa else "Empresa" }}';
+    const mensagem = [
+        `*${nomeEmpresa.toUpperCase()}*`,
+        `Orcamento Aprovado`,
+        ``,
+        `─────────────────────────`,
+        ``,
+        `Ola *${tecnico}*,`,
+        ``,
+        `O orcamento da OS *N. ${id}*`,
+        `foi *APROVADO* pelo cliente.`,
+        ``,
+        `*Veiculo:* ${modelo}`,
+        `*Placa:* ${placa}`,
+        `*Data:* ${data}`,
+        `*Tipo:* ${tipo}`,
+        ``,
+        `*Servico*`,
+        `  ${descricao}`,
+        ``,
+        `─────────────────────────`,
+        ``,
+        `Voce pode iniciar a execucao.`,
+        `Mantenha-nos informados.`,
+        ``,
+        `_${nomeEmpresa}_`
+    ].join('\n');
 
-Olá *${tecnico}*!
-
-O orçamento foi *APROVADO* pelo cliente!
-
-*📋 OS N°:* ${id}
-*🚗 Veículo:* ${modelo} - ${placa}
-*📅 Data Agendada:* ${data}
-*🔧 Tipo:* ${tipo}
-
-*📝 SERVIÇO:*
-${descricao}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*🚀 Você pode iniciar a execução!*
-
-Por favor, mantenha-nos informados sobre o andamento.
-
-_Bom trabalho!_`;
-
-    const telefoneNumerico = telefone.replace(/\\D/g, '');
-    const telefoneCompleto = telefoneNumerico.length === 11 ? '55' + telefoneNumerico : telefoneNumerico;
+    const telefoneNumerico = telefone.replace(/\D/g, '');
+    const telefoneCompleto = telefoneNumerico.startsWith('55') ? telefoneNumerico : '55' + telefoneNumerico;
     
     const url = `https://wa.me/${telefoneCompleto}?text=${encodeURIComponent(mensagem)}`;
     window.open(url, '_blank');

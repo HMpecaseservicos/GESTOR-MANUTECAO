@@ -38,12 +38,12 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import login_required, current_user, login_user, logout_user
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
 import os
 import traceback
 import logging
-from logging.handlers import RotatingFileHandler
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -56,7 +56,7 @@ from io import StringIO, BytesIO
 
 # Importar módulos personalizados
 from config import Config
-from auth import login_manager, bcrypt, init_auth_tables, authenticate_user, admin_required, tecnico_required, log_action
+from auth import login_manager, bcrypt, authenticate_user, admin_required, tecnico_required, log_action
 from database_manager import db_manager
 from empresa_helpers import super_admin_required
 
@@ -70,8 +70,7 @@ app.config.from_object(Config)
 # Garantir que diretórios existem
 Config.ensure_directories()
 
-# Configurações do sistema (compatibilidade)
-DATABASE = Config.DATABASE_PATH
+# Configurações do sistema
 REPORTS_DIR = Config.REPORTS_FOLDER
 UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 
@@ -81,25 +80,16 @@ UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 
 def get_db_connection():
     """
-    Retorna conexão com o banco de dados correto (PostgreSQL ou SQLite).
-    IMPORTANTE: Sempre usar esta função em vez de sqlite3.connect(DATABASE)
+    Retorna conexão com o banco de dados PostgreSQL.
     """
-    if Config.IS_POSTGRES:
-        import psycopg2
-        return psycopg2.connect(Config.DATABASE_URL)
-    else:
-        return sqlite3.connect(DATABASE)
+    return psycopg2.connect(Config.DATABASE_URL)
 
 
 def get_db_cursor(conn):
     """
-    Retorna cursor do banco. Para PostgreSQL, retorna cursor com RealDictCursor.
+    Retorna cursor do banco com RealDictCursor.
     """
-    if Config.IS_POSTGRES:
-        from psycopg2.extras import RealDictCursor
-        return conn.cursor(cursor_factory=RealDictCursor)
-    else:
-        return conn.cursor()
+    return conn.cursor(cursor_factory=RealDictCursor)
 
 
 # Inicializar extensões de segurança
@@ -149,18 +139,18 @@ login_manager.login_view = 'login'
 login_manager.login_message = 'Por favor, faça login para acessar esta página.'
 login_manager.login_message_category = 'info'
 
-# Configurar logging
+# Configurar logging para stdout (SaaS stateless - compatível com Fly.io)
+import sys
 if not app.debug:
-    if not os.path.exists(Config.LOG_FOLDER):
-        os.mkdir(Config.LOG_FOLDER)
-    file_handler = RotatingFileHandler(Config.LOG_FILE, maxBytes=10240000, backupCount=10)
-    file_handler.setFormatter(logging.Formatter(
+    # Em produção: logs vão para stdout/stderr (capturados pelo Fly.io)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(logging.Formatter(
         '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
     ))
-    file_handler.setLevel(logging.INFO)
-    app.logger.addHandler(file_handler)
+    stream_handler.setLevel(logging.INFO)
+    app.logger.addHandler(stream_handler)
     app.logger.setLevel(logging.INFO)
-    app.logger.info('Sistema de Gestão de Frota iniciado')
+    app.logger.info('Sistema de Gestão iniciado - logs via stdout (Fly.io)')
 
 # =============================================
 # CRON JOBS EM BACKGROUND (ETAPA 14)
@@ -240,27 +230,27 @@ def load_empresa_context():
     """
     Carrega os dados da empresa do usuário logado no contexto global g.
     Disponibiliza g.empresa com tipo_operacao para uso em toda a aplicação.
+    
+    Otimização: Skip para rotas estáticas e health check.
     """
+    # Skip para rotas que não precisam de contexto de empresa
+    if request.path.startswith('/static') or request.path == '/health':
+        g.empresa = None
+        g.tipo_operacao = 'FROTA'
+        return
+    
     g.empresa = None
     g.tipo_operacao = 'FROTA'  # Default seguro
     
     if current_user.is_authenticated and hasattr(current_user, 'empresa_id') and current_user.empresa_id:
         try:
-            if Config.IS_POSTGRES:
-                import psycopg2
-                conn = psycopg2.connect(Config.DATABASE_URL)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id, nome, tipo_operacao, plano FROM empresas WHERE id = %s",
-                    (current_user.empresa_id,)
-                )
-            else:
-                conn = sqlite3.connect(DATABASE)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id, nome, tipo_operacao, plano FROM empresas WHERE id = ?",
-                    (current_user.empresa_id,)
-                )
+            import psycopg2
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, nome, tipo_operacao, plano FROM empresas WHERE id = %s",
+                (current_user.empresa_id,)
+            )
             
             row = cursor.fetchone()
             if row:
@@ -322,34 +312,27 @@ def moeda_br_filter(valor):
 # =============================================
 
 # NOTA: A função get_db_connection() principal está definida acima (linha ~80)
-# com suporte a PostgreSQL e SQLite
+# para conexão com PostgreSQL
 
 def get_db_connection_optimized():
     """
-    Cria uma conexão otimizada (apenas SQLite - para desenvolvimento)
-    Em produção (PostgreSQL), usa conexão padrão
+    Cria uma conexão com PostgreSQL.
     """
-    if Config.IS_POSTGRES:
-        import psycopg2
-        return psycopg2.connect(Config.DATABASE_URL)
-    else:
-        conn = sqlite3.connect(DATABASE, timeout=30.0)
-        conn.execute('PRAGMA journal_mode=WAL;')
-        conn.execute('PRAGMA synchronous=NORMAL;')
-        conn.execute('PRAGMA temp_store=MEMORY;')
-        conn.execute('PRAGMA mmap_size=268435456;')  # 256MB
-        return conn
+    return psycopg2.connect(Config.DATABASE_URL)
 
-# Usar database_manager para inicialização
+# Usar database_manager para inicialização (apenas desenvolvimento local)
 def init_db():
-    """Inicializar banco de dados usando database_manager"""
+    """Inicializar banco de dados - APENAS para desenvolvimento local SQLite
+    
+    Em produção (PostgreSQL/Fly.io), as migrations fazem a inicialização.
+    """
+    # Em produção, retornar True (migrations já criaram as tabelas)
+    from config import Config
+    if Config.IS_POSTGRES:
+        return True
+    
     success = db_manager.init_database()
     if success:
-        # Inicializar tabelas de autenticação
-        conn = get_db_connection()
-        init_auth_tables(conn)
-        conn.close()
-        # Inserir dados de exemplo se necessário
         db_manager.insert_sample_data()
     return success
 
@@ -376,11 +359,11 @@ def lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_m
         dict com success e message
     """
     try:
-        # Verificar idempotência - já foi lançado?
+        # Verificar idempotência - já foi lançado? (com filtro empresa_id)
         cursor.execute("""
             SELECT financeiro_lancado_em, financeiro_tipo, status, custo_total, valor_total_servicos
-            FROM manutencoes WHERE id = %s
-        """, (manutencao_id,))
+            FROM manutencoes WHERE id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
         manut = cursor.fetchone()
         
         if not manut:
@@ -404,17 +387,17 @@ def lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_m
             """, (manutencao_id,))
             valor = float(cursor.fetchone()[0] or 0)
             
-            # Atualizar valor_total_servicos na manutenção
+            # Atualizar valor_total_servicos na manutenção (com filtro empresa_id)
             cursor.execute("""
-                UPDATE manutencoes SET valor_total_servicos = %s WHERE id = %s
-            """, (valor, manutencao_id))
+                UPDATE manutencoes SET valor_total_servicos = %s WHERE id = %s AND empresa_id = %s
+            """, (valor, manutencao_id, empresa_id))
             
-            # Atualizar OS com status FATURADO
+            # Atualizar OS com status FATURADO (com filtro empresa_id)
             cursor.execute("""
                 UPDATE ordens_servico 
                 SET status = 'FATURADO', data_faturamento = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                WHERE manutencao_id = %s
-            """, (manutencao_id,))
+                WHERE manutencao_id = %s AND empresa_id = %s
+            """, (manutencao_id, empresa_id))
         else:
             tipo_lancamento = 'DESPESA'
             valor = custo_total
@@ -422,13 +405,13 @@ def lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_m
         if valor <= 0:
             print(f"   ⚠️ Valor zero, lançamento registrado mas sem valor")
         
-        # Marcar como lançado (IDEMPOTÊNCIA)
+        # Marcar como lançado (IDEMPOTÊNCIA) - com filtro empresa_id
         cursor.execute("""
             UPDATE manutencoes 
             SET financeiro_lancado_em = CURRENT_TIMESTAMP, 
                 financeiro_tipo = %s
-            WHERE id = %s
-        """, (tipo_lancamento, manutencao_id))
+            WHERE id = %s AND empresa_id = %s
+        """, (tipo_lancamento, manutencao_id, empresa_id))
         
         print(f"   ✅ Lançamento financeiro: {tipo_lancamento} de R$ {valor:.2f} para manutenção #{manutencao_id}")
         
@@ -457,26 +440,16 @@ def health_check():
     Verifica conectividade com banco de dados
     """
     try:
-        if Config.IS_POSTGRES:
-            # PostgreSQL
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.close()
-            conn.close()
-        else:
-            # SQLite
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.close()
+        conn.close()
         
         return jsonify({
             'status': 'healthy',
             'database': 'connected',
-            'db_type': 'PostgreSQL' if Config.IS_POSTGRES else 'SQLite'
+            'db_type': 'PostgreSQL'
         }), 200
     except Exception as e:
         return jsonify({
@@ -537,17 +510,11 @@ def cadastro():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if Config.IS_POSTGRES:
-            cursor.execute('SELECT id FROM usuarios WHERE username = %s', (username,))
-        else:
-            cursor.execute('SELECT id FROM usuarios WHERE username = ?', (username,))
+        cursor.execute('SELECT id FROM usuarios WHERE username = %s', (username,))
         if cursor.fetchone():
             erros.append('Este nome de usuário já está em uso')
         
-        if Config.IS_POSTGRES:
-            cursor.execute('SELECT id FROM usuarios WHERE email = %s', (email,))
-        else:
-            cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
+        cursor.execute('SELECT id FROM usuarios WHERE email = %s', (email,))
         if cursor.fetchone():
             erros.append('Este email já está cadastrado')
         
@@ -568,39 +535,23 @@ def cadastro():
             limite = limites.get(plano, limites['basico'])
             
             # Criar a empresa (com tipo_operacao - ETAPA 1 HÍBRIDO)
-            if Config.IS_POSTGRES:
-                cursor.execute('''
-                    INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
-                                         limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
-                    VALUES (%s, %s, %s, %s, %s, true, %s, %s, %s, NOW())
-                    RETURNING id
-                ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
-                      plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
-                empresa_id = cursor.fetchone()[0]
-            else:
-                cursor.execute('''
-                    INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
-                                         limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
-                    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, datetime('now'))
-                ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
-                      plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
-                empresa_id = cursor.lastrowid
+            cursor.execute('''
+                INSERT INTO empresas (nome, cnpj, telefone, email, plano, ativo, 
+                                     limite_veiculos, limite_usuarios, tipo_operacao, data_criacao)
+                VALUES (%s, %s, %s, %s, %s, true, %s, %s, %s, NOW())
+                RETURNING id
+            ''', (empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, 
+                  plano, limite['veiculos'], limite['usuarios'], tipo_operacao))
+            empresa_id = cursor.fetchone()[0]
             
             # Criar o usuário administrador
             password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
             
-            if Config.IS_POSTGRES:
-                cursor.execute('''
-                    INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
-                                         role, empresa_id, ativo, data_criacao)
-                    VALUES (%s, %s, %s, %s, %s, 'Admin', %s, true, NOW())
-                ''', (username, password_hash, nome, email, telefone, empresa_id))
-            else:
-                cursor.execute('''
-                    INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
-                                         role, empresa_id, ativo, data_criacao)
-                    VALUES (?, ?, ?, ?, ?, 'Admin', ?, 1, datetime('now'))
-                ''', (username, password_hash, nome, email, telefone, empresa_id))
+            cursor.execute('''
+                INSERT INTO usuarios (username, password_hash, nome, email, telefone, 
+                                     role, empresa_id, ativo, data_criacao)
+                VALUES (%s, %s, %s, %s, %s, 'Admin', %s, true, NOW())
+            ''', (username, password_hash, nome, email, telefone, empresa_id))
             
             conn.commit()
             conn.close()
@@ -664,62 +615,33 @@ def logout():
 def configuracoes():
     """Página de configurações do usuário"""
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Buscar dados do usuário
-            cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = %s', 
-                           (current_user.id,))
-            row = cursor.fetchone()
-            usuario = {
-                'id': row[0],
-                'username': row[1],
-                'email': row[2],
-                'nome': row[3],
-                'telefone': row[4],
-                'role': row[5],
-                'empresa_id': row[6]
-            }
-            
-            # Buscar dados da empresa
-            empresa = None
-            if usuario['empresa_id']:
-                cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = %s', (usuario['empresa_id'],))
-                emp_row = cursor.fetchone()
-                if emp_row:
-                    empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Buscar dados do usuário
-            cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = ?', 
-                           (current_user.id,))
-            row = cursor.fetchone()
-            usuario = {
-                'id': row[0],
-                'username': row[1],
-                'email': row[2],
-                'nome': row[3],
-                'telefone': row[4],
-                'role': row[5],
-                'empresa_id': row[6]
-            }
-            
-            # Buscar dados da empresa
-            empresa = None
-            if usuario['empresa_id']:
-                cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = ?', (usuario['empresa_id'],))
-                emp_row = cursor.fetchone()
-                if emp_row:
-                    empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
-            
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Buscar dados do usuário
+        cursor.execute('SELECT id, username, email, nome, telefone, role, empresa_id FROM usuarios WHERE id = %s', 
+                       (current_user.id,))
+        row = cursor.fetchone()
+        usuario = {
+            'id': row[0],
+            'username': row[1],
+            'email': row[2],
+            'nome': row[3],
+            'telefone': row[4],
+            'role': row[5],
+            'empresa_id': row[6]
+        }
+        
+        # Buscar dados da empresa
+        empresa = None
+        if usuario['empresa_id']:
+            cursor.execute('SELECT id, nome, plano FROM empresas WHERE id = %s', (usuario['empresa_id'],))
+            emp_row = cursor.fetchone()
+            if emp_row:
+                empresa = {'id': emp_row[0], 'nome': emp_row[1], 'plano': emp_row[2]}
+        
+        cursor.close()
+        conn.close()
         
         return render_template('configuracoes.html', usuario=usuario, empresa=empresa)
     except Exception as e:
@@ -739,43 +661,24 @@ def atualizar_perfil():
     telefone = request.form.get('telefone', '').strip()
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se email já está em uso por outro usuário
-            cursor.execute('SELECT id FROM usuarios WHERE email = %s AND id != %s', (email, current_user.id))
-            if cursor.fetchone():
-                flash('Este email já está em uso por outro usuário.', 'danger')
-                cursor.close()
-                conn.close()
-                return redirect(url_for('configuracoes'))
-            
-            cursor.execute('''
-                UPDATE usuarios SET nome = %s, email = %s, telefone = %s WHERE id = %s
-            ''', (nome, email, telefone, current_user.id))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se email já está em uso por outro usuário
+        cursor.execute('SELECT id FROM usuarios WHERE email = %s AND id != %s', (email, current_user.id))
+        if cursor.fetchone():
+            flash('Este email já está em uso por outro usuário.', 'danger')
             cursor.close()
             conn.close()
-        else:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Verificar se email já está em uso por outro usuário
-            cursor.execute('SELECT id FROM usuarios WHERE email = ? AND id != ?', (email, current_user.id))
-            if cursor.fetchone():
-                flash('Este email já está em uso por outro usuário.', 'danger')
-                conn.close()
-                return redirect(url_for('configuracoes'))
-            
-            cursor.execute('''
-                UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?
-            ''', (nome, email, telefone, current_user.id))
-            
-            conn.commit()
-            conn.close()
+            return redirect(url_for('configuracoes'))
+        
+        cursor.execute('''
+            UPDATE usuarios SET nome = %s, email = %s, telefone = %s WHERE id = %s
+        ''', (nome, email, telefone, current_user.id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         flash('Perfil atualizado com sucesso!', 'success')
     except Exception as e:
@@ -805,7 +708,7 @@ def alterar_minha_senha():
     cursor = conn.cursor()
     
     # Verificar senha atual
-    cursor.execute('SELECT password_hash FROM usuarios WHERE id = ?', (current_user.id,))
+    cursor.execute('SELECT password_hash FROM usuarios WHERE id = %s', (current_user.id,))
     row = cursor.fetchone()
     
     if not row or not bcrypt.check_password_hash(row[0], senha_atual):
@@ -815,7 +718,7 @@ def alterar_minha_senha():
     
     # Atualizar senha
     nova_hash = bcrypt.generate_password_hash(nova_senha).decode('utf-8')
-    cursor.execute('UPDATE usuarios SET password_hash = ? WHERE id = ?', (nova_hash, current_user.id))
+    cursor.execute('UPDATE usuarios SET password_hash = %s WHERE id = %s', (nova_hash, current_user.id))
     
     conn.commit()
     conn.close()
@@ -903,41 +806,39 @@ def api_solicitar_upgrade():
             create_notification(empresa_id, 'SISTEMA', titulo, msg, link='/planos')
         
         # Registrar solicitação no banco (se quiser persistir)
-        if Config.IS_POSTGRES:
-            try:
-                import psycopg2
-                conn = psycopg2.connect(Config.DATABASE_URL)
-                cursor = conn.cursor()
-                
-                # Criar tabela de solicitações se não existir
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS solicitacoes_upgrade (
-                        id BIGSERIAL PRIMARY KEY,
-                        empresa_id BIGINT,
-                        nome VARCHAR(200),
-                        email VARCHAR(200),
-                        telefone VARCHAR(50),
-                        plano_solicitado VARCHAR(50),
-                        mensagem TEXT,
-                        status VARCHAR(20) DEFAULT 'PENDENTE',
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # Inserir solicitação
-                cursor.execute("""
-                    INSERT INTO solicitacoes_upgrade (empresa_id, nome, email, telefone, plano_solicitado, mensagem)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (
-                    get_empresa_id() if current_user.is_authenticated else None,
-                    nome, email, telefone, plano_solicitado, mensagem
-                ))
-                
-                conn.commit()
-                cursor.close()
-                conn.close()
-            except Exception as e:
-                app.logger.error(f"Erro ao salvar solicitação: {e}")
+        try:
+            conn = psycopg2.connect(Config.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Criar tabela de solicitações se não existir
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS solicitacoes_upgrade (
+                    id BIGSERIAL PRIMARY KEY,
+                    empresa_id BIGINT,
+                    nome VARCHAR(200),
+                    email VARCHAR(200),
+                    telefone VARCHAR(50),
+                    plano_solicitado VARCHAR(50),
+                    mensagem TEXT,
+                    status VARCHAR(20) DEFAULT 'PENDENTE',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Inserir solicitação
+            cursor.execute("""
+                INSERT INTO solicitacoes_upgrade (empresa_id, nome, email, telefone, plano_solicitado, mensagem)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                get_empresa_id() if current_user.is_authenticated else None,
+                nome, email, telefone, plano_solicitado, mensagem
+            ))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            app.logger.error(f"Erro ao salvar solicitação: {e}")
         
         return jsonify({
             'success': True,
@@ -958,88 +859,40 @@ def minha_empresa():
     empresa_id = get_empresa_id()
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            # Buscar empresa do usuário
-            cursor.execute('''
-                SELECT e.* FROM empresas e
-                WHERE e.id = %s
-            ''', (empresa_id,))
-            
-            empresa = cursor.fetchone()
-            if not empresa:
-                flash('Empresa não encontrada.', 'warning')
-                cursor.close()
-                conn.close()
-                return redirect(url_for('dashboard'))
-            
-            # Contar recursos usados
-            recursos = contar_recursos_usados(cursor, empresa_id)
-            
-            # Estatísticas adicionais
-            cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s', (empresa_id,))
-            manutencoes = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = %s', (empresa_id,))
-            pecas = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = %s', (empresa_id,))
-            fornecedores = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s', (empresa_id,))
-            tecnicos = cursor.fetchone()[0]
-            
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Buscar empresa do usuário
+        cursor.execute('''
+            SELECT e.* FROM empresas e
+            WHERE e.id = %s
+        ''', (empresa_id,))
+        
+        empresa = cursor.fetchone()
+        if not empresa:
+            flash('Empresa não encontrada.', 'warning')
             cursor.close()
             conn.close()
-            
-        else:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Buscar empresa do usuário
-            cursor.execute('''
-                SELECT e.* FROM empresas e
-                JOIN usuarios u ON u.empresa_id = e.id
-                WHERE u.id = ?
-            ''', (current_user.id,))
-            
-            row = cursor.fetchone()
-            if not row:
-                flash('Empresa não encontrada.', 'warning')
-                conn.close()
-                return redirect(url_for('dashboard'))
-            
-            cols = [desc[0] for desc in cursor.description]
-            empresa = dict(zip(cols, row))
-            
-            # Contar recursos
-            cursor.execute('SELECT COUNT(*) FROM veiculos WHERE empresa_id = ? AND ativo = 1', (empresa_id,))
-            recursos = {
-                'veiculos': cursor.fetchone()[0],
-                'clientes': 0,
-                'usuarios': 0
-            }
-            
-            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1', (empresa_id,))
-            recursos['usuarios'] = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ?', (empresa_id,))
-            manutencoes = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = ?', (empresa_id,))
-            pecas = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = ?', (empresa_id,))
-            fornecedores = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ?', (empresa_id,))
-            tecnicos = cursor.fetchone()[0]
-            
-            conn.close()
+            return redirect(url_for('dashboard'))
+        
+        # Contar recursos usados
+        recursos = contar_recursos_usados(cursor, empresa_id)
+        
+        # Estatísticas adicionais
+        cursor.execute('SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s', (empresa_id,))
+        manutencoes = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM pecas WHERE empresa_id = %s', (empresa_id,))
+        pecas = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM fornecedores WHERE empresa_id = %s', (empresa_id,))
+        fornecedores = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s', (empresa_id,))
+        tecnicos = cursor.fetchone()[0]
+        
+        cursor.close()
+        conn.close()
         
         # Montar stats
         stats = {
@@ -1094,33 +947,19 @@ def atualizar_minha_empresa():
     cep = request.form.get('cep', '').strip()
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE empresas 
-                SET nome = %s, cnpj = %s, telefone = %s, email = %s, 
-                    endereco = %s, cidade = %s, estado = %s, cep = %s
-                WHERE id = %s
-            ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-        else:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE empresas 
-                SET nome = ?, cnpj = ?, telefone = ?, email = ?, endereco = ?, cidade = ?, estado = ?, cep = ?
-                WHERE id = ?
-            ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
-            
-            conn.commit()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE empresas 
+            SET nome = %s, cnpj = %s, telefone = %s, email = %s, 
+                endereco = %s, cidade = %s, estado = %s, cep = %s
+            WHERE id = %s
+        ''', (nome, cnpj, telefone, email, endereco, cidade, estado, cep, empresa_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         flash('Dados da empresa atualizados com sucesso!', 'success')
     except Exception as e:
@@ -1296,7 +1135,7 @@ def api_cron_status():
     return jsonify({
         'success': True,
         'cron_ativo': cron_ativo,
-        'ambiente': 'produção' if Config.IS_POSTGRES else 'desenvolvimento',
+        'ambiente': 'produção',
         'tarefas_disponiveis': [
             {'id': 'manutencoes', 'nome': 'Manutenções Atrasadas', 'frequencia': 'Horária'},
             {'id': 'faturamento', 'nome': 'Serviços sem Faturamento', 'frequencia': 'Horária'},
@@ -1324,59 +1163,32 @@ def usuarios():
     stats = {'usuarios': 0, 'admins': 0, 'operadores': 0}
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            cursor.execute("""
-                SELECT id, username, nome, email, role, ativo, ultimo_login, data_criacao
-                FROM usuarios 
-                WHERE empresa_id = %s
-                ORDER BY role DESC, nome
-            """, (empresa_id,))
-            usuarios_lista = cursor.fetchall()
-            
-            # Estatísticas
-            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true", (empresa_id,))
-            result = cursor.fetchone()
-            stats['usuarios'] = result['cnt'] if result else 0
-            
-            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'ADMIN'", (empresa_id,))
-            result = cursor.fetchone()
-            stats['admins'] = result['cnt'] if result else 0
-            
-            cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'OPERADOR'", (empresa_id,))
-            result = cursor.fetchone()
-            stats['operadores'] = result['cnt'] if result else 0
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT id, username, nome, email, role, ativo, ultimo_login, data_criacao
-                FROM usuarios 
-                WHERE empresa_id = ?
-                ORDER BY role DESC, nome
-            """, (empresa_id,))
-            usuarios_lista = [dict(row) for row in cursor.fetchall()]
-            
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1", (empresa_id,))
-            stats['usuarios'] = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1 AND role = 'ADMIN'", (empresa_id,))
-            stats['admins'] = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND ativo = 1 AND role = 'OPERADOR'", (empresa_id,))
-            stats['operadores'] = cursor.fetchone()[0]
-            
-            conn.close()
-            
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT id, username, nome, email, role, ativo, ultimo_login, data_criacao
+            FROM usuarios 
+            WHERE empresa_id = %s
+            ORDER BY role DESC, nome
+        """, (empresa_id,))
+        usuarios_lista = cursor.fetchall()
+        
+        # Estatísticas
+        cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true", (empresa_id,))
+        result = cursor.fetchone()
+        stats['usuarios'] = result['cnt'] if result else 0
+        
+        cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'ADMIN'", (empresa_id,))
+        result = cursor.fetchone()
+        stats['admins'] = result['cnt'] if result else 0
+        
+        cursor.execute("SELECT COUNT(*) as cnt FROM usuarios WHERE empresa_id = %s AND ativo = true AND role = 'OPERADOR'", (empresa_id,))
+        result = cursor.fetchone()
+        stats['operadores'] = result['cnt'] if result else 0
+        
+        cursor.close()
+        conn.close()
     except Exception as e:
         print(f"Erro ao listar usuários: {e}")
         traceback.print_exc()
@@ -1429,72 +1241,50 @@ def criar_usuario():
         role = 'OPERADOR'
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar limite de usuários
-            pode_criar, msg_limite = verificar_limite_usuarios(cursor, empresa_id)
-            if not pode_criar:
-                cursor.close()
-                conn.close()
-                # Notificar sobre bloqueio de limite (ETAPA 12)
-                from empresa_helpers import create_notification
-                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
-                    'Limite de usuários atingido!', 
-                    msg_limite, 
-                    link='/minha-empresa')
-                flash(msg_limite, 'warning')
-                return redirect(url_for('usuarios'))
-            
-            # Verificar se username já existe
-            cursor.execute("SELECT id FROM usuarios WHERE username = %s", (username,))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash('Este nome de usuário já está em uso.', 'danger')
-                return redirect(url_for('usuarios'))
-            
-            # Verificar se email já existe na empresa
-            cursor.execute("SELECT id FROM usuarios WHERE email = %s AND empresa_id = %s", (email, empresa_id))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                flash('Este email já está cadastrado na empresa.', 'danger')
-                return redirect(url_for('usuarios'))
-            
-            # Criar usuário
-            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-            
-            cursor.execute("""
-                INSERT INTO usuarios (empresa_id, username, password_hash, nome, email, role, ativo, data_criacao)
-                VALUES (%s, %s, %s, %s, %s, %s, true, CURRENT_TIMESTAMP)
-            """, (empresa_id, username, password_hash, nome, email, role))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar limite de usuários
+        pode_criar, msg_limite = verificar_limite_usuarios(cursor, empresa_id)
+        if not pode_criar:
             cursor.close()
             conn.close()
-            
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT id FROM usuarios WHERE username = ?", (username,))
-            if cursor.fetchone():
-                conn.close()
-                flash('Este nome de usuário já está em uso.', 'danger')
-                return redirect(url_for('usuarios'))
-            
-            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-            
-            cursor.execute("""
-                INSERT INTO usuarios (empresa_id, username, password_hash, nome, email, role, ativo, data_criacao)
-                VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
-            """, (empresa_id, username, password_hash, nome, email, role))
-            
-            conn.commit()
+            # Notificar sobre bloqueio de limite (ETAPA 12)
+            from empresa_helpers import create_notification
+            create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                'Limite de usuários atingido!', 
+                msg_limite, 
+                link='/minha-empresa')
+            flash(msg_limite, 'warning')
+            return redirect(url_for('usuarios'))
+        
+        # Verificar se username já existe
+        cursor.execute("SELECT id FROM usuarios WHERE username = %s", (username,))
+        if cursor.fetchone():
+            cursor.close()
             conn.close()
+            flash('Este nome de usuário já está em uso.', 'danger')
+            return redirect(url_for('usuarios'))
+        
+        # Verificar se email já existe na empresa
+        cursor.execute("SELECT id FROM usuarios WHERE email = %s AND empresa_id = %s", (email, empresa_id))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            flash('Este email já está cadastrado na empresa.', 'danger')
+            return redirect(url_for('usuarios'))
+        
+        # Criar usuário
+        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        
+        cursor.execute("""
+            INSERT INTO usuarios (empresa_id, username, password_hash, nome, email, role, ativo, data_criacao)
+            VALUES (%s, %s, %s, %s, %s, %s, true, CURRENT_TIMESTAMP)
+        """, (empresa_id, username, password_hash, nome, email, role))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         flash(f'Usuário {username} criado com sucesso!', 'success')
         
@@ -1539,70 +1329,40 @@ def editar_usuario():
         role = 'OPERADOR'
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se usuário pertence à empresa
-            cursor.execute("SELECT id, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
-            usuario_atual = cursor.fetchone()
-            
-            if not usuario_atual:
-                cursor.close()
-                conn.close()
-                flash('Usuário não encontrado.', 'danger')
-                return redirect(url_for('usuarios'))
-            
-            # Se está removendo permissão de ADMIN, verificar se não é o último
-            if usuario_atual[1] == 'ADMIN' and role == 'OPERADOR':
-                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
-                total_admins = cursor.fetchone()[0]
-                
-                if total_admins <= 1:
-                    cursor.close()
-                    conn.close()
-                    flash('Não é possível remover o último administrador da empresa.', 'danger')
-                    return redirect(url_for('usuarios'))
-            
-            # Atualizar usuário
-            cursor.execute("""
-                UPDATE usuarios 
-                SET nome = %s, email = %s, role = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (nome, email, role, usuario_id, empresa_id))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se usuário pertence à empresa
+        cursor.execute("SELECT id, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
+        usuario_atual = cursor.fetchone()
+        
+        if not usuario_atual:
             cursor.close()
             conn.close()
+            flash('Usuário não encontrado.', 'danger')
+            return redirect(url_for('usuarios'))
+        
+        # Se está removendo permissão de ADMIN, verificar se não é o último
+        if usuario_atual[1] == 'ADMIN' and role == 'OPERADOR':
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
+            total_admins = cursor.fetchone()[0]
             
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT id, role FROM usuarios WHERE id = ? AND empresa_id = ?", (usuario_id, empresa_id))
-            usuario_atual = cursor.fetchone()
-            
-            if not usuario_atual:
+            if total_admins <= 1:
+                cursor.close()
                 conn.close()
-                flash('Usuário não encontrado.', 'danger')
+                flash('Não é possível remover o último administrador da empresa.', 'danger')
                 return redirect(url_for('usuarios'))
-            
-            if usuario_atual[1] == 'ADMIN' and role == 'OPERADOR':
-                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND role = 'ADMIN' AND ativo = 1", (empresa_id,))
-                if cursor.fetchone()[0] <= 1:
-                    conn.close()
-                    flash('Não é possível remover o último administrador da empresa.', 'danger')
-                    return redirect(url_for('usuarios'))
-            
-            cursor.execute("""
-                UPDATE usuarios 
-                SET nome = ?, email = ?, role = ?
-                WHERE id = ? AND empresa_id = ?
-            """, (nome, email, role, usuario_id, empresa_id))
-            
-            conn.commit()
-            conn.close()
+        
+        # Atualizar usuário
+        cursor.execute("""
+            UPDATE usuarios 
+            SET nome = %s, email = %s, role = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (nome, email, role, usuario_id, empresa_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         flash('Usuário atualizado com sucesso!', 'success')
         
@@ -1635,64 +1395,38 @@ def toggle_usuario_status():
         return jsonify({'success': False, 'message': 'Você não pode alterar seu próprio status'}), 400
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se usuário pertence à empresa
-            cursor.execute("SELECT id, ativo, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
-            usuario = cursor.fetchone()
-            
-            if not usuario:
-                cursor.close()
-                conn.close()
-                return jsonify({'success': False, 'message': 'Usuário não encontrado'}), 404
-            
-            novo_status = not usuario[1]
-            
-            # Se está desativando um ADMIN, verificar se não é o último
-            if not novo_status and usuario[2] == 'ADMIN':
-                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
-                total_admins = cursor.fetchone()[0]
-                
-                if total_admins <= 1:
-                    cursor.close()
-                    conn.close()
-                    return jsonify({'success': False, 'message': 'Não é possível desativar o último administrador da empresa'}), 400
-            
-            cursor.execute("""
-                UPDATE usuarios SET ativo = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (novo_status, usuario_id, empresa_id))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se usuário pertence à empresa
+        cursor.execute("SELECT id, ativo, role FROM usuarios WHERE id = %s AND empresa_id = %s", (usuario_id, empresa_id))
+        usuario = cursor.fetchone()
+        
+        if not usuario:
             cursor.close()
             conn.close()
+            return jsonify({'success': False, 'message': 'Usuário não encontrado'}), 404
+        
+        novo_status = not usuario[1]
+        
+        # Se está desativando um ADMIN, verificar se não é o último
+        if not novo_status and usuario[2] == 'ADMIN':
+            cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = %s AND role = 'ADMIN' AND ativo = true", (empresa_id,))
+            total_admins = cursor.fetchone()[0]
             
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT id, ativo, role FROM usuarios WHERE id = ? AND empresa_id = ?", (usuario_id, empresa_id))
-            usuario = cursor.fetchone()
-            
-            if not usuario:
+            if total_admins <= 1:
+                cursor.close()
                 conn.close()
-                return jsonify({'success': False, 'message': 'Usuário não encontrado'}), 404
-            
-            novo_status = 0 if usuario[1] else 1
-            
-            if not novo_status and usuario[2] == 'ADMIN':
-                cursor.execute("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ? AND role = 'ADMIN' AND ativo = 1", (empresa_id,))
-                if cursor.fetchone()[0] <= 1:
-                    conn.close()
-                    return jsonify({'success': False, 'message': 'Não é possível desativar o último administrador da empresa'}), 400
-            
-            cursor.execute("UPDATE usuarios SET ativo = ? WHERE id = ? AND empresa_id = ?", (novo_status, usuario_id, empresa_id))
-            
-            conn.commit()
-            conn.close()
+                return jsonify({'success': False, 'message': 'Não é possível desativar o último administrador da empresa'}), 400
+        
+        cursor.execute("""
+            UPDATE usuarios SET ativo = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (novo_status, usuario_id, empresa_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         return jsonify({'success': True, 'message': 'Status alterado com sucesso'})
         
@@ -1714,75 +1448,39 @@ def dashboard():
     empresa_id = get_empresa_id()
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Estatísticas gerais (filtrado por empresa)
-            cursor.execute("SELECT COUNT(*) FROM veiculos WHERE empresa_id = %s", (empresa_id,))
-            total_veiculos = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')", (empresa_id,))
-            manutencoes_pendentes = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Concluída', 'FINALIZADO', 'FATURADO') AND data_realizada >= CURRENT_DATE - INTERVAL '30 days'", (empresa_id,))
-            manutencoes_30_dias = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s AND status = 'Ativo'", (empresa_id,))
-            tecnicos_ativos = cursor.fetchone()[0]
-            
-            # Próximas manutenções
-            cursor.execute('''
-                SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
-                FROM manutencoes m 
-                JOIN veiculos v ON m.veiculo_id = v.id 
-                WHERE m.empresa_id = %s AND m.status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
-                ORDER BY m.data_agendada 
-                LIMIT 5
-            ''', (empresa_id,))
-            proximas_manutencoes = cursor.fetchall()
-            
-            # Alertas de estoque baixo
-            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE empresa_id = %s AND quantidade_estoque < 3", (empresa_id,))
-            alertas_estoque = cursor.fetchall()
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Estatísticas gerais
-            cursor.execute("SELECT COUNT(*) FROM veiculos WHERE empresa_id = ?", (empresa_id,))
-            total_veiculos = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ? AND status = 'Agendada'", (empresa_id,))
-            manutencoes_pendentes = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = ? AND status = 'Concluída' AND data_realizada >= date('now', '-30 days')", (empresa_id,))
-            manutencoes_30_dias = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE empresa_id = ? AND status = 'Ativo'", (empresa_id,))
-            tecnicos_ativos = cursor.fetchone()[0]
-            
-            # Próximas manutenções
-            cursor.execute('''
-                SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
-                FROM manutencoes m 
-                JOIN veiculos v ON m.veiculo_id = v.id 
-                WHERE m.empresa_id = ? AND m.status = 'Agendada' 
-                ORDER BY m.data_agendada 
-                LIMIT 5
-            ''', (empresa_id,))
-            proximas_manutencoes = cursor.fetchall()
-            
-            # Alertas de estoque baixo
-            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE empresa_id = ? AND quantidade_estoque < 3", (empresa_id,))
-            alertas_estoque = cursor.fetchall()
-            
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Estatísticas gerais (filtrado por empresa)
+        cursor.execute("SELECT COUNT(*) FROM veiculos WHERE empresa_id = %s", (empresa_id,))
+        total_veiculos = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')", (empresa_id,))
+        manutencoes_pendentes = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM manutencoes WHERE empresa_id = %s AND status IN ('Concluída', 'FINALIZADO', 'FATURADO') AND data_realizada >= CURRENT_DATE - INTERVAL '30 days'", (empresa_id,))
+        manutencoes_30_dias = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM tecnicos WHERE empresa_id = %s AND status = 'Ativo'", (empresa_id,))
+        tecnicos_ativos = cursor.fetchone()[0]
+        
+        # Próximas manutenções
+        cursor.execute('''
+            SELECT v.placa, v.modelo, m.tipo, m.data_agendada 
+            FROM manutencoes m 
+            JOIN veiculos v ON m.veiculo_id = v.id 
+            WHERE m.empresa_id = %s AND m.status IN ('Agendada', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
+            ORDER BY m.data_agendada 
+            LIMIT 5
+        ''', (empresa_id,))
+        proximas_manutencoes = cursor.fetchall()
+        
+        # Alertas de estoque baixo
+        cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE empresa_id = %s AND quantidade_estoque < 3", (empresa_id,))
+        alertas_estoque = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
         return render_template('dashboard.html', 
                              total_veiculos=total_veiculos,
                              manutencoes_pendentes=manutencoes_pendentes,
@@ -1813,81 +1511,42 @@ def veiculos():
     categorias_lista = []
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            # Buscar veículos com JOIN para cliente (modo SERVICO)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Buscar veículos com JOIN para cliente (modo SERVICO)
+        cursor.execute('''
+            SELECT v.*, COUNT(m.id) as total_manutencoes,
+                   c.nome as cliente_nome
+            FROM veiculos v 
+            LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
+            LEFT JOIN clientes c ON v.cliente_id = c.id
+            WHERE v.empresa_id = %s
+            GROUP BY v.id, c.nome
+            ORDER BY v.placa
+        ''', (empresa_id,))
+        veiculos_lista = cursor.fetchall()
+        
+        # Buscar clientes ativos para o formulário (apenas SERVICO)
+        if is_servico():
             cursor.execute('''
-                SELECT v.*, COUNT(m.id) as total_manutencoes,
-                       c.nome as cliente_nome
-                FROM veiculos v 
-                LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
-                LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE v.empresa_id = %s
-                GROUP BY v.id, c.nome
-                ORDER BY v.placa
+                SELECT id, nome FROM clientes 
+                WHERE empresa_id = %s AND UPPER(status) = 'ATIVO'
+                ORDER BY nome
             ''', (empresa_id,))
-            veiculos_lista = cursor.fetchall()
-            
-            # Buscar clientes ativos para o formulário (apenas SERVICO)
-            if is_servico():
-                cursor.execute('''
-                    SELECT id, nome FROM clientes 
-                    WHERE empresa_id = %s AND UPPER(status) = 'ATIVO'
-                    ORDER BY nome
-                ''', (empresa_id,))
-                clientes_lista = cursor.fetchall()
-            
-            # Buscar categorias personalizadas
-            cursor.execute('''
-                SELECT id, nome, icone, cor, grupo, ordem 
-                FROM categorias_veiculos 
-                WHERE empresa_id = %s AND ativo = true
-                ORDER BY grupo, ordem, nome
-            ''', (empresa_id,))
-            categorias_lista = cursor.fetchall()
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT v.*, COUNT(m.id) as total_manutencoes,
-                       c.nome as cliente_nome
-                FROM veiculos v 
-                LEFT JOIN manutencoes m ON v.id = m.veiculo_id 
-                LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE v.empresa_id = ?
-                GROUP BY v.id
-                ORDER BY v.placa
-            ''', (empresa_id,))
-            veiculos_lista = [dict(row) for row in cursor.fetchall()]
-            
-            if is_servico():
-                cursor.execute('''
-                    SELECT id, nome FROM clientes 
-                    WHERE empresa_id = ? AND UPPER(status) = 'ATIVO'
-                    ORDER BY nome
-                ''', (empresa_id,))
-                clientes_lista = [dict(row) for row in cursor.fetchall()]
-            
-            # Buscar categorias
-            cursor.execute('''
-                SELECT id, nome, icone, cor, grupo, ordem 
-                FROM categorias_veiculos 
-                WHERE empresa_id = ? AND ativo = 1
-                ORDER BY grupo, ordem, nome
-            ''', (empresa_id,))
-            categorias_lista = [dict(row) for row in cursor.fetchall()]
-            
-            conn.close()
-            
+            clientes_lista = cursor.fetchall()
+        
+        # Buscar categorias personalizadas
+        cursor.execute('''
+            SELECT id, nome, icone, cor, grupo, ordem 
+            FROM categorias_veiculos 
+            WHERE empresa_id = %s AND ativo = true
+            ORDER BY grupo, ordem, nome
+        ''', (empresa_id,))
+        categorias_lista = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
     except Exception as e:
         print(f"Erro ao listar veículos: {e}")
         traceback.print_exc()
@@ -1911,11 +1570,7 @@ def listar_categorias_veiculos():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if Config.IS_POSTGRES:
-            placeholder = '%s'
-        else:
-            placeholder = '?'
-        
+        placeholder = '%s'
         cursor.execute(f'''
             SELECT id, nome, icone, cor, grupo, ativo, ordem
             FROM categorias_veiculos
@@ -1956,24 +1611,14 @@ def criar_categoria_veiculo():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if Config.IS_POSTGRES:
-            cursor.execute('''
-                INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (empresa_id, data['nome'], data.get('icone', 'fa-cube'), 
-                  data.get('cor', 'secondary'), data.get('grupo', 'Equipamento'),
-                  data.get('ordem', 0)))
-            categoria_id = cursor.fetchone()[0]
-        else:
-            cursor.execute('''
-                INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (empresa_id, data['nome'], data.get('icone', 'fa-cube'), 
-                  data.get('cor', 'secondary'), data.get('grupo', 'Equipamento'),
-                  data.get('ordem', 0)))
-            categoria_id = cursor.lastrowid
-        
+        cursor.execute('''
+            INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (empresa_id, data['nome'], data.get('icone', 'fa-cube'), 
+              data.get('cor', 'secondary'), data.get('grupo', 'Equipamento'),
+              data.get('ordem', 0)))
+        categoria_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -1997,21 +1642,12 @@ def atualizar_categoria_veiculo(categoria_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if Config.IS_POSTGRES:
-            cursor.execute('''
-                UPDATE categorias_veiculos 
-                SET nome = %s, icone = %s, cor = %s, grupo = %s, ordem = %s
-                WHERE id = %s AND empresa_id = %s
-            ''', (data['nome'], data.get('icone', 'fa-cube'), data.get('cor', 'secondary'),
-                  data.get('grupo', 'Equipamento'), data.get('ordem', 0), categoria_id, empresa_id))
-        else:
-            cursor.execute('''
-                UPDATE categorias_veiculos 
-                SET nome = ?, icone = ?, cor = ?, grupo = ?, ordem = ?
-                WHERE id = ? AND empresa_id = ?
-            ''', (data['nome'], data.get('icone', 'fa-cube'), data.get('cor', 'secondary'),
-                  data.get('grupo', 'Equipamento'), data.get('ordem', 0), categoria_id, empresa_id))
-        
+        cursor.execute('''
+            UPDATE categorias_veiculos 
+            SET nome = %s, icone = %s, cor = %s, grupo = %s, ordem = %s
+            WHERE id = %s AND empresa_id = %s
+        ''', (data['nome'], data.get('icone', 'fa-cube'), data.get('cor', 'secondary'),
+              data.get('grupo', 'Equipamento'), data.get('ordem', 0), categoria_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -2034,17 +1670,10 @@ def excluir_categoria_veiculo(categoria_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if Config.IS_POSTGRES:
-            cursor.execute('''
-                DELETE FROM categorias_veiculos 
-                WHERE id = %s AND empresa_id = %s
-            ''', (categoria_id, empresa_id))
-        else:
-            cursor.execute('''
-                DELETE FROM categorias_veiculos 
-                WHERE id = ? AND empresa_id = ?
-            ''', (categoria_id, empresa_id))
-        
+        cursor.execute('''
+            DELETE FROM categorias_veiculos 
+            WHERE id = %s AND empresa_id = %s
+        ''', (categoria_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -2092,11 +1721,7 @@ def inicializar_categorias_padrao():
         cursor = conn.cursor()
         
         # Verificar se já existem categorias
-        if Config.IS_POSTGRES:
-            cursor.execute('SELECT COUNT(*) FROM categorias_veiculos WHERE empresa_id = %s', (empresa_id,))
-        else:
-            cursor.execute('SELECT COUNT(*) FROM categorias_veiculos WHERE empresa_id = ?', (empresa_id,))
-        
+        cursor.execute('SELECT COUNT(*) FROM categorias_veiculos WHERE empresa_id = %s', (empresa_id,))
         count = cursor.fetchone()[0]
         if count > 0:
             conn.close()
@@ -2104,17 +1729,10 @@ def inicializar_categorias_padrao():
         
         # Inserir categorias padrão
         for cat in categorias_padrao:
-            if Config.IS_POSTGRES:
-                cursor.execute('''
-                    INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                ''', (empresa_id, cat['nome'], cat['icone'], cat['cor'], cat['grupo'], cat['ordem']))
-            else:
-                cursor.execute('''
-                    INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (empresa_id, cat['nome'], cat['icone'], cat['cor'], cat['grupo'], cat['ordem']))
-        
+            cursor.execute('''
+                INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (empresa_id, cat['nome'], cat['icone'], cat['cor'], cat['grupo'], cat['ordem']))
         conn.commit()
         conn.close()
         
@@ -2163,19 +1781,10 @@ def detalhes_veiculo(veiculo_id):
     
     empresa_id = get_empresa_id()
     
-    if Config.IS_POSTGRES:
-        import psycopg2
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()
-        placeholder = '%s'
-        date_func = "CURRENT_DATE"
-    else:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        placeholder = '?'
-        date_func = "date('now')"
-    
-    # Buscar veículo com filtro por empresa_id (isolamento de dados)
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor()
+    placeholder = '%s'
+    date_func = "CURRENT_DATE"
     cursor.execute(f"SELECT * FROM veiculos WHERE id = {placeholder} AND empresa_id = {placeholder}", 
                    (veiculo_id, empresa_id))
     veiculo = cursor.fetchone()
@@ -2254,118 +1863,70 @@ def criar_veiculo():
             # Modo FROTA: cliente_id deve ser NULL
             cliente_id = None
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar limite de veículos do plano
-            pode_criar, msg_limite = verificar_limite_veiculos(cursor, empresa_id)
-            if not pode_criar:
-                cursor.close()
-                conn.close()
-                # Notificar sobre bloqueio de limite (ETAPA 12)
-                from empresa_helpers import create_notification
-                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
-                    'Limite de veículos atingido!', 
-                    msg_limite, 
-                    link='/minha-empresa')
-                return jsonify({
-                    'success': False,
-                    'message': msg_limite
-                }), 403
-            
-            # Validar placa única na empresa
-            cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND empresa_id = %s", 
-                          (data.get('placa'), empresa_id))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'message': 'Placa já cadastrada no sistema!'
-                }), 400
-            
-            # Validar que cliente pertence à empresa (modo SERVICO)
-            if cliente_id:
-                cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
-                              (cliente_id, empresa_id))
-                if not cursor.fetchone():
-                    cursor.close()
-                    conn.close()
-                    return jsonify({
-                        'success': False,
-                        'message': 'Cliente inválido ou não pertence à sua empresa!'
-                    }), 400
-            
-            cursor.execute('''
-                INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
-                                      proxima_manutencao, status, cliente_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                empresa_id,
-                data.get('tipo'),
-                data.get('marca'), 
-                data.get('modelo'),
-                data.get('placa'),
-                data.get('ano'),
-                data.get('quilometragem', 0),
-                data.get('proxima_manutencao') or None,
-                'Operacional',
-                cliente_id
-            ))
-            
-            veiculo_id = cursor.fetchone()[0]
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar limite de veículos do plano
+        pode_criar, msg_limite = verificar_limite_veiculos(cursor, empresa_id)
+        if not pode_criar:
             cursor.close()
             conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Validar placa única na empresa
-            cursor.execute("SELECT id FROM veiculos WHERE placa = ? AND empresa_id = ?", 
-                          (data.get('placa'), empresa_id))
-            if cursor.fetchone():
+            # Notificar sobre bloqueio de limite (ETAPA 12)
+            from empresa_helpers import create_notification
+            create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                'Limite de veículos atingido!', 
+                msg_limite, 
+                link='/minha-empresa')
+            return jsonify({
+                'success': False,
+                'message': msg_limite
+            }), 403
+        
+        # Validar placa única na empresa
+        cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND empresa_id = %s", 
+                      (data.get('placa'), empresa_id))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'message': 'Placa já cadastrada no sistema!'
+            }), 400
+        
+        # Validar que cliente pertence à empresa (modo SERVICO)
+        if cliente_id:
+            cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
+                          (cliente_id, empresa_id))
+            if not cursor.fetchone():
+                cursor.close()
                 conn.close()
                 return jsonify({
                     'success': False,
-                    'message': 'Placa já cadastrada no sistema!'
+                    'message': 'Cliente inválido ou não pertence à sua empresa!'
                 }), 400
-            
-            # Validar cliente (modo SERVICO)
-            if cliente_id:
-                cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", 
-                              (cliente_id, empresa_id))
-                if not cursor.fetchone():
-                    conn.close()
-                    return jsonify({
-                        'success': False,
-                        'message': 'Cliente inválido ou não pertence à sua empresa!'
-                    }), 400
-            
-            cursor.execute('''
-                INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
-                                      proxima_manutencao, status, cliente_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                empresa_id,
-                data.get('tipo'),
-                data.get('marca'), 
-                data.get('modelo'),
-                data.get('placa'),
-                data.get('ano'),
-                data.get('quilometragem', 0),
-                data.get('proxima_manutencao') or None,
-                'Operacional',
-                cliente_id
-            ))
-            
-            veiculo_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
         
+        cursor.execute('''
+            INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
+                                  proxima_manutencao, status, cliente_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            empresa_id,
+            data.get('tipo'),
+            data.get('marca'), 
+            data.get('modelo'),
+            data.get('placa'),
+            data.get('ano'),
+            data.get('quilometragem', 0),
+            data.get('proxima_manutencao') or None,
+            'Operacional',
+            cliente_id
+        ))
+        
+        veiculo_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({
             'success': True,
             'message': 'Veículo cadastrado com sucesso!',
@@ -2402,122 +1963,64 @@ def editar_veiculo(veiculo_id):
             # Modo FROTA: cliente_id deve ser NULL
             cliente_id = None
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se veículo existe e pertence à empresa
-            cursor.execute("SELECT id FROM veiculos WHERE id = %s AND empresa_id = %s", 
-                          (veiculo_id, empresa_id))
-            if not cursor.fetchone():
-                cursor.close()
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'message': 'Veículo não encontrado!'
-                }), 404
-            
-            # Validar placa única (exceto o próprio veículo)
-            cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND id != %s AND empresa_id = %s", 
-                          (data.get('placa'), veiculo_id, empresa_id))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'message': 'Placa já cadastrada para outro veículo!'
-                }), 400
-            
-            # Validar cliente (modo SERVICO)
-            if cliente_id:
-                cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
-                              (cliente_id, empresa_id))
-                if not cursor.fetchone():
-                    cursor.close()
-                    conn.close()
-                    return jsonify({
-                        'success': False,
-                        'message': 'Cliente inválido ou não pertence à sua empresa!'
-                    }), 400
-            
-            cursor.execute('''
-                UPDATE veiculos 
-                SET tipo=%s, marca=%s, modelo=%s, placa=%s, ano=%s, quilometragem=%s, 
-                    proxima_manutencao=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
-                WHERE id=%s AND empresa_id=%s
-            ''', (
-                data.get('tipo'),
-                data.get('marca'), 
-                data.get('modelo'),
-                data.get('placa'),
-                data.get('ano'),
-                data.get('quilometragem', 0),
-                data.get('proxima_manutencao') or None,
-                cliente_id,
-                veiculo_id,
-                empresa_id
-            ))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se veículo existe e pertence à empresa
+        cursor.execute("SELECT id FROM veiculos WHERE id = %s AND empresa_id = %s", 
+                      (veiculo_id, empresa_id))
+        if not cursor.fetchone():
             cursor.close()
             conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Verificar se veículo existe e pertence à empresa
-            cursor.execute("SELECT id FROM veiculos WHERE id = ? AND empresa_id = ?", 
-                          (veiculo_id, empresa_id))
-            if not cursor.fetchone():
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'message': 'Veículo não encontrado!'
-                }), 404
-            
-            # Validar placa única (exceto o próprio veículo)
-            cursor.execute("SELECT id FROM veiculos WHERE placa = ? AND id != ? AND empresa_id = ?", 
-                          (data.get('placa'), veiculo_id, empresa_id))
-            if cursor.fetchone():
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'message': 'Placa já cadastrada para outro veículo!'
-                }), 400
-            
-            # Validar cliente (modo SERVICO)
-            if cliente_id:
-                cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", 
-                              (cliente_id, empresa_id))
-                if not cursor.fetchone():
-                    conn.close()
-                    return jsonify({
-                        'success': False,
-                        'message': 'Cliente inválido ou não pertence à sua empresa!'
-                    }), 400
-            
-            cursor.execute('''
-                UPDATE veiculos 
-                SET tipo=?, marca=?, modelo=?, placa=?, ano=?, quilometragem=?, 
-                    proxima_manutencao=?, cliente_id=?
-                WHERE id=? AND empresa_id=?
-            ''', (
-                data.get('tipo'),
-                data.get('marca'), 
-                data.get('modelo'),
-                data.get('placa'),
-                data.get('ano'),
-                data.get('quilometragem', 0),
-                data.get('proxima_manutencao') or None,
-                cliente_id,
-                veiculo_id,
-                empresa_id
-            ))
-            
-            conn.commit()
-            conn.close()
+            return jsonify({
+                'success': False,
+                'message': 'Veículo não encontrado!'
+            }), 404
         
+        # Validar placa única (exceto o próprio veículo)
+        cursor.execute("SELECT id FROM veiculos WHERE placa = %s AND id != %s AND empresa_id = %s", 
+                      (data.get('placa'), veiculo_id, empresa_id))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'message': 'Placa já cadastrada para outro veículo!'
+            }), 400
+        
+        # Validar cliente (modo SERVICO)
+        if cliente_id:
+            cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", 
+                          (cliente_id, empresa_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'message': 'Cliente inválido ou não pertence à sua empresa!'
+                }), 400
+        
+        cursor.execute('''
+            UPDATE veiculos 
+            SET tipo=%s, marca=%s, modelo=%s, placa=%s, ano=%s, quilometragem=%s, 
+                proxima_manutencao=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
+            WHERE id=%s AND empresa_id=%s
+        ''', (
+            data.get('tipo'),
+            data.get('marca'), 
+            data.get('modelo'),
+            data.get('placa'),
+            data.get('ano'),
+            data.get('quilometragem', 0),
+            data.get('proxima_manutencao') or None,
+            cliente_id,
+            veiculo_id,
+            empresa_id
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({
             'success': True,
             'message': 'Veículo atualizado com sucesso!'
@@ -2540,83 +2043,42 @@ def obter_veiculo(veiculo_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            cursor.execute("""
-                SELECT v.*, c.nome as cliente_nome
-                FROM veiculos v
-                LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE v.id = %s AND v.empresa_id = %s
-            """, (veiculo_id, empresa_id))
-            veiculo = cursor.fetchone()
-            
-            cursor.close()
-            conn.close()
-            
-            if veiculo:
-                return jsonify({
-                    'success': True,
-                    'veiculo': {
-                        'id': veiculo['id'],
-                        'tipo': veiculo['tipo'],
-                        'marca': veiculo['marca'],
-                        'modelo': veiculo['modelo'],
-                        'placa': veiculo['placa'],
-                        'ano': veiculo['ano'],
-                        'quilometragem': veiculo['quilometragem'],
-                        'proxima_manutencao': str(veiculo['proxima_manutencao']) if veiculo['proxima_manutencao'] else None,
-                        'status': veiculo['status'],
-                        'cliente_id': veiculo['cliente_id'],
-                        'cliente_nome': veiculo['cliente_nome']
-                    }
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': 'Veículo não encontrado!'
-                }), 404
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT v.*, c.nome as cliente_nome
+            FROM veiculos v
+            LEFT JOIN clientes c ON v.cliente_id = c.id
+            WHERE v.id = %s AND v.empresa_id = %s
+        """, (veiculo_id, empresa_id))
+        veiculo = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if veiculo:
+            return jsonify({
+                'success': True,
+                'veiculo': {
+                    'id': veiculo['id'],
+                    'tipo': veiculo['tipo'],
+                    'marca': veiculo['marca'],
+                    'modelo': veiculo['modelo'],
+                    'placa': veiculo['placa'],
+                    'ano': veiculo['ano'],
+                    'quilometragem': veiculo['quilometragem'],
+                    'proxima_manutencao': str(veiculo['proxima_manutencao']) if veiculo['proxima_manutencao'] else None,
+                    'status': veiculo['status'],
+                    'cliente_id': veiculo['cliente_id'],
+                    'cliente_nome': veiculo['cliente_nome']
+                }
+            })
         else:
-            conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT v.*, c.nome as cliente_nome
-                FROM veiculos v
-                LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE v.id = ? AND v.empresa_id = ?
-            """, (veiculo_id, empresa_id))
-            row = cursor.fetchone()
-            conn.close()
-            
-            if row:
-                veiculo = dict(row)
-                return jsonify({
-                    'success': True,
-                    'veiculo': {
-                        'id': veiculo['id'],
-                        'tipo': veiculo['tipo'],
-                        'marca': veiculo['marca'],
-                        'modelo': veiculo['modelo'],
-                        'placa': veiculo['placa'],
-                        'ano': veiculo['ano'],
-                        'quilometragem': veiculo['quilometragem'],
-                        'proxima_manutencao': veiculo['proxima_manutencao'],
-                        'status': veiculo['status'],
-                        'cliente_id': veiculo.get('cliente_id'),
-                        'cliente_nome': veiculo.get('cliente_nome')
-                    }
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': 'Veículo não encontrado!'
-                }), 404
-            
+            return jsonify({
+                'success': False,
+                'message': 'Veículo não encontrado!'
+            }), 404
     except Exception as e:
         print(f"Erro ao obter veículo: {e}")
         traceback.print_exc()
@@ -2634,17 +2096,9 @@ def excluir_veiculo(veiculo_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            placeholder = '%s'
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            placeholder = '?'
-        
-        # Verificar se o veículo pertence à empresa
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
         cursor.execute(f"SELECT id FROM veiculos WHERE id = {placeholder} AND empresa_id = {placeholder}", 
                        (veiculo_id, empresa_id))
         if not cursor.fetchone():
@@ -2692,14 +2146,7 @@ def manutencao():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    if Config.IS_POSTGRES:
-        placeholder = '%s'
-    else:
-        placeholder = '?'
-    
-    # Buscar manutenções com telefone de técnicos OU fornecedores (FILTRADO POR EMPRESA)
-    # Ordem: id, veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_total, status, tecnico, 
-    #        observacoes, km_veiculo, data_criacao, custo_mao_obra, placa, modelo, telefone, cliente_nome
+    placeholder = '%s'
     cursor.execute(f'''
         SELECT 
             m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada,
@@ -2767,94 +2214,78 @@ def criar_manutencao():
     equipamento_cadastrado = False
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se precisa cadastrar novo equipamento
-            if veiculo_id == 'outro' and is_servico():
-                # Cadastrar novo equipamento
-                equipamento_placa = data.get('equipamento_placa', '').strip()
-                equipamento_modelo = data.get('equipamento_modelo', '').strip()
-                equipamento_tipo = data.get('equipamento_tipo', 'Equipamento')
-                
-                if equipamento_placa and equipamento_modelo:
-                    cursor.execute('''
-                        INSERT INTO veiculos (empresa_id, cliente_id, placa, modelo, tipo, status)
-                        VALUES (%s, %s, %s, %s, %s, 'Ativo')
-                        RETURNING id
-                    ''', (empresa_id, cliente_id, equipamento_placa, equipamento_modelo, equipamento_tipo))
-                    veiculo_id = cursor.fetchone()[0]
-                    equipamento_cadastrado = True
-                else:
-                    veiculo_id = None
-            elif veiculo_id == '' or veiculo_id == 'null' or veiculo_id is None:
-                veiculo_id = None
-            else:
-                veiculo_id = int(veiculo_id)
-            
-            # Inserir manutenção (inclui empresa_id e cliente_id para isolamento de dados)
-            cursor.execute('''
-                INSERT INTO manutencoes (empresa_id, veiculo_id, cliente_id, tipo, descricao, data_agendada, tecnico, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (empresa_id, veiculo_id, cliente_id, data['tipo'], data['descricao'], data['data_agendada'], 
-                  data.get('tecnico'), status_inicial))
-            
-            manutencao_id = cursor.fetchone()[0]
-            
-            # Se é empresa SERVICO, processar itens de serviço
-            if is_servico() and servicos_items:
-                for item in servicos_items:
-                    nome_servico = item.get('nome_servico', '').strip()
-                    quantidade = float(item.get('quantidade', 1))
-                    valor_unitario = float(item.get('valor_unitario', 0))
-                    
-                    if not nome_servico:
-                        continue
-                    
-                    # Catálogo Passivo: verificar se serviço existe, criar se não
-                    cursor.execute("""
-                        SELECT id FROM servicos 
-                        WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
-                    """, (empresa_id, nome_servico))
-                    servico_row = cursor.fetchone()
-                    
-                    if servico_row:
-                        servico_id = servico_row[0]
-                    else:
-                        # Criar serviço no catálogo passivo
-                        cursor.execute("""
-                            INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
-                            VALUES (%s, %s, %s, %s, true)
-                            RETURNING id
-                        """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
-                        servico_id = cursor.fetchone()[0]
-                    
-                    # Inserir item de serviço na manutenção
-                    cursor.execute("""
-                        INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-        else:
-            # SQLite (desenvolvimento local)
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO manutencoes (veiculo_id, tipo, descricao, data_agendada, tecnico, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (data['veiculo_id'], data['tipo'], data['descricao'], data['data_agendada'], 
-                  data.get('tecnico'), 'Agendada'))
-            
-            conn.commit()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Verificar se precisa cadastrar novo equipamento
+        if veiculo_id == 'outro' and is_servico():
+            # Cadastrar novo equipamento
+            equipamento_placa = data.get('equipamento_placa', '').strip()
+            equipamento_modelo = data.get('equipamento_modelo', '').strip()
+            equipamento_tipo = data.get('equipamento_tipo', 'Equipamento')
+            
+            if equipamento_placa and equipamento_modelo:
+                cursor.execute('''
+                    INSERT INTO veiculos (empresa_id, cliente_id, placa, modelo, tipo, status)
+                    VALUES (%s, %s, %s, %s, %s, 'Ativo')
+                    RETURNING id
+                ''', (empresa_id, cliente_id, equipamento_placa, equipamento_modelo, equipamento_tipo))
+                veiculo_id = cursor.fetchone()[0]
+                equipamento_cadastrado = True
+            else:
+                veiculo_id = None
+        elif veiculo_id == '' or veiculo_id == 'null' or veiculo_id is None:
+            veiculo_id = None
+        else:
+            veiculo_id = int(veiculo_id)
+        
+        # Inserir manutenção (inclui empresa_id e cliente_id para isolamento de dados)
+        cursor.execute('''
+            INSERT INTO manutencoes (empresa_id, veiculo_id, cliente_id, tipo, descricao, data_agendada, tecnico, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (empresa_id, veiculo_id, cliente_id, data['tipo'], data['descricao'], data['data_agendada'], 
+              data.get('tecnico'), status_inicial))
+        
+        manutencao_id = cursor.fetchone()[0]
+        
+        # Se é empresa SERVICO, processar itens de serviço
+        if is_servico() and servicos_items:
+            for item in servicos_items:
+                nome_servico = item.get('nome_servico', '').strip()
+                quantidade = float(item.get('quantidade', 1))
+                valor_unitario = float(item.get('valor_unitario', 0))
+                
+                if not nome_servico:
+                    continue
+                
+                # Catálogo Passivo: verificar se serviço existe, criar se não
+                cursor.execute("""
+                    SELECT id FROM servicos 
+                    WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
+                """, (empresa_id, nome_servico))
+                servico_row = cursor.fetchone()
+                
+                if servico_row:
+                    servico_id = servico_row[0]
+                else:
+                    # Criar serviço no catálogo passivo
+                    cursor.execute("""
+                        INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
+                        VALUES (%s, %s, %s, %s, true)
+                        RETURNING id
+                    """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
+                    servico_id = cursor.fetchone()[0]
+                
+                # Inserir item de serviço na manutenção
+                cursor.execute("""
+                    INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({'success': True})
     except Exception as e:
         print(f"Erro ao criar manutenção: {e}")
@@ -2871,17 +2302,9 @@ def get_manutencao(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            placeholder = '%s'
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            placeholder = '?'
-        
-        # Buscar manutenção com filtro por empresa_id (isolamento de dados)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
         cursor.execute(f'''
             SELECT m.id, m.veiculo_id, m.tipo, m.descricao, m.data_agendada, m.data_realizada, 
                    m.custo_mao_obra, m.status, m.tecnico, 
@@ -2973,26 +2396,19 @@ def get_manutencao_servicos(manutencao_id):
     try:
         servicos_lista = []
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            cursor.execute("""
-                SELECT id, servico_id, nome_servico, quantidade, valor_unitario, subtotal
-                FROM manutencao_servicos
-                WHERE manutencao_id = %s
-                ORDER BY id
-            """, (manutencao_id,))
-            servicos_lista = [dict(row) for row in cursor.fetchall()]
-            
-            cursor.close()
-            conn.close()
-        else:
-            # SQLite - retornar lista vazia pois tabela pode não existir
-            pass
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
+        cursor.execute("""
+            SELECT id, servico_id, nome_servico, quantidade, valor_unitario, subtotal
+            FROM manutencao_servicos
+            WHERE manutencao_id = %s
+            ORDER BY id
+        """, (manutencao_id,))
+        servicos_lista = [dict(row) for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
         return jsonify({'success': True, 'servicos': servicos_lista})
     except Exception as e:
         print(f"Erro ao carregar serviços da manutenção: {e}")
@@ -3016,24 +2432,22 @@ def gerar_orcamento(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se manutenção pertence à empresa
-            cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
-            if not cursor.fetchone():
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            
-            cursor.execute("""
-                UPDATE manutencoes SET status = 'ORCAMENTO', updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se manutenção pertence à empresa
+        cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
+        if not cursor.fetchone():
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        
+        cursor.execute("""
+            UPDATE manutencoes SET status = 'ORCAMENTO', updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         return jsonify({'success': True, 'message': 'Orçamento gerado com sucesso'})
     except Exception as e:
@@ -3064,7 +2478,7 @@ def get_orcamento_whatsapp(manutencao_id):
                    v.placa, v.modelo, v.marca,
                    c.nome as cliente_nome, c.telefone as cliente_telefone
             FROM manutencoes m
-            JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
             LEFT JOIN clientes c ON m.cliente_id = c.id
             WHERE m.id = %s AND m.empresa_id = %s
         ''', (manutencao_id, empresa_id))
@@ -3097,8 +2511,8 @@ def get_orcamento_whatsapp(manutencao_id):
         ''', (manutencao_id,))
         pecas = cursor.fetchall()
         
-        # Buscar empresa para nome fantasia
-        cursor.execute('SELECT nome_fantasia, telefone FROM empresas WHERE id = %s', (empresa_id,))
+        # Buscar empresa para nome
+        cursor.execute('SELECT nome, nome_fantasia, telefone FROM empresas WHERE id = %s', (empresa_id,))
         empresa = cursor.fetchone()
         
         conn.close()
@@ -3108,48 +2522,79 @@ def get_orcamento_whatsapp(manutencao_id):
         total_pecas = sum(float(p['subtotal'] or 0) for p in pecas)
         total_geral = total_servicos + total_pecas
         
+        # Formatar valores em BRL
+        def fmt(v):
+            return f"{v:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        
         # Formatar lista de serviços
-        servicos_texto = ""
-        for s in servicos:
-            servicos_texto += f"\n• {s['nome_servico']} ({int(s['quantidade'])}x) - R$ {float(s['subtotal']):.2f}".replace('.', ',')
+        servicos_linhas = []
+        for i, s in enumerate(servicos, 1):
+            servicos_linhas.append(f"  {i}. {s['nome_servico']}")
+            servicos_linhas.append(f"     Qtd: {int(s['quantidade'])} | Valor: R$ {fmt(float(s['subtotal'] or 0))}")
         
         # Formatar lista de peças
-        pecas_texto = ""
-        for p in pecas:
-            pecas_texto += f"\n• {p['nome']} ({int(p['quantidade'])}x) - R$ {float(p['subtotal']):.2f}".replace('.', ',')
+        pecas_linhas = []
+        for i, p in enumerate(pecas, 1):
+            pecas_linhas.append(f"  {i}. {p['nome']}")
+            pecas_linhas.append(f"     Qtd: {int(p['quantidade'])} | Valor: R$ {fmt(float(p['subtotal'] or 0))}")
         
-        # Montar mensagem
-        mensagem = f"""*📋 ORÇAMENTO - {empresa['nome_fantasia'] if empresa else 'Oficina'}*
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Olá *{manutencao['cliente_nome']}*!
-
-Segue o orçamento para o serviço solicitado:
-
-*🚗 VEÍCULO*
-> {manutencao['marca']} {manutencao['modelo']}
-> Placa: {manutencao['placa']}
-
-*📝 DESCRIÇÃO*
-{manutencao['descricao']}
-
-*🔧 SERVIÇOS*{servicos_texto if servicos_texto else chr(10) + '• Nenhum serviço adicionado'}
-
-*⚙️ PEÇAS*{pecas_texto if pecas_texto else chr(10) + '• Nenhuma peça adicionada'}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-*💰 TOTAL SERVIÇOS:* R$ {total_servicos:.2f}
-*💰 TOTAL PEÇAS:* R$ {total_pecas:.2f}
-*💵 TOTAL GERAL:* R$ {total_geral:.2f}
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Este orçamento é válido por 7 dias.
-
-*Para aprovar, responda:* ✅ APROVAR
-*Para recusar, responda:* ❌ RECUSAR
-
-_Ficamos à disposição para esclarecer qualquer dúvida!_
-📞 {empresa['telefone'] if empresa and empresa['telefone'] else ''}""".replace('.', ',').replace(',00', ',00').replace('R$', 'R$ ')
+        nome_empresa = (empresa.get('nome_fantasia') or empresa.get('nome') or 'Empresa') if empresa else 'Empresa'
+        telefone_empresa = (empresa.get('telefone') or '') if empresa else ''
+        
+        # Data formatada
+        from datetime import datetime
+        data_hoje = datetime.now().strftime('%d/%m/%Y')
+        
+        # Montar mensagem profissional e limpa
+        partes = []
+        partes.append(f"*{nome_empresa.upper()}*")
+        partes.append(f"Orcamento N. {manutencao['id']}")
+        partes.append(f"Data: {data_hoje}")
+        partes.append("")
+        partes.append("─────────────────────────")
+        partes.append("")
+        partes.append(f"*Cliente:* {manutencao['cliente_nome']}")
+        partes.append("")
+        
+        if manutencao.get('placa'):
+            partes.append("*Veiculo*")
+            partes.append(f"  {manutencao['marca']} {manutencao['modelo']}")
+            partes.append(f"  Placa: {manutencao['placa']}")
+            partes.append("")
+        
+        partes.append("*Descricao do Servico*")
+        partes.append(f"  {manutencao['descricao']}")
+        partes.append("")
+        partes.append("─────────────────────────")
+        
+        if servicos_linhas:
+            partes.append("")
+            partes.append("*Servicos*")
+            partes.extend(servicos_linhas)
+            partes.append(f"  *Subtotal: R$ {fmt(total_servicos)}*")
+            partes.append("")
+        
+        if pecas_linhas:
+            partes.append("*Pecas / Materiais*")
+            partes.extend(pecas_linhas)
+            partes.append(f"  *Subtotal: R$ {fmt(total_pecas)}*")
+            partes.append("")
+        
+        partes.append("─────────────────────────")
+        partes.append(f"*VALOR TOTAL: R$ {fmt(total_geral)}*")
+        partes.append("─────────────────────────")
+        partes.append("")
+        partes.append("Validade: 15 dias")
+        partes.append("")
+        partes.append("Para confirmar, responda com:")
+        partes.append("  *APROVADO* - para aprovar")
+        partes.append("  *RECUSADO* - para recusar")
+        partes.append("")
+        if telefone_empresa:
+            partes.append(f"Contato: {telefone_empresa}")
+        partes.append(f"_{nome_empresa}_")
+        
+        mensagem = "\n".join(partes)
         
         return jsonify({
             'success': True,
@@ -3175,60 +2620,58 @@ def aprovar_orcamento(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se manutenção pertence à empresa e se status é ORCAMENTO
+        cursor.execute("SELECT status FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        if row[0] != 'ORCAMENTO':
+            return jsonify({'success': False, 'message': 'Apenas orçamentos pendentes podem ser aprovados'}), 400
+        
+        # Atualizar status (com filtro empresa_id para segurança)
+        cursor.execute("""
+            UPDATE manutencoes SET status = 'APROVADO', updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        # Buscar dados para criar registro em ordens_servico
+        cursor.execute("""
+            SELECT m.id, COALESCE(m.cliente_id, v.cliente_id), 
+                   COALESCE(SUM(ms.subtotal), 0) as valor_servicos
+            FROM manutencoes m
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+            WHERE m.id = %s
+            GROUP BY m.id, m.cliente_id, v.cliente_id
+        """, (manutencao_id,))
+        manut_data = cursor.fetchone()
+        
+        if manut_data and manut_data[1]:  # Se tem cliente_id
+            cliente_id = manut_data[1]
+            valor_servicos = manut_data[2] or 0
             
-            # Verificar se manutenção pertence à empresa e se status é ORCAMENTO
-            cursor.execute("SELECT status FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
-            row = cursor.fetchone()
-            if not row:
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            if row[0] != 'ORCAMENTO':
-                return jsonify({'success': False, 'message': 'Apenas orçamentos pendentes podem ser aprovados'}), 400
-            
-            # Atualizar status (com filtro empresa_id para segurança)
+            # Gerar número da OS
             cursor.execute("""
-                UPDATE manutencoes SET status = 'APROVADO', updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
+                SELECT COALESCE(MAX(CAST(SUBSTRING(numero_os FROM 'OS-([0-9]+)') AS INTEGER)), 0) + 1
+                FROM ordens_servico WHERE empresa_id = %s
+            """, (empresa_id,))
+            prox_num = cursor.fetchone()[0]
+            numero_os = f"OS-{prox_num:06d}"
             
-            # Buscar dados para criar registro em ordens_servico
-            cursor.execute("""
-                SELECT m.id, v.cliente_id, 
-                       COALESCE(SUM(ms.subtotal), 0) as valor_servicos
-                FROM manutencoes m
-                JOIN veiculos v ON m.veiculo_id = v.id
-                LEFT JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                WHERE m.id = %s
-                GROUP BY m.id, v.cliente_id
-            """, (manutencao_id,))
-            manut_data = cursor.fetchone()
-            
-            if manut_data and manut_data[1]:  # Se tem cliente_id
-                cliente_id = manut_data[1]
-                valor_servicos = manut_data[2] or 0
-                
-                # Gerar número da OS
+            # Verificar se já existe OS para esta manutenção
+            cursor.execute("SELECT id FROM ordens_servico WHERE manutencao_id = %s", (manutencao_id,))
+            if not cursor.fetchone():
                 cursor.execute("""
-                    SELECT COALESCE(MAX(CAST(SUBSTRING(numero_os FROM 'OS-([0-9]+)') AS INTEGER)), 0) + 1
-                    FROM ordens_servico WHERE empresa_id = %s
-                """, (empresa_id,))
-                prox_num = cursor.fetchone()[0]
-                numero_os = f"OS-{prox_num:06d}"
-                
-                # Verificar se já existe OS para esta manutenção
-                cursor.execute("SELECT id FROM ordens_servico WHERE manutencao_id = %s", (manutencao_id,))
-                if not cursor.fetchone():
-                    cursor.execute("""
-                        INSERT INTO ordens_servico (empresa_id, manutencao_id, cliente_id, numero_os, status, valor_servicos, data_aprovacao)
-                        VALUES (%s, %s, %s, %s, 'APROVADO', %s, CURRENT_TIMESTAMP)
-                    """, (empresa_id, manutencao_id, cliente_id, numero_os, valor_servicos))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+                    INSERT INTO ordens_servico (empresa_id, manutencao_id, cliente_id, numero_os, status, valor_servicos, data_aprovacao)
+                    VALUES (%s, %s, %s, %s, 'APROVADO', %s, CURRENT_TIMESTAMP)
+                """, (empresa_id, manutencao_id, cliente_id, numero_os, valor_servicos))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         return jsonify({'success': True, 'message': 'Orçamento aprovado com sucesso'})
     except Exception as e:
@@ -3250,30 +2693,28 @@ def iniciar_execucao(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se manutenção pertence à empresa
-            cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
-            if not cursor.fetchone():
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            
-            cursor.execute("""
-                UPDATE manutencoes SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            
-            # Atualizar OS também (com filtro empresa_id)
-            cursor.execute("""
-                UPDATE ordens_servico SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
-                WHERE manutencao_id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se manutenção pertence à empresa
+        cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
+        if not cursor.fetchone():
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        
+        cursor.execute("""
+            UPDATE manutencoes SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        # Atualizar OS também (com filtro empresa_id)
+        cursor.execute("""
+            UPDATE ordens_servico SET status = 'EM_EXECUCAO', updated_at = CURRENT_TIMESTAMP
+            WHERE manutencao_id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         return jsonify({'success': True, 'message': 'Execução iniciada'})
     except Exception as e:
@@ -3293,33 +2734,31 @@ def finalizar_servico(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se manutenção pertence à empresa
-            cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
-            if not cursor.fetchone():
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            
-            cursor.execute("""
-                UPDATE manutencoes SET status = 'FINALIZADO', data_realizada = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            
-            # Atualizar OS também (com filtro empresa_id)
-            cursor.execute("""
-                UPDATE ordens_servico SET status = 'FINALIZADO', data_conclusao = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                WHERE manutencao_id = %s AND empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            
-            # LANÇAMENTO FINANCEIRO AUTOMÁTICO (ENTRADA para SERVICO)
-            resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode=True)
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se manutenção pertence à empresa
+        cursor.execute("SELECT id FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
+        if not cursor.fetchone():
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        
+        cursor.execute("""
+            UPDATE manutencoes SET status = 'FINALIZADO', data_realizada = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        # Atualizar OS também (com filtro empresa_id)
+        cursor.execute("""
+            UPDATE ordens_servico SET status = 'FINALIZADO', data_conclusao = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE manutencao_id = %s AND empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        
+        # LANÇAMENTO FINANCEIRO AUTOMÁTICO (ENTRADA para SERVICO)
+        resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode=True)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         return jsonify({'success': True, 'message': 'Serviço finalizado'})
     except Exception as e:
@@ -3347,41 +2786,43 @@ def pdf_orcamento(manutencao_id):
         empresa_id = get_empresa_id()
         dados = {}
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            # Dados da empresa
-            cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
-            dados['empresa'] = cursor.fetchone()
-            
-            # Dados da manutenção (com filtro empresa_id para segurança)
-            cursor.execute("""
-                SELECT m.id, m.descricao, m.data_agendada, m.status,
-                       v.placa, v.modelo, v.marca, v.ano,
-                       c.nome as cliente_nome, c.documento, c.telefone as cliente_telefone, c.email as cliente_email, c.endereco as cliente_endereco
-                FROM manutencoes m
-                JOIN veiculos v ON m.veiculo_id = v.id
-                LEFT JOIN clientes c ON v.cliente_id = c.id
-                WHERE m.id = %s AND m.empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            dados['manutencao'] = cursor.fetchone()
-            
-            if not dados['manutencao']:
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            
-            # Serviços
-            cursor.execute("""
-                SELECT nome_servico, quantidade, valor_unitario, subtotal
-                FROM manutencao_servicos
-                WHERE manutencao_id = %s
-            """, (manutencao_id,))
-            dados['servicos'] = cursor.fetchall()
-            
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Dados da empresa
+        cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
+        dados['empresa'] = cursor.fetchone()
+        
+        # Dados da manutenção (com filtro empresa_id para segurança)
+        cursor.execute("""
+            SELECT m.id, m.descricao, m.data_agendada, m.status,
+                   v.placa, v.modelo, v.marca, v.ano,
+                   COALESCE(c.nome, c2.nome) as cliente_nome, 
+                   COALESCE(c.documento, c2.documento) as documento, 
+                   COALESCE(c.telefone, c2.telefone) as cliente_telefone, 
+                   COALESCE(c.email, c2.email) as cliente_email, 
+                   COALESCE(c.endereco, c2.endereco) as cliente_endereco
+            FROM manutencoes m
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN clientes c ON m.cliente_id = c.id
+            LEFT JOIN clientes c2 ON v.cliente_id = c2.id
+            WHERE m.id = %s AND m.empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        dados['manutencao'] = cursor.fetchone()
+        
+        if not dados['manutencao']:
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        
+        # Serviços
+        cursor.execute("""
+            SELECT nome_servico, quantidade, valor_unitario, subtotal
+            FROM manutencao_servicos
+            WHERE manutencao_id = %s
+        """, (manutencao_id,))
+        dados['servicos'] = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
         
         # Gerar PDF
         buffer = io.BytesIO()
@@ -3511,40 +2952,37 @@ def pdf_ordem_servico(manutencao_id):
         empresa_id = get_empresa_id()
         dados = {}
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            # Dados da empresa
-            cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
-            dados['empresa'] = cursor.fetchone()
-            
-            # Dados da OS
-            cursor.execute("""
-                SELECT os.numero_os, os.status as os_status, os.data_aprovacao, os.valor_servicos,
-                       m.id, m.descricao, m.data_agendada, m.status, m.tecnico,
-                       v.placa, v.modelo, v.marca, v.ano,
-                       c.nome as cliente_nome, c.documento, c.telefone as cliente_telefone, c.email as cliente_email
-                FROM ordens_servico os
-                JOIN manutencoes m ON os.manutencao_id = m.id
-                JOIN veiculos v ON m.veiculo_id = v.id
-                LEFT JOIN clientes c ON os.cliente_id = c.id
-                WHERE os.manutencao_id = %s AND os.empresa_id = %s
-            """, (manutencao_id, empresa_id))
-            dados['os'] = cursor.fetchone()
-            
-            # Serviços
-            cursor.execute("""
-                SELECT nome_servico, quantidade, valor_unitario, subtotal
-                FROM manutencao_servicos
-                WHERE manutencao_id = %s
-            """, (manutencao_id,))
-            dados['servicos'] = cursor.fetchall()
-            
-            cursor.close()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Dados da empresa
+        cursor.execute("SELECT nome, cnpj, telefone, email, endereco FROM empresas WHERE id = %s", (empresa_id,))
+        dados['empresa'] = cursor.fetchone()
+        
+        # Dados da OS
+        cursor.execute("""
+            SELECT os.numero_os, os.status as os_status, os.data_aprovacao, os.valor_servicos,
+                   m.id, m.descricao, m.data_agendada, m.status, m.tecnico,
+                   v.placa, v.modelo, v.marca, v.ano,
+                   c.nome as cliente_nome, c.documento, c.telefone as cliente_telefone, c.email as cliente_email
+            FROM ordens_servico os
+            JOIN manutencoes m ON os.manutencao_id = m.id
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
+            LEFT JOIN clientes c ON os.cliente_id = c.id
+            WHERE os.manutencao_id = %s AND os.empresa_id = %s
+        """, (manutencao_id, empresa_id))
+        dados['os'] = cursor.fetchone()
+        
+        # Serviços
+        cursor.execute("""
+            SELECT nome_servico, quantidade, valor_unitario, subtotal
+            FROM manutencao_servicos
+            WHERE manutencao_id = %s
+        """, (manutencao_id,))
+        dados['servicos'] = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
         
         if not dados.get('os'):
             return jsonify({'success': False, 'message': 'Ordem de serviço não encontrada. Aprove o orçamento primeiro.'}), 404
@@ -3745,126 +3183,85 @@ def edit_manutencao(manutencao_id):
         
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Buscar status anterior e verificar se pertence à empresa
-            cursor.execute("SELECT status, financeiro_lancado_em FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
-            status_anterior_row = cursor.fetchone()
-            if not status_anterior_row:
-                return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
-            status_anterior = status_anterior_row[0] if status_anterior_row else None
-            ja_lancado = status_anterior_row[1] if status_anterior_row else None
-            
-            # Atualizar custo_total se informado
-            custo_update = custo if custo is not None else None
-            
-            # Atualizar manutenção (com filtro empresa_id para segurança)
-            cursor.execute('''
-                UPDATE manutencoes 
-                SET veiculo_id=%s, tipo=%s, descricao=%s, data_agendada=%s, data_realizada=%s, 
-                    custo_total=%s, status=%s, tecnico=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
-                WHERE id=%s AND empresa_id=%s
-            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_update, status, tecnico, cliente_id, manutencao_id, empresa_id))
-            
-            # Se é empresa SERVICO, processar itens de serviço
-            if is_servico():
-                # Remover itens anteriores
-                cursor.execute("DELETE FROM manutencao_servicos WHERE manutencao_id = %s", (manutencao_id,))
-                
-                # Inserir novos itens
-                for item in servicos_items:
-                    nome_servico = item.get('nome_servico', '').strip()
-                    quantidade = float(item.get('quantidade', 1))
-                    valor_unitario = float(item.get('valor_unitario', 0))
-                    
-                    if not nome_servico:
-                        continue
-                    
-                    # Catálogo Passivo: verificar se serviço existe, criar se não
-                    cursor.execute("""
-                        SELECT id FROM servicos 
-                        WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
-                    """, (empresa_id, nome_servico))
-                    servico_row = cursor.fetchone()
-                    
-                    if servico_row:
-                        servico_id = servico_row[0]
-                    else:
-                        # Criar serviço no catálogo passivo
-                        cursor.execute("""
-                            INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
-                            VALUES (%s, %s, %s, %s, true)
-                            RETURNING id
-                        """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
-                        servico_id = cursor.fetchone()[0]
-                    
-                    # Inserir item de serviço na manutenção
-                    cursor.execute("""
-                        INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
-            
-            # LANÇAMENTO FINANCEIRO AUTOMÁTICO (quando status muda para finalizado)
-            status_finalizacao_servico = ['FINALIZADO', 'FATURADO']
-            status_finalizacao_frota = ['Concluída']
-            
-            deve_lancar = False
-            if is_servico() and status in status_finalizacao_servico and not ja_lancado:
-                deve_lancar = True
-                is_servico_mode = True
-            elif not is_servico() and status in status_finalizacao_frota and not ja_lancado:
-                deve_lancar = True
-                is_servico_mode = False
-            
-            if deve_lancar:
-                resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode)
-                print(f"   Resultado financeiro: {resultado_financeiro}")
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-        else:
-            # SQLite (desenvolvimento local)
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Verificar se a manutenção foi concluída e tem custo
-            cursor.execute('SELECT status, custo FROM manutencoes WHERE id = ?', (manutencao_id,))
-            manutencao_atual = cursor.fetchone()
-            
-            cursor.execute('''
-                UPDATE manutencoes 
-                SET veiculo_id=?, tipo=?, descricao=?, data_agendada=?, data_realizada=?, custo=?, status=?, tecnico=?
-                WHERE id=?
-            ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo, status, tecnico, manutencao_id))
-            
-            # Gerar despesa automática se manutenção foi concluída com custo
-            if status == 'Concluída' and custo and custo > 0:
-                # Verificar se já existe despesa para esta manutenção
-                cursor.execute('SELECT id FROM despesas WHERE manutencao_id = ?', (manutencao_id,))
-                despesa_existente = cursor.fetchone()
-                
-                if not despesa_existente:
-                    # Buscar categoria "Manutenção"
-                    cursor.execute('SELECT id FROM categorias_despesa WHERE nome = ?', ('Manutenção',))
-                    categoria_manutencao = cursor.fetchone()
-                    categoria_id = categoria_manutencao[0] if categoria_manutencao else None
-                    
-                    # Criar despesa automática
-                    data_despesa = data_realizada if data_realizada else data_agendada
-                    descricao_despesa = f"Manutenção {tipo}: {descricao}"
-                    
-                    cursor.execute('''
-                        INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (descricao_despesa, custo, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
-            
-            conn.commit()
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Buscar status anterior e verificar se pertence à empresa
+        cursor.execute("SELECT status, financeiro_lancado_em FROM manutencoes WHERE id = %s AND empresa_id = %s", (manutencao_id, empresa_id))
+        status_anterior_row = cursor.fetchone()
+        if not status_anterior_row:
+            return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
+        status_anterior = status_anterior_row[0] if status_anterior_row else None
+        ja_lancado = status_anterior_row[1] if status_anterior_row else None
+        
+        # Atualizar custo_total se informado
+        custo_update = custo if custo is not None else None
+        
+        # Atualizar manutenção (com filtro empresa_id para segurança)
+        cursor.execute('''
+            UPDATE manutencoes 
+            SET veiculo_id=%s, tipo=%s, descricao=%s, data_agendada=%s, data_realizada=%s, 
+                custo_total=%s, status=%s, tecnico=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
+            WHERE id=%s AND empresa_id=%s
+        ''', (veiculo_id, tipo, descricao, data_agendada, data_realizada, custo_update, status, tecnico, cliente_id, manutencao_id, empresa_id))
+        
+        # Se é empresa SERVICO, processar itens de serviço
+        if is_servico():
+            # Remover itens anteriores
+            cursor.execute("DELETE FROM manutencao_servicos WHERE manutencao_id = %s", (manutencao_id,))
+            
+            # Inserir novos itens
+            for item in servicos_items:
+                nome_servico = item.get('nome_servico', '').strip()
+                quantidade = float(item.get('quantidade', 1))
+                valor_unitario = float(item.get('valor_unitario', 0))
+                
+                if not nome_servico:
+                    continue
+                
+                # Catálogo Passivo: verificar se serviço existe, criar se não
+                cursor.execute("""
+                    SELECT id FROM servicos 
+                    WHERE empresa_id = %s AND LOWER(nome) = LOWER(%s)
+                """, (empresa_id, nome_servico))
+                servico_row = cursor.fetchone()
+                
+                if servico_row:
+                    servico_id = servico_row[0]
+                else:
+                    # Criar serviço no catálogo passivo
+                    cursor.execute("""
+                        INSERT INTO servicos (empresa_id, nome, preco_base, categoria, ativo)
+                        VALUES (%s, %s, %s, %s, true)
+                        RETURNING id
+                    """, (empresa_id, nome_servico, valor_unitario, 'Geral'))
+                    servico_id = cursor.fetchone()[0]
+                
+                # Inserir item de serviço na manutenção
+                cursor.execute("""
+                    INSERT INTO manutencao_servicos (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (manutencao_id, servico_id, nome_servico, quantidade, valor_unitario))
+        
+        # LANÇAMENTO FINANCEIRO AUTOMÁTICO (quando status muda para finalizado)
+        status_finalizacao_servico = ['FINALIZADO', 'FATURADO']
+        status_finalizacao_frota = ['Concluída']
+        
+        deve_lancar = False
+        if is_servico() and status in status_finalizacao_servico and not ja_lancado:
+            deve_lancar = True
+            is_servico_mode = True
+        elif not is_servico() and status in status_finalizacao_frota and not ja_lancado:
+            deve_lancar = True
+            is_servico_mode = False
+        
+        if deve_lancar:
+            resultado_financeiro = lancar_financeiro_manutencao(manutencao_id, cursor, empresa_id, is_servico_mode)
+            print(f"   Resultado financeiro: {resultado_financeiro}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({'success': True, 'message': 'Manutenção atualizada com sucesso!'})
     except Exception as e:
         print(f"Erro ao editar manutenção: {e}")
@@ -3881,18 +3278,10 @@ def delete_manutencao(manutencao_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM manutencoes WHERE id = %s AND empresa_id = %s', 
-                           (manutencao_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM manutencoes WHERE id = ? AND empresa_id = ?', 
-                           (manutencao_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM manutencoes WHERE id = %s AND empresa_id = %s', 
+                       (manutencao_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -3916,24 +3305,13 @@ def update_status_manutencao(manutencao_id):
             from datetime import datetime
             data_realizada = datetime.now().strftime('%Y-%m-%d')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE manutencoes 
-                SET status = %s, data_realizada = %s
-                WHERE id = %s AND empresa_id = %s
-            ''', (novo_status, data_realizada, manutencao_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE manutencoes 
-                SET status = ?, data_realizada = ?
-                WHERE id = ? AND empresa_id = ?
-            ''', (novo_status, data_realizada, manutencao_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE manutencoes 
+            SET status = %s, data_realizada = %s
+            WHERE id = %s AND empresa_id = %s
+        ''', (novo_status, data_realizada, manutencao_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -3945,36 +3323,18 @@ def update_status_manutencao(manutencao_id):
 @app.route('/manutencao/<int:manutencao_id>/pecas')
 @login_required
 def get_pecas_manutencao(manutencao_id):
-    if Config.IS_POSTGRES:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute('''
-            SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
-                   p.nome, p.codigo, p.preco,
-                   (mp.quantidade * mp.preco_unitario) as subtotal
-            FROM manutencao_pecas mp
-            JOIN pecas p ON mp.peca_id = p.id
-            WHERE mp.manutencao_id = %s
-            ORDER BY mp.id DESC
-        ''', (manutencao_id,))
-        pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
-    else:
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
-                   p.nome, p.codigo, p.preco,
-                   (mp.quantidade * mp.preco_unitario) as subtotal
-            FROM manutencao_pecas mp
-            JOIN pecas p ON mp.peca_id = p.id
-            WHERE mp.manutencao_id = ?
-            ORDER BY mp.id DESC
-        ''', (manutencao_id,))
-        pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
-    
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute('''
+        SELECT mp.id, mp.manutencao_id, mp.peca_id, mp.quantidade, mp.preco_unitario, 
+               p.nome, p.codigo, p.preco,
+               (mp.quantidade * mp.preco_unitario) as subtotal
+        FROM manutencao_pecas mp
+        JOIN pecas p ON mp.peca_id = p.id
+        WHERE mp.manutencao_id = %s
+        ORDER BY mp.id DESC
+    ''', (manutencao_id,))
+    pecas_utilizadas = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(pecas_utilizadas)
 
@@ -3985,17 +3345,9 @@ def get_pecas_disponiveis(manutencao_id):
     
     empresa_id = get_empresa_id()
     
-    if Config.IS_POSTGRES:
-        import psycopg2
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()
-        placeholder = '%s'
-    else:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        placeholder = '?'
-    
-    # Buscar informações do veículo da manutenção
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor()
+    placeholder = '%s'
     cursor.execute(f'''
         SELECT v.modelo, v.marca, v.tipo
         FROM manutencoes m
@@ -4052,16 +3404,9 @@ def buscar_pecas_manutencao(manutencao_id):
     search_term = request.args.get('q', '').strip()
     empresa_id = get_empresa_id()
     
-    if Config.IS_POSTGRES:
-        import psycopg2
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()
-        placeholder = '%s'
-    else:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        placeholder = '?'
-    
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor()
+    placeholder = '%s'
     if search_term:
         # Buscar por nome, código ou compatibilidade (filtrado por empresa)
         cursor.execute(f'''
@@ -4113,17 +3458,9 @@ def adicionar_peca_manutencao(manutencao_id):
         
         print(f"DEBUG: Adicionando peça {peca_id} (qtd: {quantidade}) à manutenção {manutencao_id}")
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            placeholder = '%s'
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            placeholder = '?'
-        
-        # Verificar se a manutenção pertence à empresa
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
         cursor.execute(f'SELECT id FROM manutencoes WHERE id = {placeholder} AND empresa_id = {placeholder}', (manutencao_id, empresa_id))
         if not cursor.fetchone():
             return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
@@ -4148,12 +3485,12 @@ def adicionar_peca_manutencao(manutencao_id):
         ''', (manutencao_id, peca_id, quantidade, preco))
         print(f"DEBUG: INSERT bem sucedido!")
         
-        # Dar baixa no estoque
+        # Dar baixa no estoque (com filtro empresa_id para segurança multi-tenant)
         print(f"DEBUG: Atualizando estoque")
         cursor.execute(f'''
             UPDATE pecas SET quantidade_estoque = quantidade_estoque - {placeholder}
-            WHERE id = {placeholder}
-        ''', (quantidade, peca_id))
+            WHERE id = {placeholder} AND empresa_id = {placeholder}
+        ''', (quantidade, peca_id, empresa_id))
         
         # Commit principal - peça adicionada e estoque atualizado
         print(f"DEBUG: Fazendo commit")
@@ -4162,39 +3499,38 @@ def adicionar_peca_manutencao(manutencao_id):
         
         # Tentar criar despesa automática em transação separada (não bloqueia se falhar)
         try:
-            if Config.IS_POSTGRES:
-                conn2 = psycopg2.connect(Config.DATABASE_URL)
-                cursor2 = conn2.cursor()
+            conn2 = psycopg2.connect(Config.DATABASE_URL)
+            cursor2 = conn2.cursor()
+            
+            cursor2.execute('SELECT nome FROM pecas WHERE id = %s', (peca_id,))
+            nome_peca = cursor2.fetchone()[0]
+            
+            cursor2.execute('SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = %s', (manutencao_id,))
+            manutencao_info = cursor2.fetchone()
+            veiculo_id, data_realizada, data_agendada = manutencao_info
+            
+            # Verificar se tabela categorias_despesa existe
+            cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'categorias_despesa')")
+            if cursor2.fetchone()[0]:
+                cursor2.execute("SELECT id FROM categorias_despesa WHERE nome = 'Peças e Componentes'")
+                categoria_peca = cursor2.fetchone()
+                categoria_id = categoria_peca[0] if categoria_peca else None
                 
-                cursor2.execute('SELECT nome FROM pecas WHERE id = %s', (peca_id,))
-                nome_peca = cursor2.fetchone()[0]
-                
-                cursor2.execute('SELECT veiculo_id, data_realizada, data_agendada FROM manutencoes WHERE id = %s', (manutencao_id,))
-                manutencao_info = cursor2.fetchone()
-                veiculo_id, data_realizada, data_agendada = manutencao_info
-                
-                # Verificar se tabela categorias_despesa existe
-                cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'categorias_despesa')")
+                # Verificar se tabela despesas existe
+                cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'despesas')")
                 if cursor2.fetchone()[0]:
-                    cursor2.execute("SELECT id FROM categorias_despesa WHERE nome = 'Peças e Componentes'")
-                    categoria_peca = cursor2.fetchone()
-                    categoria_id = categoria_peca[0] if categoria_peca else None
+                    valor_total = float(preco) * quantidade
+                    data_despesa = data_realizada if data_realizada else data_agendada
+                    descricao_despesa = f"Peça: {nome_peca} (Qtd: {quantidade})"
                     
-                    # Verificar se tabela despesas existe
-                    cursor2.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'despesas')")
-                    if cursor2.fetchone()[0]:
-                        valor_total = float(preco) * quantidade
-                        data_despesa = data_realizada if data_realizada else data_agendada
-                        descricao_despesa = f"Peça: {nome_peca} (Qtd: {quantidade})"
-                        
-                        cursor2.execute('''
-                            INSERT INTO despesas (descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ''', (descricao_despesa, valor_total, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
-                        conn2.commit()
-                        print(f"DEBUG: Despesa automática criada")
-                
-                conn2.close()
+                    cursor2.execute('''
+                        INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, manutencao_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ''', (empresa_id, descricao_despesa, valor_total, data_despesa, categoria_id, veiculo_id, 'Automática', manutencao_id))
+                    conn2.commit()
+                    print(f"DEBUG: Despesa automática criada")
+            
+            conn2.close()
         except Exception as despesa_error:
             print(f"DEBUG: Erro ao criar despesa (não crítico): {despesa_error}")
         
@@ -4216,17 +3552,9 @@ def remover_peca_manutencao(manutencao_id, item_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            placeholder = '%s'
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            placeholder = '?'
-        
-        # Verificar se a manutenção pertence à empresa
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
         cursor.execute(f'SELECT id FROM manutencoes WHERE id = {placeholder} AND empresa_id = {placeholder}', (manutencao_id, empresa_id))
         if not cursor.fetchone():
             return jsonify({'success': False, 'message': 'Manutenção não encontrada'}), 404
@@ -4244,11 +3572,11 @@ def remover_peca_manutencao(manutencao_id, item_id):
         
         peca_id, quantidade = item
         
-        # Devolver ao estoque
+        # Devolver ao estoque (com filtro empresa_id para segurança multi-tenant)
         cursor.execute(f'''
             UPDATE pecas SET quantidade_estoque = quantidade_estoque + {placeholder}
-            WHERE id = {placeholder}
-        ''', (quantidade, peca_id))
+            WHERE id = {placeholder} AND empresa_id = {placeholder}
+        ''', (quantidade, peca_id, empresa_id))
         
         # Remover da manutenção
         cursor.execute(f'''
@@ -4271,21 +3599,9 @@ def pecas():
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            placeholder = '%s'
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            placeholder = '?'
-        
-        # SELECT com colunas na ordem esperada pelo template:
-        # [0]=id, [1]=nome, [2]=codigo, [3]=veiculo_compativel, [4]=preco, 
-        # [5]=fornecedor_id, [6]=quantidade_estoque, [7]=fornecedor_nome,
-        # [8]=fornecedor_telefone, [9]=fornecedor_email, [10]=categoria_id,
-        # [11]=categoria_nome, [12]=categoria_cor, [13]=categoria_icone
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        placeholder = '%s'
         cursor.execute(f'''
             SELECT p.id, p.nome, p.codigo, p.veiculo_compativel, p.preco, 
                    p.fornecedor_id, p.quantidade_estoque, f.nome as fornecedor_nome,
@@ -4304,7 +3620,7 @@ def pecas():
         fornecedores = cursor.fetchall()
         
         # Buscar categorias para os selects (da empresa)
-        ativo_val = 'true' if Config.IS_POSTGRES else '1'
+        ativo_val = 'true'
         cursor.execute(f"SELECT id, nome, cor, icone FROM categorias_pecas WHERE empresa_id = {placeholder} AND ativo = {ativo_val} ORDER BY nome", (empresa_id,))
         categorias = cursor.fetchall()
         
@@ -4337,26 +3653,14 @@ def listar_categorias_pecas():
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, nome, descricao, cor, icone, ativo 
-                FROM categorias_pecas 
-                WHERE empresa_id = %s 
-                ORDER BY nome
-            ''', (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, nome, descricao, cor, icone, ativo 
-                FROM categorias_pecas 
-                WHERE empresa_id = ? 
-                ORDER BY nome
-            ''', (empresa_id,))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, nome, descricao, cor, icone, ativo 
+            FROM categorias_pecas 
+            WHERE empresa_id = %s 
+            ORDER BY nome
+        ''', (empresa_id,))
         categorias = cursor.fetchall()
         conn.close()
         
@@ -4389,37 +3693,20 @@ def criar_categoria_peca():
         cor = data.get('cor', '#6c757d')
         icone = data.get('icone', 'fas fa-tag')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se já existe
-            cursor.execute('SELECT id FROM categorias_pecas WHERE empresa_id = %s AND nome = %s', (empresa_id, nome))
-            if cursor.fetchone():
-                conn.close()
-                return jsonify({'success': False, 'message': f'Já existe uma categoria "{nome}"'})
-            
-            cursor.execute('''
-                INSERT INTO categorias_pecas (empresa_id, nome, descricao, cor, icone)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id
-            ''', (empresa_id, nome, descricao, cor, icone))
-            categoria_id = cursor.fetchone()[0]
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT id FROM categorias_pecas WHERE empresa_id = ? AND nome = ?', (empresa_id, nome))
-            if cursor.fetchone():
-                conn.close()
-                return jsonify({'success': False, 'message': f'Já existe uma categoria "{nome}"'})
-            
-            cursor.execute('''
-                INSERT INTO categorias_pecas (empresa_id, nome, descricao, cor, icone)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (empresa_id, nome, descricao, cor, icone))
-            categoria_id = cursor.lastrowid
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Verificar se já existe
+        cursor.execute('SELECT id FROM categorias_pecas WHERE empresa_id = %s AND nome = %s', (empresa_id, nome))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'message': f'Já existe uma categoria "{nome}"'})
+        
+        cursor.execute('''
+            INSERT INTO categorias_pecas (empresa_id, nome, descricao, cor, icone)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        ''', (empresa_id, nome, descricao, cor, icone))
+        categoria_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -4448,24 +3735,13 @@ def editar_categoria_peca(categoria_id):
         icone = data.get('icone', 'fas fa-tag')
         ativo = data.get('ativo', True)
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE categorias_pecas 
-                SET nome = %s, descricao = %s, cor = %s, icone = %s, ativo = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            ''', (nome, descricao, cor, icone, ativo, categoria_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE categorias_pecas 
-                SET nome = ?, descricao = ?, cor = ?, icone = ?, ativo = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND empresa_id = ?
-            ''', (nome, descricao, cor, icone, ativo, categoria_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE categorias_pecas 
+            SET nome = %s, descricao = %s, cor = %s, icone = %s, ativo = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        ''', (nome, descricao, cor, icone, ativo, categoria_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -4483,20 +3759,12 @@ def excluir_categoria_peca(categoria_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            # Remover referências nas peças
-            cursor.execute('UPDATE pecas SET categoria_id = NULL WHERE categoria_id = %s AND empresa_id = %s', (categoria_id, empresa_id))
-            # Excluir categoria
-            cursor.execute('DELETE FROM categorias_pecas WHERE id = %s AND empresa_id = %s', (categoria_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('UPDATE pecas SET categoria_id = NULL WHERE categoria_id = ? AND empresa_id = ?', (categoria_id, empresa_id))
-            cursor.execute('DELETE FROM categorias_pecas WHERE id = ? AND empresa_id = ?', (categoria_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        # Remover referências nas peças
+        cursor.execute('UPDATE pecas SET categoria_id = NULL WHERE categoria_id = %s AND empresa_id = %s', (categoria_id, empresa_id))
+        # Excluir categoria
+        cursor.execute('DELETE FROM categorias_pecas WHERE id = %s AND empresa_id = %s', (categoria_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -4523,36 +3791,19 @@ def add_peca():
         categoria_id = request.form.get('categoria_id')
         categoria_id = int(categoria_id) if categoria_id else None
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se código já existe para esta empresa
-            cursor.execute('SELECT id FROM pecas WHERE codigo = %s AND empresa_id = %s', (codigo, empresa_id))
-            if cursor.fetchone():
-                conn.close()
-                return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
-            
-            cursor.execute('''
-                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Verificar se código já existe para esta empresa
-            cursor.execute('SELECT id FROM pecas WHERE codigo = ? AND empresa_id = ?', (codigo, empresa_id))
-            if cursor.fetchone():
-                conn.close()
-                return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
-            
-            cursor.execute('''
-                INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Verificar se código já existe para esta empresa
+        cursor.execute('SELECT id FROM pecas WHERE codigo = %s AND empresa_id = %s', (codigo, empresa_id))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'message': f'Já existe uma peça com o código "{codigo}". Use outro código.'})
+        
+        cursor.execute('''
+            INSERT INTO pecas (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (empresa_id, nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id))
         conn.commit()
         conn.close()
         
@@ -4582,24 +3833,13 @@ def edit_peca(peca_id):
         categoria_id = request.form.get('categoria_id')
         categoria_id = int(categoria_id) if categoria_id else None
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE pecas 
-                SET nome=%s, codigo=%s, veiculo_compativel=%s, preco=%s, quantidade_estoque=%s, fornecedor_id=%s, categoria_id=%s
-                WHERE id=%s AND empresa_id=%s
-            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id, peca_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE pecas 
-                SET nome=?, codigo=?, veiculo_compativel=?, preco=?, quantidade_estoque=?, fornecedor_id=?, categoria_id=?
-                WHERE id=? AND empresa_id=?
-            ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id, peca_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE pecas 
+            SET nome=%s, codigo=%s, veiculo_compativel=%s, preco=%s, quantidade_estoque=%s, fornecedor_id=%s, categoria_id=%s
+            WHERE id=%s AND empresa_id=%s
+        ''', (nome, codigo, veiculo_compativel, preco, quantidade_estoque, fornecedor_id, categoria_id, peca_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -4617,16 +3857,9 @@ def delete_peca(peca_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM pecas WHERE id=%s AND empresa_id=%s', (peca_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM pecas WHERE id=? AND empresa_id=?', (peca_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM pecas WHERE id=%s AND empresa_id=%s', (peca_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -4645,16 +3878,9 @@ def ajustar_estoque(peca_id):
         empresa_id = get_empresa_id()
         nova_quantidade = int(request.form['quantidade'])
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('UPDATE pecas SET quantidade_estoque=%s WHERE id=%s AND empresa_id=%s', (nova_quantidade, peca_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('UPDATE pecas SET quantidade_estoque=? WHERE id=? AND empresa_id=?', (nova_quantidade, peca_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE pecas SET quantidade_estoque=%s WHERE id=%s AND empresa_id=%s', (nova_quantidade, peca_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -4671,25 +3897,14 @@ def get_peca(peca_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.*, f.nome as fornecedor_nome 
-                FROM pecas p 
-                JOIN fornecedores f ON p.fornecedor_id = f.id
-                WHERE p.id=%s AND p.empresa_id=%s
-            ''', (peca_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.*, f.nome as fornecedor_nome 
-                FROM pecas p 
-                JOIN fornecedores f ON p.fornecedor_id = f.id
-                WHERE p.id=? AND p.empresa_id=?
-            ''', (peca_id, empresa_id))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.*, f.nome as fornecedor_nome 
+            FROM pecas p 
+            JOIN fornecedores f ON p.fornecedor_id = f.id
+            WHERE p.id=%s AND p.empresa_id=%s
+        ''', (peca_id, empresa_id))
         peca = cursor.fetchone()
         conn.close()
         
@@ -4848,16 +4063,9 @@ def fornecedores():
     empresa_id = get_empresa_id()
     print(f"DEBUG /fornecedores: empresa_id={empresa_id}")
     
-    if Config.IS_POSTGRES:
-        import psycopg2
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()  # Tuplas para compatibilidade com template
-        cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = %s", (empresa_id,))
-    else:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = ?", (empresa_id,))
-    
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor()  # Tuplas para compatibilidade com template
+    cursor.execute("SELECT id, nome, contato, telefone, email, especialidade FROM fornecedores WHERE empresa_id = %s", (empresa_id,))
     fornecedores_list = cursor.fetchall()
     print(f"DEBUG /fornecedores: resultado={fornecedores_list}")
     conn.close()
@@ -4885,47 +4093,25 @@ def criar_fornecedor():
                 'message': 'Nome é obrigatório'
             }), 400
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade, cnpj, endereco)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                empresa_id,
-                data.get('nome'),
-                data.get('contato'),
-                data.get('telefone'),
-                data.get('email'),
-                data.get('especialidade'),
-                data.get('cnpj', ''),
-                data.get('endereco', '')
-            ))
-            
-            fornecedor_id = cursor.fetchone()[0]
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade, cnpj, endereco)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                empresa_id,
-                data.get('nome'),
-                data.get('contato'),
-                data.get('telefone'),
-                data.get('email'),
-                data.get('especialidade'),
-                data.get('cnpj', ''),
-                data.get('endereco', '')
-            ))
-            
-            fornecedor_id = cursor.lastrowid
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute('''
+            INSERT INTO fornecedores (empresa_id, nome, contato, telefone, email, especialidade, cnpj, endereco)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            empresa_id,
+            data.get('nome'),
+            data.get('contato'),
+            data.get('telefone'),
+            data.get('email'),
+            data.get('especialidade'),
+            data.get('cnpj', ''),
+            data.get('endereco', '')
+        ))
+        
+        fornecedor_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -4951,24 +4137,13 @@ def detalhes_fornecedor(fornecedor_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, nome, contato, telefone, email, especialidade
-                FROM fornecedores 
-                WHERE id = %s AND empresa_id = %s
-            """, (fornecedor_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, nome, contato, telefone, email, especialidade
-                FROM fornecedores 
-                WHERE id = ? AND empresa_id = ?
-            """, (fornecedor_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, nome, contato, telefone, email, especialidade, cnpj, endereco
+            FROM fornecedores 
+            WHERE id = %s AND empresa_id = %s
+        """, (fornecedor_id, empresa_id))
         fornecedor_data = cursor.fetchone()
         conn.close()
         
@@ -4980,12 +4155,8 @@ def detalhes_fornecedor(fornecedor_id):
                 'telefone': fornecedor_data[3],
                 'email': fornecedor_data[4],
                 'especialidade': fornecedor_data[5],
-                'cnpj': 'Não informado',
-                'inscricao_estadual': 'Não informado',
-                'endereco': 'Não informado',
-                'site': 'Não informado',
-                'prazo_pagamento': 'Não informado',
-                'observacoes': 'Nenhuma observação cadastrada'
+                'cnpj': fornecedor_data[6] or '',
+                'endereco': fornecedor_data[7] or ''
             }
             return jsonify(fornecedor)
         else:
@@ -5005,42 +4176,25 @@ def editar_fornecedor(fornecedor_id):
         empresa_id = get_empresa_id()
         dados = request.get_json()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                UPDATE fornecedores 
-                SET nome = %s, contato = %s, telefone = %s, email = %s, especialidade = %s
-                WHERE id = %s AND empresa_id = %s
-            """, (
-                dados.get('nome'),
-                dados.get('contato'),
-                dados.get('telefone'),
-                dados.get('email'),
-                dados.get('especialidade'),
-                fornecedor_id,
-                empresa_id
-            ))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                UPDATE fornecedores 
-                SET nome = ?, contato = ?, telefone = ?, email = ?, especialidade = ?
-                WHERE id = ? AND empresa_id = ?
-            """, (
-                dados.get('nome'),
-                dados.get('contato'),
-                dados.get('telefone'),
-                dados.get('email'),
-                dados.get('especialidade'),
-                fornecedor_id,
-                empresa_id
-            ))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute("""
+            UPDATE fornecedores 
+            SET nome = %s, contato = %s, telefone = %s, email = %s, especialidade = %s,
+                cnpj = %s, endereco = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (
+            dados.get('nome'),
+            dados.get('contato'),
+            dados.get('telefone'),
+            dados.get('email'),
+            dados.get('especialidade'),
+            dados.get('cnpj', ''),
+            dados.get('endereco', ''),
+            fornecedor_id,
+            empresa_id
+        ))
         conn.commit()
         conn.close()
         
@@ -5059,36 +4213,19 @@ def excluir_fornecedor(fornecedor_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verifica se o fornecedor existe e pertence à empresa
-            cursor.execute("SELECT nome FROM fornecedores WHERE id = %s AND empresa_id = %s", (fornecedor_id, empresa_id))
-            fornecedor = cursor.fetchone()
-            
-            if not fornecedor:
-                conn.close()
-                return jsonify({'success': False, 'error': 'Fornecedor não encontrado'}), 404
-            
-            # Exclui o fornecedor
-            cursor.execute("DELETE FROM fornecedores WHERE id = %s AND empresa_id = %s", (fornecedor_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Verifica se o fornecedor existe e pertence à empresa
-            cursor.execute("SELECT nome FROM fornecedores WHERE id = ? AND empresa_id = ?", (fornecedor_id, empresa_id))
-            fornecedor = cursor.fetchone()
-            
-            if not fornecedor:
-                conn.close()
-                return jsonify({'success': False, 'error': 'Fornecedor não encontrado'}), 404
-            
-            # Exclui o fornecedor
-            cursor.execute("DELETE FROM fornecedores WHERE id = ? AND empresa_id = ?", (fornecedor_id, empresa_id))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Verifica se o fornecedor existe e pertence à empresa
+        cursor.execute("SELECT nome FROM fornecedores WHERE id = %s AND empresa_id = %s", (fornecedor_id, empresa_id))
+        fornecedor = cursor.fetchone()
+        
+        if not fornecedor:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Fornecedor não encontrado'}), 404
+        
+        # Exclui o fornecedor
+        cursor.execute("DELETE FROM fornecedores WHERE id = %s AND empresa_id = %s", (fornecedor_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -5120,54 +4257,28 @@ def clientes():
     novos_mes = 0
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            cursor.execute("""
-                SELECT id, nome, documento, tipo_documento, telefone, email, 
-                       endereco, cidade, estado, cep, observacoes, status, created_at
-                FROM clientes 
-                WHERE empresa_id = %s
-                ORDER BY nome
-            """, (empresa_id,))
-            clientes_lista = cursor.fetchall()
-            
-            # Contar novos clientes do mês
-            cursor.execute("""
-                SELECT COUNT(*) as total FROM clientes 
-                WHERE empresa_id = %s 
-                AND created_at >= date_trunc('month', CURRENT_DATE)
-            """, (empresa_id,))
-            novos_mes = cursor.fetchone()['total']
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT id, nome, documento, tipo_documento, telefone, email, 
-                       endereco, cidade, estado, cep, observacoes, status, created_at
-                FROM clientes 
-                WHERE empresa_id = ?
-                ORDER BY nome
-            """, (empresa_id,))
-            clientes_lista = [dict(row) for row in cursor.fetchall()]
-            
-            cursor.execute("""
-                SELECT COUNT(*) as total FROM clientes 
-                WHERE empresa_id = ? 
-                AND created_at >= date('now', 'start of month')
-            """, (empresa_id,))
-            novos_mes = cursor.fetchone()['total']
-            
-            conn.close()
-            
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT id, nome, documento, tipo_documento, telefone, email, 
+                   endereco, cidade, estado, cep, observacoes, status, created_at
+            FROM clientes 
+            WHERE empresa_id = %s
+            ORDER BY nome
+        """, (empresa_id,))
+        clientes_lista = cursor.fetchall()
+        
+        # Contar novos clientes do mês
+        cursor.execute("""
+            SELECT COUNT(*) as total FROM clientes 
+            WHERE empresa_id = %s 
+            AND created_at >= date_trunc('month', CURRENT_DATE)
+        """, (empresa_id,))
+        novos_mes = cursor.fetchone()['total']
+        
+        cursor.close()
+        conn.close()
     except Exception as e:
         print(f"Erro ao listar clientes: {e}")
         traceback.print_exc()
@@ -5193,73 +4304,45 @@ def criar_cliente():
         if not data.get('nome') or not data.get('nome').strip():
             return jsonify({'success': False, 'message': 'Nome do cliente é obrigatório'}), 400
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar limite de clientes do plano
-            pode_criar, msg_limite = verificar_limite_clientes(cursor, empresa_id)
-            if not pode_criar:
-                cursor.close()
-                conn.close()
-                # Notificar sobre bloqueio de limite (ETAPA 12)
-                from empresa_helpers import create_notification
-                create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
-                    'Limite de clientes atingido!', 
-                    msg_limite, 
-                    link='/minha-empresa')
-                return jsonify({'success': False, 'message': msg_limite}), 403
-            
-            cursor.execute("""
-                INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
-                                      endereco, cidade, estado, cep, observacoes, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ATIVO')
-                RETURNING id
-            """, (
-                empresa_id,
-                data.get('nome', '').strip(),
-                data.get('documento', '').strip() or None,
-                data.get('tipo_documento', '').strip() or None,
-                data.get('telefone', '').strip() or None,
-                data.get('email', '').strip() or None,
-                data.get('endereco', '').strip() or None,
-                data.get('cidade', '').strip() or None,
-                data.get('estado', '').strip() or None,
-                data.get('cep', '').strip() or None,
-                data.get('observacoes', '').strip() or None
-            ))
-            
-            cliente_id = cursor.fetchone()[0]
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar limite de clientes do plano
+        pode_criar, msg_limite = verificar_limite_clientes(cursor, empresa_id)
+        if not pode_criar:
             cursor.close()
             conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
-                                      endereco, cidade, estado, cep, observacoes, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ATIVO')
-            """, (
-                empresa_id,
-                data.get('nome', '').strip(),
-                data.get('documento', '').strip() or None,
-                data.get('tipo_documento', '').strip() or None,
-                data.get('telefone', '').strip() or None,
-                data.get('email', '').strip() or None,
-                data.get('endereco', '').strip() or None,
-                data.get('cidade', '').strip() or None,
-                data.get('estado', '').strip() or None,
-                data.get('cep', '').strip() or None,
-                data.get('observacoes', '').strip() or None
-            ))
-            
-            cliente_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
+            # Notificar sobre bloqueio de limite (ETAPA 12)
+            from empresa_helpers import create_notification
+            create_notification(empresa_id, 'LIMITE_BLOQUEIO', 
+                'Limite de clientes atingido!', 
+                msg_limite, 
+                link='/minha-empresa')
+            return jsonify({'success': False, 'message': msg_limite}), 403
         
+        cursor.execute("""
+            INSERT INTO clientes (empresa_id, nome, documento, tipo_documento, telefone, email, 
+                                  endereco, cidade, estado, cep, observacoes, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ATIVO')
+            RETURNING id
+        """, (
+            empresa_id,
+            data.get('nome', '').strip(),
+            data.get('documento', '').strip() or None,
+            data.get('tipo_documento', '').strip() or None,
+            data.get('telefone', '').strip() or None,
+            data.get('email', '').strip() or None,
+            data.get('endereco', '').strip() or None,
+            data.get('cidade', '').strip() or None,
+            data.get('estado', '').strip() or None,
+            data.get('cep', '').strip() or None,
+            data.get('observacoes', '').strip() or None
+        ))
+        
+        cliente_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({
             'success': True,
             'message': 'Cliente cadastrado com sucesso!',
@@ -5284,38 +4367,19 @@ def detalhes_cliente(cliente_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            cursor.execute("""
-                SELECT id, nome, documento, tipo_documento, telefone, email, 
-                       endereco, cidade, estado, cep, observacoes, status, created_at
-                FROM clientes 
-                WHERE id = %s AND empresa_id = %s
-            """, (cliente_id, empresa_id))
-            cliente = cursor.fetchone()
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT id, nome, documento, tipo_documento, telefone, email, 
-                       endereco, cidade, estado, cep, observacoes, status, created_at
-                FROM clientes 
-                WHERE id = ? AND empresa_id = ?
-            """, (cliente_id, empresa_id))
-            row = cursor.fetchone()
-            cliente = dict(row) if row else None
-            
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
+        cursor.execute("""
+            SELECT id, nome, documento, tipo_documento, telefone, email, 
+                   endereco, cidade, estado, cep, observacoes, status, created_at
+            FROM clientes 
+            WHERE id = %s AND empresa_id = %s
+        """, (cliente_id, empresa_id))
+        cliente = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
         if not cliente:
             return jsonify({'error': 'Cliente não encontrado'}), 404
         
@@ -5348,92 +4412,48 @@ def editar_cliente(cliente_id):
         if not data.get('nome') or not data.get('nome').strip():
             return jsonify({'success': False, 'message': 'Nome do cliente é obrigatório'}), 400
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Verificar se pertence à empresa
-            cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", (cliente_id, empresa_id))
-            if not cursor.fetchone():
-                cursor.close()
-                conn.close()
-                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
-            
-            cursor.execute("""
-                UPDATE clientes SET
-                    nome = %s,
-                    documento = %s,
-                    tipo_documento = %s,
-                    telefone = %s,
-                    email = %s,
-                    endereco = %s,
-                    cidade = %s,
-                    estado = %s,
-                    cep = %s,
-                    observacoes = %s,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (
-                data.get('nome', '').strip(),
-                data.get('documento', '').strip() or None,
-                data.get('tipo_documento', '').strip() or None,
-                data.get('telefone', '').strip() or None,
-                data.get('email', '').strip() or None,
-                data.get('endereco', '').strip() or None,
-                data.get('cidade', '').strip() or None,
-                data.get('estado', '').strip() or None,
-                data.get('cep', '').strip() or None,
-                data.get('observacoes', '').strip() or None,
-                cliente_id,
-                empresa_id
-            ))
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Verificar se pertence à empresa
+        cursor.execute("SELECT id FROM clientes WHERE id = %s AND empresa_id = %s", (cliente_id, empresa_id))
+        if not cursor.fetchone():
             cursor.close()
             conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Verificar se pertence à empresa
-            cursor.execute("SELECT id FROM clientes WHERE id = ? AND empresa_id = ?", (cliente_id, empresa_id))
-            if not cursor.fetchone():
-                conn.close()
-                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
-            
-            cursor.execute("""
-                UPDATE clientes SET
-                    nome = ?,
-                    documento = ?,
-                    tipo_documento = ?,
-                    telefone = ?,
-                    email = ?,
-                    endereco = ?,
-                    cidade = ?,
-                    estado = ?,
-                    cep = ?,
-                    observacoes = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND empresa_id = ?
-            """, (
-                data.get('nome', '').strip(),
-                data.get('documento', '').strip() or None,
-                data.get('tipo_documento', '').strip() or None,
-                data.get('telefone', '').strip() or None,
-                data.get('email', '').strip() or None,
-                data.get('endereco', '').strip() or None,
-                data.get('cidade', '').strip() or None,
-                data.get('estado', '').strip() or None,
-                data.get('cep', '').strip() or None,
-                data.get('observacoes', '').strip() or None,
-                cliente_id,
-                empresa_id
-            ))
-            
-            conn.commit()
-            conn.close()
+            return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
         
+        cursor.execute("""
+            UPDATE clientes SET
+                nome = %s,
+                documento = %s,
+                tipo_documento = %s,
+                telefone = %s,
+                email = %s,
+                endereco = %s,
+                cidade = %s,
+                estado = %s,
+                cep = %s,
+                observacoes = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (
+            data.get('nome', '').strip(),
+            data.get('documento', '').strip() or None,
+            data.get('tipo_documento', '').strip() or None,
+            data.get('telefone', '').strip() or None,
+            data.get('email', '').strip() or None,
+            data.get('endereco', '').strip() or None,
+            data.get('cidade', '').strip() or None,
+            data.get('estado', '').strip() or None,
+            data.get('cep', '').strip() or None,
+            data.get('observacoes', '').strip() or None,
+            cliente_id,
+            empresa_id
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         return jsonify({'success': True, 'message': 'Cliente atualizado com sucesso!'})
         
     except Exception as e:
@@ -5459,40 +4479,22 @@ def toggle_status_cliente(cliente_id):
         if novo_status not in ['ATIVO', 'INATIVO']:
             return jsonify({'success': False, 'message': 'Status inválido'}), 400
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                UPDATE clientes SET status = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND empresa_id = %s
-            """, (novo_status, cliente_id, empresa_id))
-            
-            if cursor.rowcount == 0:
-                cursor.close()
-                conn.close()
-                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
-            
-            conn.commit()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE clientes SET status = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND empresa_id = %s
+        """, (novo_status, cliente_id, empresa_id))
+        
+        if cursor.rowcount == 0:
             cursor.close()
             conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                UPDATE clientes SET status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND empresa_id = ?
-            """, (novo_status, cliente_id, empresa_id))
-            
-            if cursor.rowcount == 0:
-                conn.close()
-                return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
-            
-            conn.commit()
-            conn.close()
+            return jsonify({'success': False, 'message': 'Cliente não encontrado'}), 404
         
+        conn.commit()
+        cursor.close()
+        conn.close()
         acao = 'ativado' if novo_status == 'ATIVO' else 'inativado'
         return jsonify({'success': True, 'message': f'Cliente {acao} com sucesso!'})
         
@@ -5513,18 +4515,9 @@ def tecnicos():
     
     empresa_id = get_empresa_id()
     
-    if Config.IS_POSTGRES:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM tecnicos WHERE empresa_id = %s ORDER BY nome", (empresa_id,))
-    else:
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tecnicos WHERE empresa_id = ? ORDER BY nome", (empresa_id,))
-    
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM tecnicos WHERE empresa_id = %s ORDER BY nome", (empresa_id,))
     tecnicos = cursor.fetchall()
     conn.close()
     return render_template('tecnicos.html', tecnicos=tecnicos)
@@ -5537,16 +4530,9 @@ def buscar_tecnico(tecnico_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM tecnicos WHERE id=%s AND empresa_id=%s", (tecnico_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM tecnicos WHERE id=? AND empresa_id=?", (tecnico_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tecnicos WHERE id=%s AND empresa_id=%s", (tecnico_id, empresa_id))
         tecnico = cursor.fetchone()
         conn.close()
         
@@ -5574,38 +4560,20 @@ def historico_tecnico(tecnico_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Busca manutenções realizadas pelo técnico (filtrado por empresa)
-            cursor.execute("""
-                SELECT COALESCE(m.data_realizada, m.data_agendada) as data, 
-                       v.placa, v.modelo, m.tipo, m.status
-                FROM manutencoes m
-                LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                WHERE m.tecnico = (SELECT nome FROM tecnicos WHERE id = %s AND empresa_id = %s)
-                AND m.empresa_id = %s
-                ORDER BY data DESC
-                LIMIT 10
-            """, (tecnico_id, empresa_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Busca manutenções realizadas pelo técnico (filtrado por empresa)
-            cursor.execute("""
-                SELECT COALESCE(m.data_realizada, m.data_agendada) as data, 
-                       v.placa, v.modelo, m.tipo, m.status
-                FROM manutencoes m
-                LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                WHERE m.tecnico = (SELECT nome FROM tecnicos WHERE id = ? AND empresa_id = ?)
-                AND m.empresa_id = ?
-                ORDER BY data DESC
-                LIMIT 10
-            """, (tecnico_id, empresa_id, empresa_id))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Busca manutenções realizadas pelo técnico (filtrado por empresa)
+        cursor.execute("""
+            SELECT COALESCE(m.data_realizada, m.data_agendada) as data, 
+                   v.placa, v.modelo, m.tipo, m.status
+            FROM manutencoes m
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
+            WHERE m.tecnico = (SELECT nome FROM tecnicos WHERE id = %s AND empresa_id = %s)
+            AND m.empresa_id = %s
+            ORDER BY data DESC
+            LIMIT 10
+        """, (tecnico_id, empresa_id, empresa_id))
         manutencoes = cursor.fetchall()
         conn.close()
         
@@ -5634,46 +4602,24 @@ def get_manutencoes_calendario():
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Buscar manutenções da empresa com informações do veículo
-            cursor.execute('''
-                SELECT 
-                    m.id,
-                    m.tipo,
-                    m.status,
-                    m.data_agendada,
-                    m.data_realizada,
-                    v.placa,
-                    v.modelo
-                FROM manutencoes m
-                LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                WHERE m.empresa_id = %s
-                ORDER BY m.data_agendada DESC
-            ''', (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Buscar manutenções da empresa com informações do veículo
-            cursor.execute('''
-                SELECT 
-                    m.id,
-                    m.tipo,
-                    m.status,
-                    m.data_agendada,
-                    m.data_realizada,
-                    v.placa,
-                    v.modelo
-                FROM manutencoes m
-                LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                WHERE m.empresa_id = ?
-                ORDER BY m.data_agendada DESC
-            ''', (empresa_id,))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Buscar manutenções da empresa com informações do veículo
+        cursor.execute('''
+            SELECT 
+                m.id,
+                m.tipo,
+                m.status,
+                m.data_agendada,
+                m.data_realizada,
+                v.placa,
+                v.modelo
+            FROM manutencoes m
+            LEFT JOIN veiculos v ON m.veiculo_id = v.id
+            WHERE m.empresa_id = %s
+            ORDER BY m.data_agendada DESC
+        ''', (empresa_id,))
         manutencoes = cursor.fetchall()
         conn.close()
         
@@ -5729,47 +4675,25 @@ def criar_tecnico():
         cpf = data.get('cpf', '') or None
         email = data.get('email', '') or None
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO tecnicos (empresa_id, nome, cpf, telefone, email, especialidade, data_admissao, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                empresa_id,
-                data['nome'],
-                cpf,
-                data.get('telefone', ''),
-                email,
-                data.get('especialidade', ''),
-                data_admissao,
-                data.get('status', 'Ativo')
-            ))
-            
-            tecnico_id = cursor.fetchone()[0]
-        else:
-            conn = sqlite3.connect(DATABASE, timeout=30.0)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO tecnicos (empresa_id, nome, cpf, telefone, email, especialidade, data_admissao, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                empresa_id,
-                data['nome'],
-                cpf,
-                data.get('telefone', ''),
-                email,
-                data.get('especialidade', ''),
-                data_admissao,
-                data.get('status', 'Ativo')
-            ))
-            
-            tecnico_id = cursor.lastrowid
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute('''
+            INSERT INTO tecnicos (empresa_id, nome, cpf, telefone, email, especialidade, data_admissao, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            empresa_id,
+            data['nome'],
+            cpf,
+            data.get('telefone', ''),
+            email,
+            data.get('especialidade', ''),
+            data_admissao,
+            data.get('status', 'Ativo')
+        ))
+        
+        tecnico_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -5795,46 +4719,24 @@ def editar_tecnico(tecnico_id):
         empresa_id = get_empresa_id()
         data = request.json
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE tecnicos 
-                SET nome=%s, cpf=%s, telefone=%s, email=%s, especialidade=%s, data_admissao=%s, status=%s
-                WHERE id=%s AND empresa_id=%s
-            ''', (
-                data['nome'],
-                data.get('cpf', ''),
-                data.get('telefone', ''),
-                data.get('email', ''),
-                data.get('especialidade', ''),
-                data.get('data_admissao', ''),
-                data.get('status', 'Ativo'),
-                tecnico_id,
-                empresa_id
-            ))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE tecnicos 
-                SET nome=?, cpf=?, telefone=?, email=?, especialidade=?, data_admissao=?, status=?
-                WHERE id=? AND empresa_id=?
-            ''', (
-                data['nome'],
-                data.get('cpf', ''),
-                data.get('telefone', ''),
-                data.get('email', ''),
-                data.get('especialidade', ''),
-                data.get('data_admissao', ''),
-                data.get('status', 'Ativo'),
-                tecnico_id,
-                empresa_id
-            ))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute('''
+            UPDATE tecnicos 
+            SET nome=%s, cpf=%s, telefone=%s, email=%s, especialidade=%s, data_admissao=%s, status=%s
+            WHERE id=%s AND empresa_id=%s
+        ''', (
+            data['nome'],
+            data.get('cpf', ''),
+            data.get('telefone', ''),
+            data.get('email', ''),
+            data.get('especialidade', ''),
+            data.get('data_admissao', ''),
+            data.get('status', 'Ativo'),
+            tecnico_id,
+            empresa_id
+        ))
         conn.commit()
         conn.close()
         
@@ -5850,16 +4752,9 @@ def excluir_tecnico(tecnico_id):
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM tecnicos WHERE id=%s AND empresa_id=%s', (tecnico_id, empresa_id))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM tecnicos WHERE id=? AND empresa_id=?', (tecnico_id, empresa_id))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM tecnicos WHERE id=%s AND empresa_id=%s', (tecnico_id, empresa_id))
         conn.commit()
         conn.close()
         
@@ -5870,7 +4765,7 @@ def excluir_tecnico(tecnico_id):
 @app.route('/relatorios')
 @login_required
 def relatorios():
-    from empresa_helpers import get_empresa_id
+    from empresa_helpers import get_empresa_id, is_servico
     
     empresa_id = get_empresa_id()
     
@@ -5890,30 +4785,123 @@ def relatorios():
     veiculos = []
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Construir condições WHERE para PostgreSQL
-            where_conditions = ["m.data_realizada IS NOT NULL", "v.empresa_id = %s"]
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        
+        _is_servico = is_servico()
+        
+        if _is_servico:
+            # ========== QUERIES PARA SERVIÇO ==========
+            # Usar m.empresa_id, LEFT JOIN veiculos, status FINALIZADO/FATURADO
+            where_conditions = ["m.empresa_id = %s"]
             params = [empresa_id]
             
             if data_inicial:
-                where_conditions.append("m.data_realizada >= %s")
+                where_conditions.append("COALESCE(m.data_realizada, m.data_agendada) >= %s")
                 params.append(data_inicial)
-            
             if data_final:
-                where_conditions.append("m.data_realizada <= %s")
+                where_conditions.append("COALESCE(m.data_realizada, m.data_agendada) <= %s")
                 params.append(data_final)
-            
             if veiculo_id:
                 where_conditions.append("m.veiculo_id = %s")
                 params.append(int(veiculo_id))
             
             where_clause = " AND ".join(where_conditions)
             
-            # Custo total de manutenção por mês (PostgreSQL usa TO_CHAR)
+            # Faturamento mensal (soma dos serviços)
+            cursor.execute(f'''
+                SELECT TO_CHAR(COALESCE(m.data_realizada, m.data_agendada), 'YYYY-MM') as mes, 
+                       COALESCE(SUM(ms.subtotal), 0) as total
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.status IN ('FINALIZADO', 'FATURADO') AND {where_clause}
+                GROUP BY TO_CHAR(COALESCE(m.data_realizada, m.data_agendada), 'YYYY-MM')
+                ORDER BY mes DESC 
+                LIMIT 12
+            ''', params)
+            custos_mensais = cursor.fetchall()
+            custos_mensais_json = [[row[0], float(row[1] or 0)] for row in custos_mensais]
+            
+            # Top clientes (veículos mais atendidos não aplica em SERVIÇO)
+            cursor.execute(f'''
+                SELECT c.nome, COUNT(DISTINCT m.id) as total_servicos
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                JOIN clientes c ON COALESCE(m.cliente_id, v.cliente_id) = c.id
+                WHERE {where_clause}
+                GROUP BY c.id, c.nome
+                ORDER BY total_servicos DESC 
+                LIMIT 10
+            ''', params)
+            veiculos_mais_manutencoes = cursor.fetchall()
+            
+            # Tipos de serviço
+            cursor.execute(f'''
+                SELECT m.tipo, COUNT(*) as quantidade
+                FROM manutencoes m
+                WHERE {where_clause}
+                GROUP BY m.tipo
+                ORDER BY quantidade DESC
+            ''', params)
+            tipos_manutencao = cursor.fetchall()
+            tipos_manutencao_json = [[row[0] or 'Não especificado', int(row[1])] for row in tipos_manutencao]
+            
+            # Faturamento total (soma dos serviços finalizados)
+            cursor.execute(f'''
+                SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.status IN ('FINALIZADO', 'FATURADO') AND {where_clause}
+            ''', params)
+            custo_total_ano = float(cursor.fetchone()[0] or 0)
+            
+            # Média mensal
+            cursor.execute(f'''
+                SELECT COALESCE(AVG(faturamento_mensal), 0) as media
+                FROM (
+                    SELECT SUM(ms.subtotal) as faturamento_mensal
+                    FROM manutencoes m
+                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                    WHERE m.status IN ('FINALIZADO', 'FATURADO') AND {where_clause}
+                    GROUP BY TO_CHAR(COALESCE(m.data_realizada, m.data_agendada), 'YYYY-MM')
+                ) subq
+            ''', params)
+            media_mensal = float(cursor.fetchone()[0] or 0)
+            
+            # Total de serviços finalizados
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                WHERE m.status IN ('FINALIZADO', 'FATURADO') AND {where_clause}
+            ''', params)
+            total_manutencoes = int(cursor.fetchone()[0] or 0)
+            
+            # Serviços urgentes/emergenciais
+            cursor.execute(f'''
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                WHERE m.tipo = 'Emergencial' AND m.status IN ('FINALIZADO', 'FATURADO') AND {where_clause}
+            ''', params)
+            manutencoes_emergenciais = int(cursor.fetchone()[0] or 0)
+            
+        else:
+            # ========== QUERIES PARA FROTA ==========
+            where_conditions = ["m.data_realizada IS NOT NULL", "v.empresa_id = %s"]
+            params = [empresa_id]
+            
+            if data_inicial:
+                where_conditions.append("m.data_realizada >= %s")
+                params.append(data_inicial)
+            if data_final:
+                where_conditions.append("m.data_realizada <= %s")
+                params.append(data_final)
+            if veiculo_id:
+                where_conditions.append("m.veiculo_id = %s")
+                params.append(int(veiculo_id))
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Custo total de manutenção por mês
             cursor.execute(f'''
                 SELECT TO_CHAR(m.data_realizada, 'YYYY-MM') as mes, COALESCE(SUM(m.custo_total), 0) as total
                 FROM manutencoes m
@@ -5989,112 +4977,13 @@ def relatorios():
                 WHERE m.tipo = 'Emergencial' AND m.status = 'Concluída' AND {where_clause}
             ''', params)
             manutencoes_emergenciais = int(cursor.fetchone()[0] or 0)
-            
-            # Veículos para dropdown
-            cursor.execute('SELECT id, placa, modelo FROM veiculos WHERE empresa_id = %s ORDER BY placa', (empresa_id,))
-            veiculos = cursor.fetchall()
-            
-            cursor.close()
-            conn.close()
-        else:
-            # SQLite original
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Construir condições WHERE
-            where_conditions = ["data_realizada IS NOT NULL"]
-            params = []
-            
-            if data_inicial:
-                where_conditions.append("data_realizada >= ?")
-                params.append(data_inicial)
-            
-            if data_final:
-                where_conditions.append("data_realizada <= ?")
-                params.append(data_final)
-            
-            if veiculo_id:
-                where_conditions.append("veiculo_id = ?")
-                params.append(veiculo_id)
-            
-            where_clause = " AND ".join(where_conditions)
-            
-            # Custo total de manutenção por mês
-            cursor.execute(f'''
-                SELECT strftime('%Y-%m', data_realizada) as mes, SUM(custo) as total
-                FROM manutencoes 
-                WHERE {where_clause}
-                GROUP BY mes 
-                ORDER BY mes DESC 
-                LIMIT 12
-            ''', params)
-            custos_mensais = cursor.fetchall()
-            custos_mensais_json = [[row[0], row[1]] for row in custos_mensais]
-            
-            # Veículos com mais manutenções
-            cursor.execute('''
-                SELECT v.placa, v.modelo, COUNT(m.id) as total_manutencoes
-                FROM veiculos v 
-                LEFT JOIN manutencoes m ON v.id = m.veiculo_id
-                GROUP BY v.id 
-                ORDER BY total_manutencoes DESC 
-                LIMIT 10
-            ''')
-            veiculos_mais_manutencoes = cursor.fetchall()
-            
-            # Tipos de manutenção
-            cursor.execute(f'''
-                SELECT tipo, COUNT(*) as quantidade
-                FROM manutencoes
-                WHERE {where_clause}
-                GROUP BY tipo
-                ORDER BY quantidade DESC
-            ''', params)
-            tipos_manutencao = cursor.fetchall()
-            tipos_manutencao_json = [[row[0], row[1]] for row in tipos_manutencao]
-            
-            # Custo total
-            cursor.execute(f'''
-                SELECT COALESCE(SUM(custo), 0) as total
-                FROM manutencoes
-                WHERE {where_clause}
-            ''', params)
-            custo_total_ano = cursor.fetchone()[0] or 0
-            
-            # Média mensal
-            cursor.execute(f'''
-                SELECT COALESCE(AVG(custo_mensal), 0) as media
-                FROM (
-                    SELECT SUM(custo) as custo_mensal
-                    FROM manutencoes
-                    WHERE {where_clause}
-                    GROUP BY strftime('%Y-%m', data_realizada)
-                )
-            ''', params)
-            media_mensal = cursor.fetchone()[0] or 0
-            
-            # Total de manutenções
-            cursor.execute(f'''
-                SELECT COUNT(*) as total
-                FROM manutencoes
-                WHERE status = 'Concluída' AND {where_clause}
-            ''', params)
-            total_manutencoes = cursor.fetchone()[0] or 0
-            
-            # Manutenções emergenciais
-            cursor.execute(f'''
-                SELECT COUNT(*) as total
-                FROM manutencoes
-                WHERE tipo = 'Emergencial' AND status = 'Concluída' AND {where_clause}
-            ''', params)
-            manutencoes_emergenciais = cursor.fetchone()[0] or 0
-            
-            # Veículos para dropdown (FILTRADO POR EMPRESA)
-            cursor.execute('SELECT id, placa, modelo FROM veiculos WHERE empresa_id = ? ORDER BY placa', (empresa_id,))
-            veiculos = cursor.fetchall()
-            
-            conn.close()
-            
+        
+        # Veículos para dropdown (ambos os modos)
+        cursor.execute('SELECT id, placa, modelo FROM veiculos WHERE empresa_id = %s ORDER BY placa', (empresa_id,))
+        veiculos = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
     except Exception as e:
         print(f"Erro ao carregar relatórios: {e}")
         import traceback
@@ -6137,142 +5026,127 @@ def api_relatorio_financeiro():
     data_fim = request.args.get('data_fim', '')
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Construir condições de filtro
+        where_date = ""
+        params = [empresa_id]
+        
+        if is_servico():
+            # ========== RELATÓRIO SERVICO ==========
+            base_where = "m.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
             
-            # Construir condições de filtro
-            where_date = ""
-            params = [empresa_id]
+            if data_inicio:
+                base_where += " AND m.financeiro_lancado_em >= %s"
+                params.append(data_inicio)
+            if data_fim:
+                base_where += " AND m.financeiro_lancado_em <= %s"
+                params.append(data_fim)
             
-            if is_servico():
-                # ========== RELATÓRIO SERVICO ==========
-                base_where = "v.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
-                
-                if data_inicio:
-                    base_where += " AND m.financeiro_lancado_em >= %s"
-                    params.append(data_inicio)
-                if data_fim:
-                    base_where += " AND m.financeiro_lancado_em <= %s"
-                    params.append(data_fim)
-                
-                # Faturamento total
-                cursor.execute(f"""
-                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE {base_where}
-                """, params)
-                faturamento_total = float(cursor.fetchone()['total'] or 0)
-                
-                # Quantidade de serviços
-                cursor.execute(f"""
-                    SELECT COUNT(DISTINCT m.id) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                """, params)
-                qtd_servicos = cursor.fetchone()['total'] or 0
-                
-                # Ticket médio
-                ticket_medio = faturamento_total / qtd_servicos if qtd_servicos > 0 else 0
-                
-                # Lista por cliente
-                cursor.execute(f"""
-                    SELECT c.nome as cliente_nome, 
-                           COALESCE(SUM(ms.subtotal), 0) as total_faturado,
-                           COUNT(DISTINCT m.id) as qtd_servicos
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN clientes c ON v.cliente_id = c.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE {base_where}
-                    GROUP BY c.id, c.nome
-                    ORDER BY total_faturado DESC
-                """, params)
-                lista_por_cliente = [dict(row) for row in cursor.fetchall()]
-                
-                cursor.close()
-                conn.close()
-                
-                return jsonify({
-                    'success': True,
-                    'tipo_operacao': 'SERVICO',
-                    'data_inicio': data_inicio,
-                    'data_fim': data_fim,
-                    'faturamento_total': faturamento_total,
-                    'qtd_servicos': qtd_servicos,
-                    'ticket_medio': round(ticket_medio, 2),
-                    'lista_por_cliente': lista_por_cliente
-                })
-                
-            else:
-                # ========== RELATÓRIO FROTA ==========
-                base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
-                
-                if data_inicio:
-                    base_where += " AND m.data_realizada >= %s"
-                    params.append(data_inicio)
-                if data_fim:
-                    base_where += " AND m.data_realizada <= %s"
-                    params.append(data_fim)
-                
-                # Despesas total
-                cursor.execute(f"""
-                    SELECT COALESCE(SUM(m.custo_total), 0) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                """, params)
-                despesas_total = float(cursor.fetchone()['total'] or 0)
-                
-                # Quantidade de manutenções
-                cursor.execute(f"""
-                    SELECT COUNT(*) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                """, params)
-                qtd_manutencoes = cursor.fetchone()['total'] or 0
-                
-                # Lista por veículo
-                cursor.execute(f"""
-                    SELECT v.placa, v.modelo, 
-                           COALESCE(SUM(m.custo_total), 0) as total_gasto,
-                           COUNT(m.id) as qtd_manutencoes
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                    GROUP BY v.id, v.placa, v.modelo
-                    ORDER BY total_gasto DESC
-                """, params)
-                lista_por_veiculo = [dict(row) for row in cursor.fetchall()]
-                
-                cursor.close()
-                conn.close()
-                
-                return jsonify({
-                    'success': True,
-                    'tipo_operacao': 'FROTA',
-                    'data_inicio': data_inicio,
-                    'data_fim': data_fim,
-                    'despesas_total': despesas_total,
-                    'qtd_manutencoes': qtd_manutencoes,
-                    'lista_por_veiculo': lista_por_veiculo
-                })
+            # Faturamento total
+            cursor.execute(f"""
+                SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE {base_where}
+            """, params)
+            faturamento_total = float(cursor.fetchone()['total'] or 0)
+            
+            # Quantidade de serviços
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT m.id) as total
+                FROM manutencoes m
+                WHERE {base_where}
+            """, params)
+            qtd_servicos = cursor.fetchone()['total'] or 0
+            
+            # Ticket médio
+            ticket_medio = faturamento_total / qtd_servicos if qtd_servicos > 0 else 0
+            
+            # Lista por cliente
+            cursor.execute(f"""
+                SELECT c.nome as cliente_nome, 
+                       COALESCE(SUM(ms.subtotal), 0) as total_faturado,
+                       COUNT(DISTINCT m.id) as qtd_servicos
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                JOIN clientes c ON COALESCE(m.cliente_id, v.cliente_id) = c.id
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE {base_where}
+                GROUP BY c.id, c.nome
+                ORDER BY total_faturado DESC
+            """, params)
+            lista_por_cliente = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'SERVICO',
+                'data_inicio': data_inicio,
+                'data_fim': data_fim,
+                'faturamento_total': faturamento_total,
+                'qtd_servicos': qtd_servicos,
+                'ticket_medio': round(ticket_medio, 2),
+                'lista_por_cliente': lista_por_cliente
+            })
+            
         else:
-            # SQLite fallback
+            # ========== RELATÓRIO FROTA ==========
+            base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
+            
+            if data_inicio:
+                base_where += " AND m.data_realizada >= %s"
+                params.append(data_inicio)
+            if data_fim:
+                base_where += " AND m.data_realizada <= %s"
+                params.append(data_fim)
+            
+            # Despesas total
+            cursor.execute(f"""
+                SELECT COALESCE(SUM(m.custo_total), 0) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+            """, params)
+            despesas_total = float(cursor.fetchone()['total'] or 0)
+            
+            # Quantidade de manutenções
+            cursor.execute(f"""
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+            """, params)
+            qtd_manutencoes = cursor.fetchone()['total'] or 0
+            
+            # Lista por veículo
+            cursor.execute(f"""
+                SELECT v.placa, v.modelo, 
+                       COALESCE(SUM(m.custo_total), 0) as total_gasto,
+                       COUNT(m.id) as qtd_manutencoes
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+                GROUP BY v.id, v.placa, v.modelo
+                ORDER BY total_gasto DESC
+            """, params)
+            lista_por_veiculo = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+            
             return jsonify({
                 'success': True,
                 'tipo_operacao': 'FROTA',
-                'despesas_total': 0,
-                'qtd_manutencoes': 0,
-                'lista_por_veiculo': []
+                'data_inicio': data_inicio,
+                'data_fim': data_fim,
+                'despesas_total': despesas_total,
+                'qtd_manutencoes': qtd_manutencoes,
+                'lista_por_veiculo': lista_por_veiculo
             })
-            
     except Exception as e:
         print(f"Erro no relatório financeiro: {e}")
         import traceback
@@ -6299,103 +5173,94 @@ def api_relatorio_manutencoes():
     status_filter = request.args.get('status', '')
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        params = [empresa_id]
+        
+        if is_servico():
+            # Query para SERVICO - inclui cliente
+            base_where = "m.empresa_id = %s"
             
-            params = [empresa_id]
+            if data_inicio:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicio)
+            if data_fim:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_fim)
+            if status_filter:
+                base_where += " AND m.status = %s"
+                params.append(status_filter)
             
-            if is_servico():
-                # Query para SERVICO - inclui cliente
-                base_where = "v.empresa_id = %s"
-                
-                if data_inicio:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicio)
-                if data_fim:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_fim)
-                if status_filter:
-                    base_where += " AND m.status = %s"
-                    params.append(status_filter)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        c.nome as cliente_nome,
-                        COALESCE(m.valor_total_servicos, 0) as valor,
-                        m.status,
-                        m.tipo,
-                        m.descricao
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    LEFT JOIN clientes c ON v.cliente_id = c.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                    LIMIT 500
-                """, params)
-                
-            else:
-                # Query para FROTA - sem cliente
-                base_where = "v.empresa_id = %s"
-                
-                if data_inicio:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicio)
-                if data_fim:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_fim)
-                if status_filter:
-                    base_where += " AND m.status = %s"
-                    params.append(status_filter)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        COALESCE(m.custo_total, 0) as valor,
-                        m.status,
-                        m.tipo,
-                        m.descricao
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                    LIMIT 500
-                """, params)
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    COALESCE(c.nome, c2.nome) as cliente_nome,
+                    COALESCE(m.valor_total_servicos, 0) as valor,
+                    m.status,
+                    m.tipo,
+                    m.descricao
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON m.cliente_id = c.id
+                LEFT JOIN clientes c2 ON v.cliente_id = c2.id
+                WHERE {base_where}
+                ORDER BY data DESC
+                LIMIT 500
+            """, params)
             
-            registros = [dict(row) for row in cursor.fetchall()]
-            
-            # Formatar datas
-            for reg in registros:
-                if reg.get('data'):
-                    reg['data'] = str(reg['data'])
-            
-            cursor.close()
-            conn.close()
-            
-            return jsonify({
-                'success': True,
-                'tipo_operacao': 'SERVICO' if is_servico() else 'FROTA',
-                'data_inicio': data_inicio,
-                'data_fim': data_fim,
-                'total_registros': len(registros),
-                'registros': registros
-            })
         else:
-            return jsonify({
-                'success': True,
-                'tipo_operacao': 'FROTA',
-                'registros': []
-            })
+            # Query para FROTA - sem cliente
+            base_where = "m.empresa_id = %s"
             
+            if data_inicio:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicio)
+            if data_fim:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_fim)
+            if status_filter:
+                base_where += " AND m.status = %s"
+                params.append(status_filter)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    COALESCE(m.custo_total, 0) as valor,
+                    m.status,
+                    m.tipo,
+                    m.descricao
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+                ORDER BY data DESC
+                LIMIT 500
+            """, params)
+        
+        registros = [dict(row) for row in cursor.fetchall()]
+        
+        # Formatar datas
+        for reg in registros:
+            if reg.get('data'):
+                reg['data'] = str(reg['data'])
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'tipo_operacao': 'SERVICO' if is_servico() else 'FROTA',
+            'data_inicio': data_inicio,
+            'data_fim': data_fim,
+            'total_registros': len(registros),
+            'registros': registros
+        })
     except Exception as e:
         print(f"Erro no relatório de manutenções: {e}")
         import traceback
@@ -6422,86 +5287,78 @@ def exportar_excel():
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            params = [empresa_id]
-            
-            if is_servico():
-                # Query SERVICO - inclui cliente e valor_total_servicos
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        c.nome as cliente,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.valor_total_servicos, 0) as valor,
-                        m.status
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    LEFT JOIN clientes c ON v.cliente_id = c.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                headers = ['ID', 'Data', 'Placa', 'Modelo', 'Cliente', 'Tipo', 'Descrição', 'Valor (R$)', 'Status']
-                
-            else:
-                # Query FROTA - sem cliente, usa custo_total
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.custo_total, 0) as valor,
-                        m.status,
-                        m.tecnico
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                headers = ['ID', 'Data', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Custo (R$)', 'Status', 'Técnico']
-            
-            # Calcular total
-            total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
-            
-            cursor.close()
-            conn.close()
-        else:
-            registros = []
-            headers = ['ID', 'Data', 'Placa', 'Modelo', 'Tipo', 'Valor', 'Status']
-            total_valor = 0
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Criar Excel usando openpyxl
+        params = [empresa_id]
+        
+        if is_servico():
+            # Query SERVICO - inclui cliente e valor_total_servicos
+            base_where = "m.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    COALESCE(c.nome, c2.nome) as cliente,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.valor_total_servicos, 0) as valor,
+                    m.status
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON m.cliente_id = c.id
+                LEFT JOIN clientes c2 ON v.cliente_id = c2.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            headers = ['ID', 'Data', 'Placa', 'Modelo', 'Cliente', 'Tipo', 'Descrição', 'Valor (R$)', 'Status']
+            
+        else:
+            # Query FROTA - sem cliente, usa custo_total
+            base_where = "v.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.custo_total, 0) as valor,
+                    m.status,
+                    m.tecnico
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            headers = ['ID', 'Data', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Custo (R$)', 'Status', 'Técnico']
+        
+        # Calcular total
+        total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
+        
+        cursor.close()
+        conn.close()
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         
@@ -6636,92 +5493,82 @@ def exportar_pdf_completo():
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            params = [empresa_id]
-            
-            if is_servico():
-                # Query SERVICO
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        c.nome as cliente,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.valor_total_servicos, 0) as valor,
-                        m.status
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    LEFT JOIN clientes c ON v.cliente_id = c.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                titulo = "RELATÓRIO DE FATURAMENTO - SERVIÇOS"
-                col_valor = "Valor"
-                headers = ['ID', 'Placa', 'Cliente', 'Tipo', 'Descrição', 'Data', 'Valor', 'Status']
-                
-            else:
-                # Query FROTA
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.custo_total, 0) as valor,
-                        m.status
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                titulo = "RELATÓRIO DE DESPESAS - MANUTENÇÕES"
-                col_valor = "Custo"
-                headers = ['ID', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Data', 'Custo', 'Status']
-            
-            # Calcular totais
-            total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
-            media_valor = total_valor / len(registros) if registros else 0
-            
-            cursor.close()
-            conn.close()
-        else:
-            registros = []
-            titulo = "RELATÓRIO"
-            headers = ['ID', 'Placa', 'Tipo', 'Data', 'Valor', 'Status']
-            total_valor = 0
-            media_valor = 0
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Criar PDF
+        params = [empresa_id]
+        
+        if is_servico():
+            # Query SERVICO
+            base_where = "m.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    COALESCE(c.nome, c2.nome) as cliente,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.valor_total_servicos, 0) as valor,
+                    m.status
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON m.cliente_id = c.id
+                LEFT JOIN clientes c2 ON v.cliente_id = c2.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            titulo = "RELATÓRIO DE FATURAMENTO - SERVIÇOS"
+            col_valor = "Valor"
+            headers = ['ID', 'Placa', 'Cliente', 'Tipo', 'Descrição', 'Data', 'Valor', 'Status']
+            
+        else:
+            # Query FROTA
+            base_where = "v.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.custo_total, 0) as valor,
+                    m.status
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            titulo = "RELATÓRIO DE DESPESAS - MANUTENÇÕES"
+            col_valor = "Custo"
+            headers = ['ID', 'Placa', 'Modelo', 'Tipo', 'Descrição', 'Data', 'Custo', 'Status']
+        
+        # Calcular totais
+        total_valor = sum(float(r.get('valor', 0) or 0) for r in registros)
+        media_valor = total_valor / len(registros) if registros else 0
+        
+        cursor.close()
+        conn.close()
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
         elements = []
@@ -6862,114 +5709,99 @@ def exportar_pdf():
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            params = [empresa_id]
-            
-            if is_servico():
-                # Estatísticas SERVICO
-                base_where = "v.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
-                if data_inicial:
-                    base_where += " AND m.financeiro_lancado_em >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND m.financeiro_lancado_em <= %s"
-                    params.append(data_final)
-                
-                # Total faturado
-                cursor.execute(f"""
-                    SELECT 
-                        COALESCE(SUM(ms.subtotal), 0) as total,
-                        COUNT(DISTINCT m.id) as quantidade
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE {base_where}
-                """, params)
-                stats = cursor.fetchone()
-                total = float(stats['total'] or 0)
-                quantidade = stats['quantidade'] or 0
-                media = total / quantidade if quantidade > 0 else 0
-                
-                # Top 5 clientes
-                cursor.execute(f"""
-                    SELECT c.nome, COUNT(DISTINCT m.id) as total_servicos, 
-                           COALESCE(SUM(ms.subtotal), 0) as faturamento
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN clientes c ON v.cliente_id = c.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE {base_where}
-                    GROUP BY c.id, c.nome
-                    ORDER BY faturamento DESC
-                    LIMIT 5
-                """, params)
-                top_lista = cursor.fetchall()
-                
-                titulo = "RESUMO EXECUTIVO - FATURAMENTO"
-                label_total = "Total Faturado"
-                label_top = "TOP 5 CLIENTES"
-                col_headers = ['Cliente', 'Serviços', 'Faturamento']
-                
-            else:
-                # Estatísticas FROTA
-                base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
-                if data_inicial:
-                    base_where += " AND m.data_realizada >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND m.data_realizada <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        COALESCE(SUM(m.custo_total), 0) as total,
-                        COALESCE(AVG(m.custo_total), 0) as media,
-                        COUNT(*) as quantidade
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                """, params)
-                stats = cursor.fetchone()
-                total = float(stats['total'] or 0)
-                media = float(stats['media'] or 0)
-                quantidade = stats['quantidade'] or 0
-                
-                # Top 5 veículos
-                cursor.execute(f"""
-                    SELECT v.placa, v.modelo, COUNT(m.id) as total_manut, 
-                           COALESCE(SUM(m.custo_total), 0) as custo_total
-                    FROM veiculos v
-                    JOIN manutencoes m ON v.id = m.veiculo_id
-                    WHERE {base_where}
-                    GROUP BY v.id, v.placa, v.modelo
-                    ORDER BY custo_total DESC
-                    LIMIT 5
-                """, params)
-                top_lista = cursor.fetchall()
-                
-                titulo = "RESUMO EXECUTIVO - DESPESAS"
-                label_total = "Total Gasto"
-                label_top = "TOP 5 VEÍCULOS"
-                col_headers = ['Placa', 'Manutenções', 'Custo Total']
-            
-            cursor.close()
-            conn.close()
-        else:
-            total = 0
-            media = 0
-            quantidade = 0
-            top_lista = []
-            titulo = "RESUMO EXECUTIVO"
-            label_total = "Total"
-            label_top = "TOP 5"
-            col_headers = ['Item', 'Qtd', 'Valor']
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Criar PDF
+        params = [empresa_id]
+        
+        if is_servico():
+            # Estatísticas SERVICO
+            base_where = "m.empresa_id = %s AND m.status IN ('FINALIZADO', 'FATURADO')"
+            if data_inicial:
+                base_where += " AND m.financeiro_lancado_em >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND m.financeiro_lancado_em <= %s"
+                params.append(data_final)
+            
+            # Total faturado
+            cursor.execute(f"""
+                SELECT 
+                    COALESCE(SUM(ms.subtotal), 0) as total,
+                    COUNT(DISTINCT m.id) as quantidade
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE {base_where}
+            """, params)
+            stats = cursor.fetchone()
+            total = float(stats['total'] or 0)
+            quantidade = stats['quantidade'] or 0
+            media = total / quantidade if quantidade > 0 else 0
+            
+            # Top 5 clientes
+            cursor.execute(f"""
+                SELECT c.nome, COUNT(DISTINCT m.id) as total_servicos, 
+                       COALESCE(SUM(ms.subtotal), 0) as faturamento
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                JOIN clientes c ON COALESCE(m.cliente_id, v.cliente_id) = c.id
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE {base_where}
+                GROUP BY c.id, c.nome
+                ORDER BY faturamento DESC
+                LIMIT 5
+            """, params)
+            top_lista = cursor.fetchall()
+            
+            titulo = "RESUMO EXECUTIVO - FATURAMENTO"
+            label_total = "Total Faturado"
+            label_top = "TOP 5 CLIENTES"
+            col_headers = ['Cliente', 'Serviços', 'Faturamento']
+            
+        else:
+            # Estatísticas FROTA
+            base_where = "v.empresa_id = %s AND m.status = 'Concluída'"
+            if data_inicial:
+                base_where += " AND m.data_realizada >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND m.data_realizada <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    COALESCE(SUM(m.custo_total), 0) as total,
+                    COALESCE(AVG(m.custo_total), 0) as media,
+                    COUNT(*) as quantidade
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+            """, params)
+            stats = cursor.fetchone()
+            total = float(stats['total'] or 0)
+            media = float(stats['media'] or 0)
+            quantidade = stats['quantidade'] or 0
+            
+            # Top 5 veículos
+            cursor.execute(f"""
+                SELECT v.placa, v.modelo, COUNT(m.id) as total_manut, 
+                       COALESCE(SUM(m.custo_total), 0) as custo_total
+                FROM veiculos v
+                JOIN manutencoes m ON v.id = m.veiculo_id
+                WHERE {base_where}
+                GROUP BY v.id, v.placa, v.modelo
+                ORDER BY custo_total DESC
+                LIMIT 5
+            """, params)
+            top_lista = cursor.fetchall()
+            
+            titulo = "RESUMO EXECUTIVO - DESPESAS"
+            label_total = "Total Gasto"
+            label_top = "TOP 5 VEÍCULOS"
+            col_headers = ['Placa', 'Manutenções', 'Custo Total']
+        
+        cursor.close()
+        conn.close()
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4)
         elements = []
@@ -7084,80 +5916,73 @@ def exportar_csv():
         data_inicial = request.args.get('data_inicial', '')
         data_final = request.args.get('data_final', '')
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            
-            params = [empresa_id]
-            
-            if is_servico():
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        c.nome as cliente,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.valor_total_servicos, 0) as valor,
-                        m.status
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    LEFT JOIN clientes c ON v.cliente_id = c.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                headers = ['id', 'data', 'placa', 'modelo', 'cliente', 'tipo', 'descricao', 'valor', 'status']
-                
-            else:
-                base_where = "v.empresa_id = %s"
-                if data_inicial:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
-                    params.append(data_inicial)
-                if data_final:
-                    base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
-                    params.append(data_final)
-                
-                cursor.execute(f"""
-                    SELECT 
-                        m.id,
-                        COALESCE(m.data_realizada, m.data_agendada) as data,
-                        v.placa,
-                        v.modelo,
-                        m.tipo,
-                        m.descricao,
-                        COALESCE(m.custo_total, 0) as custo,
-                        m.status,
-                        m.tecnico
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE {base_where}
-                    ORDER BY data DESC
-                """, params)
-                
-                registros = cursor.fetchall()
-                headers = ['id', 'data', 'placa', 'modelo', 'tipo', 'descricao', 'custo', 'status', 'tecnico']
-            
-            cursor.close()
-            conn.close()
-        else:
-            registros = []
-            headers = ['id', 'data', 'placa', 'modelo', 'tipo', 'valor', 'status']
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Criar CSV com UTF-8 BOM
+        params = [empresa_id]
+        
+        if is_servico():
+            base_where = "m.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    COALESCE(c.nome, c2.nome) as cliente,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.valor_total_servicos, 0) as valor,
+                    m.status
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                LEFT JOIN clientes c ON m.cliente_id = c.id
+                LEFT JOIN clientes c2 ON v.cliente_id = c2.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            headers = ['id', 'data', 'placa', 'modelo', 'cliente', 'tipo', 'descricao', 'valor', 'status']
+            
+        else:
+            base_where = "v.empresa_id = %s"
+            if data_inicial:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) >= %s"
+                params.append(data_inicial)
+            if data_final:
+                base_where += " AND COALESCE(m.data_realizada, m.data_agendada) <= %s"
+                params.append(data_final)
+            
+            cursor.execute(f"""
+                SELECT 
+                    m.id,
+                    COALESCE(m.data_realizada, m.data_agendada) as data,
+                    v.placa,
+                    v.modelo,
+                    m.tipo,
+                    m.descricao,
+                    COALESCE(m.custo_total, 0) as custo,
+                    m.status,
+                    m.tecnico
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE {base_where}
+                ORDER BY data DESC
+            """, params)
+            
+            registros = cursor.fetchall()
+            headers = ['id', 'data', 'placa', 'modelo', 'tipo', 'descricao', 'custo', 'status', 'tecnico']
+        
+        cursor.close()
+        conn.close()
         output = BytesIO()
         output.write('\ufeff'.encode('utf-8'))
         
@@ -7202,41 +6027,27 @@ def exportar_csv():
 
 
 def gerar_catalogo_pdf(empresa_id):
-    """Gera um PDF detalhado com todas as peças do catálogo da empresa"""
+    """Gera um PDF detalhado com todas as peças do catálogo da empresa (stateless - BytesIO)"""
+    from io import BytesIO
+    
     # Buscar todas as peças do banco (filtrado por empresa)
-    if Config.IS_POSTGRES:
-        import psycopg2
-        conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
-            FROM pecas p 
-            LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
-            WHERE p.empresa_id = %s
-            ORDER BY p.nome
-        ''', (empresa_id,))
-    else:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
-            FROM pecas p 
-            LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
-            WHERE p.empresa_id = ?
-            ORDER BY p.nome
-        ''', (empresa_id,))
+    conn = psycopg2.connect(Config.DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.nome, p.codigo, p.veiculo_compativel, p.preco, p.quantidade_estoque, f.nome as fornecedor
+        FROM pecas p 
+        LEFT JOIN fornecedores f ON p.fornecedor_id = f.id 
+        WHERE p.empresa_id = %s
+        ORDER BY p.nome
+    ''', (empresa_id,))
     pecas = cursor.fetchall()
     conn.close()
     
-    # Criar diretório para PDFs se não existir
-    pdf_dir = os.path.join(os.path.dirname(__file__), 'static', 'pdfs')
-    os.makedirs(pdf_dir, exist_ok=True)
+    # Criar buffer em memória (SaaS stateless - sem escrita em disco)
+    buffer = BytesIO()
     
-    # Caminho do arquivo PDF
-    pdf_path = os.path.join(pdf_dir, 'catalogo_pecas_detalhado.pdf')
-    
-    # Criar o documento PDF
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+    # Criar o documento PDF direto no buffer
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
     elements = []
     
     # Estilos
@@ -7298,20 +6109,27 @@ def gerar_catalogo_pdf(empresa_id):
     valor_total = sum(preco * estoque for _, _, _, preco, estoque, _ in pecas if preco and estoque)
     estoque_total = sum(estoque for _, _, _, _, estoque, _ in pecas if estoque)
     
+    # Evitar divisão por zero
+    media_preco = 0
+    if total_pecas > 0:
+        total_precos = sum(preco for _, _, _, preco, _, _ in pecas if preco)
+        media_preco = total_precos / total_pecas
+    
     resumo = f"""
     <b>RESUMO ESTATÍSTICO:</b><br/>
     • Total de peças catalogadas: {total_pecas}<br/>
     • Total de unidades em estoque: {estoque_total}<br/>
     • Valor total do estoque: R$ {valor_total:,.2f}<br/>
-    • Média de preço por peça: R$ {(sum(preco for _, _, _, preco, _, _ in pecas if preco) / total_pecas):,.2f}
+    • Média de preço por peça: R$ {media_preco:,.2f}
     """
     
     resumo_para = Paragraph(resumo, styles['Normal'])
     elements.append(resumo_para)
     
-    # Gerar o PDF
+    # Gerar o PDF no buffer
     doc.build(elements)
-    return pdf_path
+    buffer.seek(0)
+    return buffer
 
 # Rota para servir catálogos PDF
 @app.route('/catalogo-pdf')
@@ -7321,10 +6139,16 @@ def catalogo_pdf():
     
     try:
         empresa_id = get_empresa_id()
-        # Gerar PDF atualizado
-        pdf_path = gerar_catalogo_pdf(empresa_id)
-        return send_file(pdf_path, as_attachment=False, download_name='catalogo_pecas_detalhado.pdf')
+        # Gerar PDF em memória (stateless)
+        pdf_buffer = gerar_catalogo_pdf(empresa_id)
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=False,
+            download_name='catalogo_pecas_detalhado.pdf'
+        )
     except Exception as e:
+        app.logger.error(f"Erro ao gerar catálogo PDF: {e}")
         return f"Erro ao gerar PDF: {str(e)}", 500
 
 # Rota para página de acesso ao catálogo
@@ -7409,29 +6233,16 @@ def chatbot():
     
     # Reconhecer números das opções do menu e atalhos
     if mensagem == '1' or 'próxima' in mensagem or 'agendada' in mensagem or 'manutenção' in mensagem:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT v.placa, m.tipo, m.data_agendada 
-                FROM manutencoes m 
-                JOIN veiculos v ON m.veiculo_id = v.id 
-                WHERE m.status = 'Agendada' AND m.empresa_id = %s
-                ORDER BY m.data_agendada 
-                LIMIT 3
-            ''', (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT v.placa, m.tipo, m.data_agendada 
-                FROM manutencoes m 
-                JOIN veiculos v ON m.veiculo_id = v.id 
-                WHERE m.status = 'Agendada' AND m.empresa_id = ?
-                ORDER BY m.data_agendada 
-                LIMIT 3
-            ''', (empresa_id,))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT v.placa, m.tipo, m.data_agendada 
+            FROM manutencoes m 
+            JOIN veiculos v ON m.veiculo_id = v.id 
+            WHERE m.status = 'Agendada' AND m.empresa_id = %s
+            ORDER BY m.data_agendada 
+            LIMIT 3
+        ''', (empresa_id,))
         proximas = cursor.fetchall()
         conn.close()
         
@@ -7444,15 +6255,9 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '4' or 'estoque' in mensagem or 'baixo' in mensagem:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10 AND empresa_id = %s", (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10 AND empresa_id = ?", (empresa_id,))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome, quantidade_estoque FROM pecas WHERE quantidade_estoque < 10 AND empresa_id = %s", (empresa_id,))
         alertas = cursor.fetchall()
         conn.close()
         
@@ -7464,27 +6269,15 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '2' or ('catálogo' in mensagem and 'pdf' not in mensagem) or ('catalogo' in mensagem and 'pdf' not in mensagem) or ('peças' in mensagem and 'pdf' not in mensagem) or ('pecas' in mensagem and 'pdf' not in mensagem):
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM pecas WHERE empresa_id = %s", (empresa_id,))
-            total_pecas = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas WHERE empresa_id = %s", (empresa_id,))
-            total_estoque = cursor.fetchone()[0] or 0
-            
-            cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL AND empresa_id = %s", (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM pecas WHERE empresa_id = ?", (empresa_id,))
-            total_pecas = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas WHERE empresa_id = ?", (empresa_id,))
-            total_estoque = cursor.fetchone()[0] or 0
-            
-            cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL AND empresa_id = ?", (empresa_id,))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM pecas WHERE empresa_id = %s", (empresa_id,))
+        total_pecas = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT SUM(quantidade_estoque) FROM pecas WHERE empresa_id = %s", (empresa_id,))
+        total_estoque = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(preco * quantidade_estoque) FROM pecas WHERE preco IS NOT NULL AND quantidade_estoque IS NOT NULL AND empresa_id = %s", (empresa_id,))
         valor_total = cursor.fetchone()[0] or 0
         conn.close()
         
@@ -7509,15 +6302,9 @@ def chatbot():
         return jsonify({'resposta': resposta})
     
     elif mensagem == '5' or 'fornecedor' in mensagem or 'contato' in mensagem:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores WHERE empresa_id = %s LIMIT 3", (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores WHERE empresa_id = ? LIMIT 3", (empresa_id,))
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome, telefone, especialidade FROM fornecedores WHERE empresa_id = %s LIMIT 3", (empresa_id,))
         fornecedores = cursor.fetchall()
         conn.close()
         
@@ -7566,177 +6353,158 @@ def dashboard_metrics():
         return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Primeiro dia do mês atual
+        hoje = datetime.now()
+        primeiro_dia_mes = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if is_servico():
+            # ========== MÉTRICAS PARA SERVICO ==========
             
-            # Primeiro dia do mês atual
-            hoje = datetime.now()
-            primeiro_dia_mes = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            # Faturamento do mês atual (serviços finalizados/faturados)
+            cursor.execute("""
+                SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.empresa_id = %s 
+                AND m.status IN ('FINALIZADO', 'FATURADO')
+                AND m.financeiro_lancado_em >= %s
+            """, (empresa_id, primeiro_dia_mes))
+            faturamento_mes = float(cursor.fetchone()['total'] or 0)
             
-            if is_servico():
-                # ========== MÉTRICAS PARA SERVICO ==========
-                
-                # Faturamento do mês atual (serviços finalizados/faturados)
-                cursor.execute("""
-                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
-                    FROM manutencoes m
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status IN ('FINALIZADO', 'FATURADO')
-                    AND m.financeiro_lancado_em >= %s
-                """, (empresa_id, primeiro_dia_mes))
-                faturamento_mes = float(cursor.fetchone()['total'] or 0)
-                
-                # Faturamento últimos 30 dias
-                cursor.execute("""
-                    SELECT COALESCE(SUM(ms.subtotal), 0) as total
-                    FROM manutencoes m
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status IN ('FINALIZADO', 'FATURADO')
-                    AND m.financeiro_lancado_em >= CURRENT_DATE - INTERVAL '30 days'
-                """, (empresa_id,))
-                faturamento_30_dias = float(cursor.fetchone()['total'] or 0)
-                
-                # Serviços finalizados no mês
-                cursor.execute("""
-                    SELECT COUNT(*) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status IN ('FINALIZADO', 'FATURADO')
-                    AND m.data_realizada >= %s
-                """, (empresa_id, primeiro_dia_mes.date()))
-                servicos_finalizados_mes = cursor.fetchone()['total'] or 0
-                
-                # Ticket médio
-                ticket_medio = faturamento_mes / servicos_finalizados_mes if servicos_finalizados_mes > 0 else 0
-                
-                # Top 5 clientes por faturamento (mês atual)
-                cursor.execute("""
-                    SELECT c.nome, COALESCE(SUM(ms.subtotal), 0) as faturamento
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN clientes c ON v.cliente_id = c.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status IN ('FINALIZADO', 'FATURADO')
-                    AND m.financeiro_lancado_em >= %s
-                    GROUP BY c.id, c.nome
-                    ORDER BY faturamento DESC
-                    LIMIT 5
-                """, (empresa_id, primeiro_dia_mes))
-                top_clientes = [dict(row) for row in cursor.fetchall()]
-                
-                # Serviços pendentes
-                cursor.execute("""
-                    SELECT COUNT(*) FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s AND m.status IN ('RASCUNHO', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
-                """, (empresa_id,))
-                servicos_pendentes = cursor.fetchone()['count'] or 0
-                
-                cursor.close()
-                conn.close()
-                
-                return jsonify({
-                    'success': True,
-                    'tipo_operacao': 'SERVICO',
-                    'faturamento_mes_atual': faturamento_mes,
-                    'faturamento_30_dias': faturamento_30_dias,
-                    'servicos_finalizados_mes': servicos_finalizados_mes,
-                    'servicos_pendentes': servicos_pendentes,
-                    'ticket_medio': round(ticket_medio, 2),
-                    'top_clientes': top_clientes
-                })
-                
-            else:
-                # ========== MÉTRICAS PARA FROTA ==========
-                
-                # Despesas do mês atual (custo_total de manutenções concluídas)
-                cursor.execute("""
-                    SELECT COALESCE(SUM(m.custo_total), 0) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status = 'Concluída'
-                    AND m.data_realizada >= %s
-                """, (empresa_id, primeiro_dia_mes.date()))
-                despesas_mes = float(cursor.fetchone()['total'] or 0)
-                
-                # Despesas últimos 30 dias
-                cursor.execute("""
-                    SELECT COALESCE(SUM(m.custo_total), 0) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status = 'Concluída'
-                    AND m.data_realizada >= CURRENT_DATE - INTERVAL '30 days'
-                """, (empresa_id,))
-                despesas_30_dias = float(cursor.fetchone()['total'] or 0)
-                
-                # Manutenções concluídas no mês
-                cursor.execute("""
-                    SELECT COUNT(*) as total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status = 'Concluída'
-                    AND m.data_realizada >= %s
-                """, (empresa_id, primeiro_dia_mes.date()))
-                manutencoes_mes = cursor.fetchone()['total'] or 0
-                
-                # Manutenções pendentes
-                cursor.execute("""
-                    SELECT COUNT(*) FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s AND m.status IN ('Agendada', 'Em Andamento')
-                """, (empresa_id,))
-                manutencoes_pendentes = cursor.fetchone()['count'] or 0
-                
-                # Top 5 veículos por custo (mês atual)
-                cursor.execute("""
-                    SELECT v.placa, v.modelo, COALESCE(SUM(m.custo_total), 0) as custo_total
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status = 'Concluída'
-                    AND m.data_realizada >= %s
-                    GROUP BY v.id, v.placa, v.modelo
-                    ORDER BY custo_total DESC
-                    LIMIT 5
-                """, (empresa_id, primeiro_dia_mes.date()))
-                top_veiculos = [dict(row) for row in cursor.fetchall()]
-                
-                cursor.close()
-                conn.close()
-                
-                return jsonify({
-                    'success': True,
-                    'tipo_operacao': 'FROTA',
-                    'despesas_mes_atual': despesas_mes,
-                    'despesas_30_dias': despesas_30_dias,
-                    'manutencoes_concluidas_mes': manutencoes_mes,
-                    'manutencoes_pendentes': manutencoes_pendentes,
-                    'top_veiculos': top_veiculos
-                })
+            # Faturamento últimos 30 dias
+            cursor.execute("""
+                SELECT COALESCE(SUM(ms.subtotal), 0) as total
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.empresa_id = %s 
+                AND m.status IN ('FINALIZADO', 'FATURADO')
+                AND m.financeiro_lancado_em >= CURRENT_DATE - INTERVAL '30 days'
+            """, (empresa_id,))
+            faturamento_30_dias = float(cursor.fetchone()['total'] or 0)
+            
+            # Serviços finalizados no mês
+            cursor.execute("""
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                WHERE m.empresa_id = %s 
+                AND m.status IN ('FINALIZADO', 'FATURADO')
+                AND m.data_realizada >= %s
+            """, (empresa_id, primeiro_dia_mes.date()))
+            servicos_finalizados_mes = cursor.fetchone()['total'] or 0
+            
+            # Ticket médio
+            ticket_medio = faturamento_mes / servicos_finalizados_mes if servicos_finalizados_mes > 0 else 0
+            
+            # Top 5 clientes por faturamento (mês atual)
+            cursor.execute("""
+                SELECT c.nome, COALESCE(SUM(ms.subtotal), 0) as faturamento
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                JOIN clientes c ON COALESCE(m.cliente_id, v.cliente_id) = c.id
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.empresa_id = %s 
+                AND m.status IN ('FINALIZADO', 'FATURADO')
+                AND m.financeiro_lancado_em >= %s
+                GROUP BY c.id, c.nome
+                ORDER BY faturamento DESC
+                LIMIT 5
+            """, (empresa_id, primeiro_dia_mes))
+            top_clientes = [dict(row) for row in cursor.fetchall()]
+            
+            # Serviços pendentes
+            cursor.execute("""
+                SELECT COUNT(*) FROM manutencoes m
+                WHERE m.empresa_id = %s AND m.status IN ('RASCUNHO', 'ORCAMENTO', 'APROVADO', 'EM_EXECUCAO')
+            """, (empresa_id,))
+            servicos_pendentes = cursor.fetchone()['count'] or 0
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'tipo_operacao': 'SERVICO',
+                'faturamento_mes_atual': faturamento_mes,
+                'faturamento_30_dias': faturamento_30_dias,
+                'servicos_finalizados_mes': servicos_finalizados_mes,
+                'servicos_pendentes': servicos_pendentes,
+                'ticket_medio': round(ticket_medio, 2),
+                'top_clientes': top_clientes
+            })
+            
         else:
-            # SQLite - métricas básicas para desenvolvimento local
+            # ========== MÉTRICAS PARA FROTA ==========
+            
+            # Despesas do mês atual (custo_total de manutenções concluídas)
+            cursor.execute("""
+                SELECT COALESCE(SUM(m.custo_total), 0) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s 
+                AND m.status = 'Concluída'
+                AND m.data_realizada >= %s
+            """, (empresa_id, primeiro_dia_mes.date()))
+            despesas_mes = float(cursor.fetchone()['total'] or 0)
+            
+            # Despesas últimos 30 dias
+            cursor.execute("""
+                SELECT COALESCE(SUM(m.custo_total), 0) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s 
+                AND m.status = 'Concluída'
+                AND m.data_realizada >= CURRENT_DATE - INTERVAL '30 days'
+            """, (empresa_id,))
+            despesas_30_dias = float(cursor.fetchone()['total'] or 0)
+            
+            # Manutenções concluídas no mês
+            cursor.execute("""
+                SELECT COUNT(*) as total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s 
+                AND m.status = 'Concluída'
+                AND m.data_realizada >= %s
+            """, (empresa_id, primeiro_dia_mes.date()))
+            manutencoes_mes = cursor.fetchone()['total'] or 0
+            
+            # Manutenções pendentes
+            cursor.execute("""
+                SELECT COUNT(*) FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s AND m.status IN ('Agendada', 'Em Andamento')
+            """, (empresa_id,))
+            manutencoes_pendentes = cursor.fetchone()['count'] or 0
+            
+            # Top 5 veículos por custo (mês atual)
+            cursor.execute("""
+                SELECT v.placa, v.modelo, COALESCE(SUM(m.custo_total), 0) as custo_total
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s 
+                AND m.status = 'Concluída'
+                AND m.data_realizada >= %s
+                GROUP BY v.id, v.placa, v.modelo
+                ORDER BY custo_total DESC
+                LIMIT 5
+            """, (empresa_id, primeiro_dia_mes.date()))
+            top_veiculos = [dict(row) for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+            
             return jsonify({
                 'success': True,
                 'tipo_operacao': 'FROTA',
-                'despesas_mes_atual': 0,
-                'despesas_30_dias': 0,
-                'manutencoes_concluidas_mes': 0,
-                'manutencoes_pendentes': 0,
-                'top_veiculos': []
+                'despesas_mes_atual': despesas_mes,
+                'despesas_30_dias': despesas_30_dias,
+                'manutencoes_concluidas_mes': manutencoes_mes,
+                'manutencoes_pendentes': manutencoes_pendentes,
+                'top_veiculos': top_veiculos
             })
-            
     except Exception as e:
         print(f"Erro ao buscar métricas do dashboard: {e}")
         import traceback
@@ -7760,88 +6528,73 @@ def dashboard_timeseries():
         return jsonify({'success': False, 'message': 'Empresa não encontrada'}), 403
     
     try:
-        if Config.IS_POSTGRES:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Gerar últimos 14 dias
+        hoje = datetime.now().date()
+        data_inicio = hoje - timedelta(days=13)
+        
+        labels = []
+        for i in range(14):
+            d = data_inicio + timedelta(days=i)
+            labels.append(d.strftime('%d/%m'))
+        
+        if is_servico():
+            # Faturamento por dia (soma dos serviços finalizados)
+            cursor.execute("""
+                SELECT DATE(m.financeiro_lancado_em) as dia, 
+                       COALESCE(SUM(ms.subtotal), 0) as valor
+                FROM manutencoes m
+                JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
+                WHERE m.empresa_id = %s 
+                AND m.status IN ('FINALIZADO', 'FATURADO')
+                AND m.financeiro_lancado_em >= %s
+                GROUP BY DATE(m.financeiro_lancado_em)
+                ORDER BY dia
+            """, (empresa_id, data_inicio))
             
-            # Gerar últimos 14 dias
-            hoje = datetime.now().date()
-            data_inicio = hoje - timedelta(days=13)
+            dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
+            tipo = 'faturamento'
+            label = 'Faturamento (R$)'
+            cor = 'rgb(25, 135, 84)'  # verde
             
-            labels = []
-            for i in range(14):
-                d = data_inicio + timedelta(days=i)
-                labels.append(d.strftime('%d/%m'))
-            
-            if is_servico():
-                # Faturamento por dia (soma dos serviços finalizados)
-                cursor.execute("""
-                    SELECT DATE(m.financeiro_lancado_em) as dia, 
-                           COALESCE(SUM(ms.subtotal), 0) as valor
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    JOIN manutencao_servicos ms ON ms.manutencao_id = m.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status IN ('FINALIZADO', 'FATURADO')
-                    AND m.financeiro_lancado_em >= %s
-                    GROUP BY DATE(m.financeiro_lancado_em)
-                    ORDER BY dia
-                """, (empresa_id, data_inicio))
-                
-                dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
-                tipo = 'faturamento'
-                label = 'Faturamento (R$)'
-                cor = 'rgb(25, 135, 84)'  # verde
-                
-            else:
-                # Despesas por dia (custo das manutenções concluídas)
-                cursor.execute("""
-                    SELECT m.data_realizada as dia, 
-                           COALESCE(SUM(m.custo_total), 0) as valor
-                    FROM manutencoes m
-                    JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE v.empresa_id = %s 
-                    AND m.status = 'Concluída'
-                    AND m.data_realizada >= %s
-                    GROUP BY m.data_realizada
-                    ORDER BY dia
-                """, (empresa_id, data_inicio))
-                
-                dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
-                tipo = 'despesas'
-                label = 'Despesas (R$)'
-                cor = 'rgb(220, 53, 69)'  # vermelho
-            
-            # Preencher valores para todos os dias (0 se não houver dados)
-            values = []
-            for i in range(14):
-                d = data_inicio + timedelta(days=i)
-                values.append(dados_raw.get(str(d), 0))
-            
-            cursor.close()
-            conn.close()
-            
-            return jsonify({
-                'success': True,
-                'tipo': tipo,
-                'labels': labels,
-                'values': values,
-                'dataset_label': label,
-                'cor': cor
-            })
         else:
-            # SQLite - dados vazios para desenvolvimento local
-            return jsonify({
-                'success': True,
-                'tipo': 'despesas',
-                'labels': [],
-                'values': [],
-                'dataset_label': 'Dados',
-                'cor': 'rgb(100, 100, 100)'
-            })
+            # Despesas por dia (custo das manutenções concluídas)
+            cursor.execute("""
+                SELECT m.data_realizada as dia, 
+                       COALESCE(SUM(m.custo_total), 0) as valor
+                FROM manutencoes m
+                JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE v.empresa_id = %s 
+                AND m.status = 'Concluída'
+                AND m.data_realizada >= %s
+                GROUP BY m.data_realizada
+                ORDER BY dia
+            """, (empresa_id, data_inicio))
             
+            dados_raw = {str(row['dia']): float(row['valor']) for row in cursor.fetchall()}
+            tipo = 'despesas'
+            label = 'Despesas (R$)'
+            cor = 'rgb(220, 53, 69)'  # vermelho
+        
+        # Preencher valores para todos os dias (0 se não houver dados)
+        values = []
+        for i in range(14):
+            d = data_inicio + timedelta(days=i)
+            values.append(dados_raw.get(str(d), 0))
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'tipo': tipo,
+            'labels': labels,
+            'values': values,
+            'dataset_label': label,
+            'cor': cor
+        })
     except Exception as e:
         print(f"Erro ao buscar timeseries do dashboard: {e}")
         import traceback
@@ -7905,34 +6658,18 @@ def get_entradas():
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
-                       e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
-                       c.nome as categoria_nome, v.placa, v.modelo
-                FROM entradas e
-                LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
-                LEFT JOIN veiculos v ON e.veiculo_id = v.id
-                WHERE e.empresa_id = %s
-                ORDER BY e.data_entrada DESC
-            ''', (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
-                       e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
-                       c.nome as categoria_nome, v.placa, v.modelo
-                FROM entradas e
-                LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
-                LEFT JOIN veiculos v ON e.veiculo_id = v.id
-                WHERE e.empresa_id = ?
-                ORDER BY e.data_entrada DESC
-            ''', (empresa_id,))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT e.id, e.descricao, e.valor, e.data_entrada, e.categoria_id, 
+                   e.veiculo_id, e.tipo, e.observacoes, e.data_criacao,
+                   c.nome as categoria_nome, v.placa, v.modelo
+            FROM entradas e
+            LEFT JOIN categorias_entrada c ON e.categoria_id = c.id
+            LEFT JOIN veiculos v ON e.veiculo_id = v.id
+            WHERE e.empresa_id = %s
+            ORDER BY e.data_entrada DESC
+        ''', (empresa_id,))
         entradas = []
         for row in cursor.fetchall():
             entradas.append({
@@ -7964,47 +6701,25 @@ def create_entrada():
         empresa_id = get_empresa_id()
         data = request.json
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO entradas (empresa_id, descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                empresa_id,
-                data['descricao'],
-                data['valor'],
-                data['data_entrada'],
-                data['categoria_id'],
-                data.get('veiculo_id'),
-                data.get('tipo', 'Manual'),
-                data.get('observacoes', '')
-            ))
-            
-            entrada_id = cursor.fetchone()[0]
-        else:
-            conn = sqlite3.connect(DATABASE, timeout=30.0)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO entradas (empresa_id, descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                empresa_id,
-                data['descricao'],
-                data['valor'],
-                data['data_entrada'],
-                data['categoria_id'],
-                data.get('veiculo_id'),
-                data.get('tipo', 'Manual'),
-                data.get('observacoes', '')
-            ))
-            
-            entrada_id = cursor.lastrowid
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute('''
+            INSERT INTO entradas (empresa_id, descricao, valor, data_entrada, categoria_id, veiculo_id, tipo, observacoes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            empresa_id,
+            data['descricao'],
+            data['valor'],
+            data['data_entrada'],
+            data['categoria_id'],
+            data.get('veiculo_id'),
+            data.get('tipo', 'Manual'),
+            data.get('observacoes', '')
+        ))
+        
+        entrada_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -8026,34 +6741,18 @@ def get_despesas():
     try:
         empresa_id = get_empresa_id()
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
-                       d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
-                       c.nome as categoria_nome, v.placa, v.modelo
-                FROM despesas d
-                LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
-                LEFT JOIN veiculos v ON d.veiculo_id = v.id
-                WHERE d.empresa_id = %s
-                ORDER BY d.data_despesa DESC
-            ''', (empresa_id,))
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
-                       d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
-                       c.nome as categoria_nome, v.placa, v.modelo
-                FROM despesas d
-                LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
-                LEFT JOIN veiculos v ON d.veiculo_id = v.id
-                WHERE d.empresa_id = ?
-                ORDER BY d.data_despesa DESC
-            ''', (empresa_id,))
-        
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT d.id, d.descricao, d.valor, d.data_despesa, d.categoria_id, 
+                   d.veiculo_id, d.tipo, d.manutencao_id, d.observacoes, d.data_criacao,
+                   c.nome as categoria_nome, v.placa, v.modelo
+            FROM despesas d
+            LEFT JOIN categorias_despesa c ON d.categoria_id = c.id
+            LEFT JOIN veiculos v ON d.veiculo_id = v.id
+            WHERE d.empresa_id = %s
+            ORDER BY d.data_despesa DESC
+        ''', (empresa_id,))
         despesas = []
         for row in cursor.fetchall():
             despesas.append({
@@ -8086,49 +6785,26 @@ def create_despesa():
         empresa_id = get_empresa_id()
         data = request.json
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                empresa_id,
-                data['descricao'],
-                data['valor'],
-                data['data_despesa'],
-                data['categoria_id'],
-                data.get('veiculo_id'),
-                data.get('tipo', 'Manual'),
-                data.get('observacoes', ''),
-                data.get('manutencao_id')
-            ))
-            
-            despesa_id = cursor.fetchone()[0]
-        else:
-            conn = sqlite3.connect(DATABASE, timeout=30.0)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                empresa_id,
-                data['descricao'],
-                data['valor'],
-                data['data_despesa'],
-                data['categoria_id'],
-                data.get('veiculo_id'),
-                data.get('tipo', 'Manual'),
-                data.get('observacoes', ''),
-                data.get('manutencao_id')
-            ))
-            
-            despesa_id = cursor.lastrowid
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        cursor.execute('''
+            INSERT INTO despesas (empresa_id, descricao, valor, data_despesa, categoria_id, veiculo_id, tipo, observacoes, manutencao_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            empresa_id,
+            data['descricao'],
+            data['valor'],
+            data['data_despesa'],
+            data['categoria_id'],
+            data.get('veiculo_id'),
+            data.get('tipo', 'Manual'),
+            data.get('observacoes', ''),
+            data.get('manutencao_id')
+        ))
+        
+        despesa_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         
@@ -8159,116 +6835,64 @@ def get_resumo_financeiro():
         except ValueError:
             periodo_int = 30
         
-        if Config.IS_POSTGRES:
-            import psycopg2
-            conn = psycopg2.connect(Config.DATABASE_URL)
-            cursor = conn.cursor()
-            
-            # Total de entradas (PostgreSQL usa INTERVAL)
-            cursor.execute('''
-                SELECT COALESCE(SUM(e.valor), 0) 
-                FROM entradas e
-                JOIN veiculos v ON e.veiculo_id = v.id
-                WHERE v.empresa_id = %s AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
-            ''', (empresa_id, periodo_int))
-            total_entradas = float(cursor.fetchone()[0] or 0)
-            
-            # Total de despesas
-            cursor.execute('''
-                SELECT COALESCE(SUM(d.valor), 0) 
-                FROM despesas d
-                JOIN veiculos v ON d.veiculo_id = v.id
-                WHERE v.empresa_id = %s AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
-            ''', (empresa_id, periodo_int))
-            total_despesas = float(cursor.fetchone()[0] or 0)
-            
-            # Entradas por categoria
-            cursor.execute('''
-                SELECT c.nome, COALESCE(SUM(e.valor), 0)
-                FROM categorias_entrada c
-                LEFT JOIN entradas e ON c.id = e.categoria_id 
-                    AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
-                    AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = e.veiculo_id AND v.empresa_id = %s)
-                GROUP BY c.id, c.nome
-                ORDER BY SUM(e.valor) DESC NULLS LAST
-            ''', (periodo_int, empresa_id))
-            entradas_categoria = cursor.fetchall()
-            
-            # Despesas por categoria
-            cursor.execute('''
-                SELECT c.nome, COALESCE(SUM(d.valor), 0)
-                FROM categorias_despesa c
-                LEFT JOIN despesas d ON c.id = d.categoria_id 
-                    AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
-                    AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = d.veiculo_id AND v.empresa_id = %s)
-                GROUP BY c.id, c.nome
-                ORDER BY SUM(d.valor) DESC NULLS LAST
-            ''', (periodo_int, empresa_id))
-            despesas_categoria = cursor.fetchall()
-            
-            # Resultado por veículo
-            cursor.execute('''
-                SELECT v.placa, v.modelo,
-                       COALESCE((SELECT SUM(e.valor) FROM entradas e WHERE e.veiculo_id = v.id AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'), 0) as entradas,
-                       COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.veiculo_id = v.id AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'), 0) as despesas
-                FROM veiculos v
-                WHERE v.empresa_id = %s
-                ORDER BY (entradas - despesas) DESC
-            ''', (periodo_int, periodo_int, empresa_id))
-            resultado_veiculo = [(row[0], row[1], float(row[2] or 0), float(row[3] or 0), float(row[2] or 0) - float(row[3] or 0)) for row in cursor.fetchall()]
-            
-            cursor.close()
-            conn.close()
-        else:
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            
-            # Total de entradas (com filtro empresa_id)
-            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM entradas WHERE empresa_id = ? AND data_entrada >= date("now", "-" || ? || " days")', (empresa_id, periodo_int))
-            total_entradas = cursor.fetchone()[0]
-            
-            # Total de despesas (com filtro empresa_id)
-            cursor.execute('SELECT COALESCE(SUM(valor), 0) FROM despesas WHERE empresa_id = ? AND data_despesa >= date("now", "-" || ? || " days")', (empresa_id, periodo_int))
-            total_despesas = cursor.fetchone()[0]
-            
-            # Entradas por categoria (com filtro empresa_id)
-            cursor.execute('''
-                SELECT c.nome, COALESCE(SUM(e.valor), 0)
-                FROM categorias_entrada c
-                LEFT JOIN entradas e ON c.id = e.categoria_id AND e.empresa_id = ? AND e.data_entrada >= date("now", "-" || ? || " days")
-                GROUP BY c.id, c.nome
-                ORDER BY SUM(e.valor) DESC
-            ''', (empresa_id, periodo_int))
-            entradas_categoria = cursor.fetchall()
-            
-            # Despesas por categoria (com filtro empresa_id)
-            cursor.execute('''
-                SELECT c.nome, COALESCE(SUM(d.valor), 0)
-                FROM categorias_despesa c
-                LEFT JOIN despesas d ON c.id = d.categoria_id AND d.empresa_id = ? AND d.data_despesa >= date("now", "-" || ? || " days")
-                GROUP BY c.id, c.nome
-                ORDER BY SUM(d.valor) DESC
-            ''', (empresa_id, periodo_int))
-            despesas_categoria = cursor.fetchall()
-            
-            # Resultado por veículo (com filtro empresa_id)
-            cursor.execute('''
-                SELECT v.placa, v.modelo,
-                       COALESCE(SUM(e.valor), 0) as entradas,
-                       COALESCE(SUM(d.valor), 0) as despesas,
-                       (COALESCE(SUM(e.valor), 0) - COALESCE(SUM(d.valor), 0)) as saldo
-                FROM veiculos v
-                LEFT JOIN entradas e ON v.id = e.veiculo_id AND e.data_entrada >= date("now", "-" || ? || " days")
-                LEFT JOIN despesas d ON v.id = d.veiculo_id AND d.data_despesa >= date("now", "-" || ? || " days")
-                WHERE v.empresa_id = ?
-                GROUP BY v.id, v.placa, v.modelo
-                HAVING entradas > 0 OR despesas > 0
-                ORDER BY saldo DESC
-            ''', (periodo_int, periodo_int, empresa_id))
-            resultado_veiculo = cursor.fetchall()
-            
-            conn.close()
+        conn = psycopg2.connect(Config.DATABASE_URL)
+        cursor = conn.cursor()
         
+        # Total de entradas (PostgreSQL usa INTERVAL)
+        cursor.execute('''
+            SELECT COALESCE(SUM(e.valor), 0) 
+            FROM entradas e
+            JOIN veiculos v ON e.veiculo_id = v.id
+            WHERE v.empresa_id = %s AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
+        ''', (empresa_id, periodo_int))
+        total_entradas = float(cursor.fetchone()[0] or 0)
+        
+        # Total de despesas
+        cursor.execute('''
+            SELECT COALESCE(SUM(d.valor), 0) 
+            FROM despesas d
+            JOIN veiculos v ON d.veiculo_id = v.id
+            WHERE v.empresa_id = %s AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
+        ''', (empresa_id, periodo_int))
+        total_despesas = float(cursor.fetchone()[0] or 0)
+        
+        # Entradas por categoria
+        cursor.execute('''
+            SELECT c.nome, COALESCE(SUM(e.valor), 0)
+            FROM categorias_entrada c
+            LEFT JOIN entradas e ON c.id = e.categoria_id 
+                AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'
+                AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = e.veiculo_id AND v.empresa_id = %s)
+            GROUP BY c.id, c.nome
+            ORDER BY SUM(e.valor) DESC NULLS LAST
+        ''', (periodo_int, empresa_id))
+        entradas_categoria = cursor.fetchall()
+        
+        # Despesas por categoria
+        cursor.execute('''
+            SELECT c.nome, COALESCE(SUM(d.valor), 0)
+            FROM categorias_despesa c
+            LEFT JOIN despesas d ON c.id = d.categoria_id 
+                AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'
+                AND EXISTS (SELECT 1 FROM veiculos v WHERE v.id = d.veiculo_id AND v.empresa_id = %s)
+            GROUP BY c.id, c.nome
+            ORDER BY SUM(d.valor) DESC NULLS LAST
+        ''', (periodo_int, empresa_id))
+        despesas_categoria = cursor.fetchall()
+        
+        # Resultado por veículo
+        cursor.execute('''
+            SELECT v.placa, v.modelo,
+                   COALESCE((SELECT SUM(e.valor) FROM entradas e WHERE e.veiculo_id = v.id AND e.data_entrada >= CURRENT_DATE - INTERVAL '%s days'), 0) as entradas,
+                   COALESCE((SELECT SUM(d.valor) FROM despesas d WHERE d.veiculo_id = v.id AND d.data_despesa >= CURRENT_DATE - INTERVAL '%s days'), 0) as despesas
+            FROM veiculos v
+            WHERE v.empresa_id = %s
+            ORDER BY (entradas - despesas) DESC
+        ''', (periodo_int, periodo_int, empresa_id))
+        resultado_veiculo = [(row[0], row[1], float(row[2] or 0), float(row[3] or 0), float(row[2] or 0) - float(row[3] or 0)) for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
         return jsonify({
             'success': True,
             'total_entradas': total_entradas,
@@ -8293,6 +6917,11 @@ def get_resumo_financeiro():
 def admin_backup():
     """Criar backup do banco de dados"""
     try:
+        # SaaS stateless: backup via provider em produção
+        flash('Backup manual não disponível em produção. O Neon.tech realiza backups automáticos. '
+              'Para exportar dados, use a página de Relatórios → Exportar (Excel/CSV).', 'info')
+        return redirect(url_for('dashboard'))
+        
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"frota_backup_{timestamp}.db"

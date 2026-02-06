@@ -32,7 +32,7 @@
                         <i class="fas fa-tachometer-alt"></i> Dashboard
                     </a>
                     <a class="nav-link" href="{{ url_for('veiculos') }}">
-                        <i class="fas fa-car"></i> {% if is_servico %}Veículos Atendidos{% else %}Veículos{% endif %}
+                        <i class="fas fa-truck"></i> {% if is_servico %}Frota & Equipam.{% else %}Frota{% endif %}
                     </a>
                     <a class="nav-link" href="{{ url_for('manutencao') }}">
                         <i class="fas fa-wrench"></i> {% if is_servico %}Serviços{% else %}Manutenção{% endif %}

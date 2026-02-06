@@ -1,29 +1,52 @@
 {% extends "base.html" %}
 
-{% block title %}{% if is_servico %}Veículos e Equipamentos{% else %}Veículos{% endif %}{% endblock %}
+{% block title %}{% if is_servico %}Frota & Equipamentos{% else %}Frota{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h1 class="display-6">{% if is_servico %}Gestão de Veículos e Equipamentos{% else %}Gestão de Veículos{% endif %}</h1>
-        <p class="text-muted">{% if is_servico %}Veículos e equipamentos dos seus clientes{% else %}Controle completo da sua frota{% endif %}</p>
+        <h1 class="display-6">{% if is_servico %}Gestão de Frota & Equipamentos{% else %}Gestão de Frota{% endif %}</h1>
+        <p class="text-muted">{% if is_servico %}Ativos dos seus clientes: veículos, máquinas e equipamentos{% else %}Controle completo da sua frota{% endif %}</p>
     </div>
 </div>
 
 <div class="row mb-3">
-    <div class="col-md-6">
+    <div class="col-md-4">
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
-            <i class="fas fa-plus"></i> {% if is_servico %}Novo Veículo/Equipamento{% else %}Novo Veículo{% endif %}
+            <i class="fas fa-plus"></i> {% if is_servico %}Novo Ativo{% else %}Novo Veículo{% endif %}
         </button>
         <button class="btn btn-outline-secondary ms-2" data-bs-toggle="modal" data-bs-target="#gerenciarCategoriasModal">
             <i class="fas fa-cog"></i> Categorias
         </button>
     </div>
-    <div class="col-md-6">
-        <div class="input-group">
-            <input type="text" class="form-control" placeholder="Buscar por placa ou modelo..." id="searchInput">
-            <button class="btn btn-outline-secondary" type="button">
-                <i class="fas fa-search"></i>
+    <div class="col-md-8">
+        <div class="d-flex gap-2 filtros-container">
+            <input type="text" class="form-control" placeholder="Buscar..." id="searchInput" style="max-width: 200px;">
+            <select class="form-select" id="filterStatus" style="max-width: 150px;">
+                <option value="">Status</option>
+                <option value="Operacional">Operacional</option>
+                <option value="Manutenção">Manutenção</option>
+                <option value="Parado">Parado</option>
+            </select>
+            <select class="form-select" id="filterTipo" style="max-width: 150px;">
+                <option value="">Tipo</option>
+                <option value="Caminhão">Caminhão</option>
+                <option value="Van">Van</option>
+                <option value="Carro">Carro</option>
+                <option value="Moto">Moto</option>
+                <option value="Máquina">Máquina</option>
+                <option value="Equipamento">Equipamento</option>
+            </select>
+            {% if is_servico %}
+            <select class="form-select" id="filterCliente" style="max-width: 180px;">
+                <option value="">Cliente</option>
+                {% for cliente in clientes %}
+                <option value="{{ cliente.id }}">{{ cliente.nome }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <button class="btn btn-outline-secondary" type="button" onclick="limparFiltros()" title="Limpar filtros">
+                <i class="fas fa-times"></i>
             </button>
         </div>
     </div>
@@ -31,11 +54,11 @@
 
 <div class="card">
     <div class="card-header bg-primary text-white">
-        <h5 class="mb-0"><i class="fas fa-list"></i> Lista de Veículos</h5>
+        <h5 class="mb-0"><i class="fas fa-list"></i> Lista de Ativos</h5>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="table table-hover mb-0" id="tabelaVeiculos">
                 <thead class="table-light">
                     <tr>
                         <th>Tipo</th>
@@ -52,7 +75,7 @@
                 </thead>
                 <tbody>
                     {% for veiculo in veiculos %}
-                    <tr>
+                    <tr data-status="{{ veiculo.status }}" data-tipo="{{ veiculo.tipo }}" data-cliente="{{ veiculo.cliente_id or '' }}">
                         <td>
                             {% set tipo_lower = veiculo.tipo|lower if veiculo.tipo else '' %}
                             {% if tipo_lower in ['caminhão', 'caminhao'] %}
@@ -132,6 +155,19 @@
                         </td>
                     </tr>
                     {% endfor %}
+                    {% if not veiculos %}
+                    <tr id="row-empty">
+                        <td colspan="{{ 10 if is_servico else 9 }}" class="text-center py-5">
+                            <div class="text-muted">
+                                <i class="fas fa-truck fa-3x mb-3 opacity-50"></i>
+                                <p class="mb-2">Nenhum ativo cadastrado ainda</p>
+                                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
+                                    <i class="fas fa-plus"></i> Cadastrar primeiro ativo
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
                 </tbody>
             </table>
         </div>
@@ -268,6 +304,20 @@
                             <label class="form-label">Tipo/Categoria</label>
                             <select class="form-select" id="edit-tipo" required onchange="ajustarCampoQuilometragem('edit')">
                                 <option value="">Selecione o tipo</option>
+                                {% if categorias %}
+                                    {% set grupos = [] %}
+                                    {% for cat in categorias %}
+                                        {% if cat.grupo not in grupos %}
+                                            {% if grupos %}
+                                </optgroup>
+                                            {% endif %}
+                                <optgroup label="{{ '🚗' if cat.grupo == 'Veículo' else '🔧' }} {{ cat.grupo }}s">
+                                            {% set _ = grupos.append(cat.grupo) %}
+                                        {% endif %}
+                                    <option value="{{ cat.nome }}">{{ cat.nome }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% else %}
                                 <optgroup label="🚗 Veículos">
                                     <option value="Caminhão">🚛 Caminhão</option>
                                     <option value="Van">🚐 Van</option>
@@ -292,6 +342,7 @@
                                 <optgroup label="🔧 Máquinas">
                                     <option value="Máquina">🏗️ Máquina</option>
                                 </optgroup>
+                                {% endif %}
                                 {% endif %}
                             </select>
                         </div>
@@ -350,254 +401,7 @@
     </div>
 </div>
 
-<script>
-// Limpar modal quando aberto
-document.addEventListener('DOMContentLoaded', function() {
-    const modal = document.getElementById('novoVeiculoModal');
-    if (modal) {
-        modal.addEventListener('show.bs.modal', function() {
-            const form = document.getElementById('novoVeiculoForm');
-            if (form) {
-                form.reset();
-            }
-        });
-    }
-});
 
-// Função para editar veículo
-function editarVeiculo(veiculoId) {
-    // Carregar dados do veículo
-    fetch(`/api/veiculo/${veiculoId}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const veiculo = data.veiculo;
-                
-                // Preencher formulário
-                document.getElementById('edit-veiculo-id').value = veiculo.id;
-                document.getElementById('edit-tipo').value = veiculo.tipo || '';
-                document.getElementById('edit-marca').value = veiculo.marca || '';
-                document.getElementById('edit-modelo').value = veiculo.modelo || '';
-                document.getElementById('edit-placa').value = veiculo.placa || '';
-                document.getElementById('edit-ano').value = veiculo.ano || '';
-                document.getElementById('edit-quilometragem').value = veiculo.quilometragem || '';
-                document.getElementById('edit-proxima-manutencao').value = veiculo.proxima_manutencao || '';
-                
-                // Campo cliente (modo SERVICO)
-                const clienteSelect = document.getElementById('edit-cliente-id');
-                if (clienteSelect) {
-                    clienteSelect.value = veiculo.cliente_id || '';
-                }
-                
-                // Abrir modal
-                const modal = new bootstrap.Modal(document.getElementById('editarVeiculoModal'));
-                modal.show();
-            } else {
-                alert('Erro ao carregar dados do veículo: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Erro ao carregar veículo:', error);
-            alert('Erro ao carregar dados do veículo');
-        });
-}
-
-// Função para salvar edição do veículo
-function salvarEdicaoVeiculo() {
-    const veiculoId = document.getElementById('edit-veiculo-id').value;
-    
-    // Campo cliente (modo SERVICO)
-    const clienteSelect = document.getElementById('edit-cliente-id');
-    const clienteId = clienteSelect ? clienteSelect.value : null;
-    
-    // Validar cliente obrigatório (modo SERVICO)
-    if (clienteSelect && clienteSelect.required && !clienteId) {
-        alert('Por favor, selecione um cliente.');
-        return;
-    }
-    
-    const dados = {
-        tipo: document.getElementById('edit-tipo').value,
-        marca: document.getElementById('edit-marca').value,
-        modelo: document.getElementById('edit-modelo').value,
-        placa: document.getElementById('edit-placa').value,
-        ano: parseInt(document.getElementById('edit-ano').value) || null,
-        quilometragem: parseInt(document.getElementById('edit-quilometragem').value) || 0,
-        proxima_manutencao: document.getElementById('edit-proxima-manutencao').value || null,
-        cliente_id: clienteId || null
-    };
-    
-    // Validação básica
-    if (!dados.tipo || !dados.marca || !dados.modelo || !dados.placa) {
-        alert('Por favor, preencha todos os campos obrigatórios.');
-        return;
-    }
-    
-    fetch(`/api/veiculo/${veiculoId}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(dados)
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.success) {
-            alert('Veículo atualizado com sucesso!');
-            
-            // Fechar modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('editarVeiculoModal'));
-            modal.hide();
-            
-            // Recarregar página
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            alert('Erro: ' + result.message);
-        }
-    })
-    .catch(error => {
-        console.error('Erro ao salvar:', error);
-        alert('Erro ao salvar alterações');
-    });
-}
-
-// Função para ajustar campo de quilometragem baseado no tipo
-function ajustarCampoQuilometragem(modalType) {
-    const tipoSelect = document.getElementById(modalType === 'novo' ? 'tipo' : 'edit-tipo');
-    const label = document.getElementById(`label-quilometragem-${modalType}`);
-    const input = document.getElementById(modalType === 'novo' ? 'input-quilometragem-novo' : 'edit-quilometragem');
-    const unidade = document.getElementById(`unidade-quilometragem-${modalType}`);
-    
-    if (tipoSelect && label && input && unidade) {
-        const tipoSelecionado = tipoSelect.value;
-        
-        if (tipoSelecionado === 'Máquina') {
-            label.textContent = 'Horas de Trabalho';
-            input.placeholder = '0';
-            unidade.textContent = 'h';
-        } else {
-            label.textContent = 'Quilometragem';
-            input.placeholder = '0';
-            unidade.textContent = 'km';
-        }
-    }
-}
-
-// Função de busca em tempo real
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-        searchInput.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase().trim();
-            const tableRows = document.querySelectorAll('table tbody tr');
-            
-            let encontrados = 0;
-            tableRows.forEach(row => {
-                const tipo = row.cells[0]?.textContent.toLowerCase() || '';
-                const marcaModelo = row.cells[1]?.textContent.toLowerCase() || '';
-                const placa = row.cells[2]?.textContent.toLowerCase() || '';
-                const ano = row.cells[3]?.textContent.toLowerCase() || '';
-                
-                if (tipo.includes(searchTerm) || 
-                    marcaModelo.includes(searchTerm) || 
-                    placa.includes(searchTerm) || 
-                    ano.includes(searchTerm)) {
-                    row.style.display = '';
-                    encontrados++;
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-            
-            console.log(`Busca por "${searchTerm}": ${encontrados} veículos encontrados`);
-        });
-    }
-});
-
-function excluirVeiculo(id, descricao) {
-    if (confirm(`Tem certeza que deseja excluir o veículo:\n${descricao}?`)) {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        
-        fetch(`/api/veiculo/${id}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert(data.message);
-                location.reload();
-            } else {
-                alert(data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Erro:', error);
-            alert('Erro ao excluir veículo!');
-        });
-    }
-}
-
-// ===== GERENCIAMENTO DE CATEGORIAS =====
-let categoriasData = [];
-
-function carregarCategorias() {
-    fetch('/api/categorias-veiculos')
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                categoriasData = data.categorias;
-                renderizarCategorias();
-            }
-        });
-}
-
-function inicializarCategoriasPadrao() {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    
-    fetch('/api/categorias-veiculos/inicializar', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        }
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            carregarCategorias();
-        }
-        alert(data.message);
-    });
-}
-
-function excluirCategoria(id, nome) {
-    if (!confirm(`Excluir categoria "${nome}"?`)) return;
-    
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    
-    fetch(`/api/categorias-veiculos/${id}`, {
-        method: 'DELETE',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        }
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            carregarCategorias();
-        }
-        alert(data.message);
-    });
-}
-
-// Carregar categorias ao abrir modal
-document.getElementById('gerenciarCategoriasModal')?.addEventListener('show.bs.modal', carregarCategorias);
-</script>
 
 <!-- Modal Gerenciar Categorias - Design Profissional -->
 <div class="modal fade" id="gerenciarCategoriasModal" tabindex="-1">
@@ -754,167 +558,5 @@ document.getElementById('gerenciarCategoriasModal')?.addEventListener('show.bs.m
     </div>
 </div>
 
-<script>
-// Variáveis de estado
-let iconeSelecionado = 'fa-truck';
-let corSelecionada = 'primary';
-
-function selecionarIcone(btn) {
-    document.querySelectorAll('.icone-btn').forEach(b => b.classList.remove('active', 'btn-primary'));
-    document.querySelectorAll('.icone-btn').forEach(b => b.classList.add('btn-outline-secondary'));
-    btn.classList.remove('btn-outline-secondary');
-    btn.classList.add('active', 'btn-primary');
-    iconeSelecionado = btn.dataset.icone;
-    atualizarPreview();
-}
-
-function selecionarCor(btn) {
-    document.querySelectorAll('.cor-btn').forEach(b => b.style.border = '3px solid transparent');
-    btn.style.border = '3px solid #000';
-    corSelecionada = btn.dataset.cor;
-    atualizarPreview();
-}
-
-function atualizarPreview() {
-    const nome = document.getElementById('cat-nome').value || 'Nova Categoria';
-    const grupo = document.querySelector('input[name="cat-grupo-radio"]:checked')?.value || 'Veículo';
-    
-    document.getElementById('preview-nome').textContent = nome;
-    document.getElementById('preview-grupo').textContent = grupo;
-    document.getElementById('preview-icone').className = `fas ${iconeSelecionado} fa-2x text-white`;
-    
-    // Atualizar cor do container
-    const gradientes = {
-        'primary': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        'success': 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
-        'info': 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)',
-        'warning': 'linear-gradient(135deg, #f2994a 0%, #f2c94c 100%)',
-        'danger': 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
-        'secondary': 'linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%)',
-        'dark': 'linear-gradient(135deg, #232526 0%, #414345 100%)'
-    };
-    document.querySelector('.p-4.rounded-3').style.background = gradientes[corSelecionada] || gradientes.primary;
-}
-
-function renderizarCategorias() {
-    const veiculosContainer = document.getElementById('lista-veiculos-categorias');
-    const equipamentosContainer = document.getElementById('lista-equipamentos-categorias');
-    
-    if (!veiculosContainer || !equipamentosContainer) return;
-    
-    const veiculos = categoriasData.filter(c => c.grupo === 'Veículo');
-    const equipamentos = categoriasData.filter(c => c.grupo === 'Equipamento');
-    
-    // Atualizar contadores
-    document.getElementById('count-veiculos').textContent = veiculos.length;
-    document.getElementById('count-equipamentos').textContent = equipamentos.length;
-    
-    // Mostrar botão inicializar se não tiver categorias
-    document.getElementById('btn-inicializar-container').style.display = 
-        categoriasData.length === 0 ? 'block' : 'none';
-    
-    // Renderizar veículos
-    if (veiculos.length === 0) {
-        veiculosContainer.innerHTML = '<p class="text-muted text-center py-4">Nenhuma categoria de veículo</p>';
-    } else {
-        veiculosContainer.innerHTML = veiculos.map(cat => gerarCardCategoria(cat)).join('');
-    }
-    
-    // Renderizar equipamentos
-    if (equipamentos.length === 0) {
-        equipamentosContainer.innerHTML = '<p class="text-muted text-center py-4">Nenhuma categoria de equipamento</p>';
-    } else {
-        equipamentosContainer.innerHTML = equipamentos.map(cat => gerarCardCategoria(cat)).join('');
-    }
-}
-
-function gerarCardCategoria(cat) {
-    return `
-        <div class="card mb-2 shadow-sm categoria-card" data-id="${cat.id}">
-            <div class="card-body py-2 px-3">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div class="d-flex align-items-center">
-                        <div class="rounded-circle bg-${cat.cor} d-flex align-items-center justify-content-center me-3" 
-                             style="width: 45px; height: 45px;">
-                            <i class="fas ${cat.icone} text-white"></i>
-                        </div>
-                        <div>
-                            <h6 class="mb-0">${cat.nome}</h6>
-                            <small class="text-muted">${cat.grupo}</small>
-                        </div>
-                    </div>
-                    <div class="btn-group">
-                        <button class="btn btn-sm btn-outline-primary" onclick="abrirEditarCategoria(${cat.id})" title="Editar">
-                            <i class="fas fa-pen"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="excluirCategoria(${cat.id}, '${cat.nome}')" title="Excluir">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function abrirEditarCategoria(id) {
-    const cat = categoriasData.find(c => c.id === id);
-    if (!cat) return;
-    
-    const novoNome = prompt('Nome da categoria:', cat.nome);
-    if (novoNome && novoNome !== cat.nome) {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-        
-        fetch(`/api/categorias-veiculos/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({ ...cat, nome: novoNome })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                carregarCategorias();
-            }
-            alert(data.message);
-        });
-    }
-}
-
-function salvarNovaCategoria() {
-    const nome = document.getElementById('cat-nome').value.trim();
-    const grupo = document.querySelector('input[name="cat-grupo-radio"]:checked')?.value || 'Veículo';
-    
-    if (!nome) {
-        alert('Digite o nome da categoria!');
-        return;
-    }
-    
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    
-    fetch('/api/categorias-veiculos', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({ 
-            nome, 
-            icone: iconeSelecionado, 
-            cor: corSelecionada, 
-            grupo 
-        })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            document.getElementById('cat-nome').value = '';
-            carregarCategorias();
-        }
-        alert(data.message);
-    });
-}
-</script>
+<script src="{{ url_for('static', filename='js/veiculos.js') }}"></script>
 {% endblock %}

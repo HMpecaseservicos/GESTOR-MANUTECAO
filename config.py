@@ -61,17 +61,28 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
     ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx'}
     
-    # Configurações de relatórios
+    # Configurações de relatórios (não usado em produção - PDFs usam BytesIO)
     REPORTS_FOLDER = os.path.join(os.path.dirname(__file__), 'reports')
     
-    # Configurações de logs
+    # Configurações de logs (não usado em produção - logs vão para stdout)
     LOG_FOLDER = os.path.join(os.path.dirname(__file__), 'logs')
     LOG_FILE = os.path.join(LOG_FOLDER, 'app.log')
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     
     @staticmethod
     def ensure_directories():
-        """Garante que os diretórios necessários existem"""
+        """Garante que os diretórios necessários existem (apenas desenvolvimento local)
+        
+        Em produção (PostgreSQL/Fly.io), o sistema é stateless:
+        - Logs vão para stdout (capturados pelo Fly.io)
+        - PDFs são gerados em memória (BytesIO)
+        - Não há escrita em disco
+        """
+        # Em produção, não criar pastas desnecessárias
+        if Config.IS_POSTGRES:
+            return  # Stateless: sem criação de pastas em produção
+        
+        # Apenas em desenvolvimento local (SQLite)
         directories = [
             Config.UPLOAD_FOLDER,
             Config.REPORTS_FOLDER,

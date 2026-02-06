@@ -88,7 +88,7 @@
                         <th>Data</th>
                         <th>Tipo</th>
                         <th>Descrição</th>
-                        <th>Custo</th>
+                        <th>{% if is_servico %}Valor{% else %}Custo{% endif %}</th>
                         <th>Status</th>
                         <th>Técnico</th>
                     </tr>
@@ -249,7 +249,7 @@
                     
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Custo Estimado</label>
+                            <label class="form-label">{% if is_servico %}Valor Estimado{% else %}Custo Estimado{% endif %}</label>
                             <input type="number" class="form-control" name="custo_estimado" 
                                    step="0.01" placeholder="0.00">
                         </div>

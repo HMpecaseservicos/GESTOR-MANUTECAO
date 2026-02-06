@@ -5,6 +5,8 @@ ETAPA 14 — AUTOMAÇÕES E CRON JOBS
 Módulo para executar verificações automáticas periódicas e gerar
 notificações proativas sem depender de ações do usuário.
 
+PostgreSQL Only - Otimizado para SaaS Fly.io
+
 TAREFAS:
 - A cada 1 hora:
   * Manutenções atrasadas (status != FINALIZADO/Concluída AND data_prevista < NOW())
@@ -23,6 +25,7 @@ PRINCÍPIOS:
 import os
 import sys
 from datetime import datetime, timedelta
+import psycopg2
 
 # Adicionar diretório raiz ao path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -34,13 +37,8 @@ from config import Config
 # =============================================
 
 def get_db_connection():
-    """Retorna conexão com o banco de dados"""
-    if Config.IS_POSTGRES:
-        import psycopg2
-        return psycopg2.connect(Config.DATABASE_URL)
-    else:
-        import sqlite3
-        return sqlite3.connect('database/frota.db')
+    """Retorna conexão com o banco de dados PostgreSQL"""
+    return psycopg2.connect(Config.DATABASE_URL)
 
 
 def log_cron(message, level="INFO"):
@@ -73,38 +71,23 @@ def notificacao_existe(cursor, empresa_id, tipo, titulo_like, horas=24):
     Returns:
         bool: True se existe notificação similar
     """
-    if Config.IS_POSTGRES:
-        cursor.execute("""
-            SELECT COUNT(*) FROM notificacoes 
-            WHERE empresa_id = %s 
-            AND tipo = %s 
-            AND titulo LIKE %s
-            AND created_at > NOW() - INTERVAL '%s hours'
-        """, (empresa_id, tipo, f"%{titulo_like}%", horas))
-    else:
-        cursor.execute("""
-            SELECT COUNT(*) FROM notificacoes 
-            WHERE empresa_id = ? 
-            AND tipo = ? 
-            AND titulo LIKE ?
-            AND created_at > datetime('now', '-' || ? || ' hours')
-        """, (empresa_id, tipo, f"%{titulo_like}%", horas))
+    cursor.execute("""
+        SELECT COUNT(*) FROM notificacoes 
+        WHERE empresa_id = %s 
+        AND tipo = %s 
+        AND titulo LIKE %s
+        AND created_at > NOW() - INTERVAL '%s hours'
+    """, (empresa_id, tipo, f"%{titulo_like}%", horas))
     
     return cursor.fetchone()[0] > 0
 
 
 def criar_notificacao(cursor, empresa_id, tipo, titulo, mensagem, link=None):
     """Cria notificação diretamente (sem usar import de empresa_helpers para evitar circular)"""
-    if Config.IS_POSTGRES:
-        cursor.execute("""
-            INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, link, lida)
-            VALUES (%s, NULL, %s, %s, %s, %s, false)
-        """, (empresa_id, tipo, titulo[:200], mensagem, link))
-    else:
-        cursor.execute("""
-            INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, link, lida)
-            VALUES (?, NULL, ?, ?, ?, ?, 0)
-        """, (empresa_id, tipo, titulo[:200], mensagem, link))
+    cursor.execute("""
+        INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, link, lida)
+        VALUES (%s, NULL, %s, %s, %s, %s, false)
+    """, (empresa_id, tipo, titulo[:200], mensagem, link))
 
 
 # =============================================
@@ -128,11 +111,7 @@ def verificar_manutencoes_atrasadas():
     
     try:
         # Buscar empresas ativas
-        if Config.IS_POSTGRES:
-            cursor.execute("SELECT id, nome, tipo_operacao FROM empresas WHERE ativo = true")
-        else:
-            cursor.execute("SELECT id, nome, tipo_operacao FROM empresas WHERE ativo = 1")
-        
+        cursor.execute("SELECT id, nome, tipo_operacao FROM empresas WHERE ativo = true")
         empresas = cursor.fetchall()
         
         for empresa in empresas:
@@ -147,30 +126,17 @@ def verificar_manutencoes_atrasadas():
                 status_pendentes = "('Agendada', 'Em Andamento')"
             
             # Buscar manutenções atrasadas
-            if Config.IS_POSTGRES:
-                query = f"""
-                    SELECT m.id, m.tipo, m.data_agendada, v.placa, v.modelo
-                    FROM manutencoes m
-                    LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE m.empresa_id = %s
-                    AND m.status IN {status_pendentes}
-                    AND m.data_agendada < CURRENT_DATE
-                    ORDER BY m.data_agendada ASC
-                    LIMIT 50
-                """
-                cursor.execute(query, (empresa_id,))
-            else:
-                cursor.execute(f"""
-                    SELECT m.id, m.tipo, m.data_agendada, v.placa, v.modelo
-                    FROM manutencoes m
-                    LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE m.empresa_id = ?
-                    AND m.status IN {status_pendentes}
-                    AND m.data_agendada < date('now')
-                    ORDER BY m.data_agendada ASC
-                    LIMIT 50
-                """, (empresa_id,))
-            
+            query = f"""
+                SELECT m.id, m.tipo, m.data_agendada, v.placa, v.modelo
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE m.empresa_id = %s
+                AND m.status IN {status_pendentes}
+                AND m.data_agendada < CURRENT_DATE
+                ORDER BY m.data_agendada ASC
+                LIMIT 50
+            """
+            cursor.execute(query, (empresa_id,))
             manutencoes_atrasadas = cursor.fetchall()
             
             if not manutencoes_atrasadas:
@@ -236,17 +202,10 @@ def verificar_servicos_sem_faturamento():
     
     try:
         # Buscar empresas SERVICO ativas
-        if Config.IS_POSTGRES:
-            cursor.execute("""
-                SELECT id, nome FROM empresas 
-                WHERE ativo = true AND tipo_operacao = 'SERVICO'
-            """)
-        else:
-            cursor.execute("""
-                SELECT id, nome FROM empresas 
-                WHERE ativo = 1 AND tipo_operacao = 'SERVICO'
-            """)
-        
+        cursor.execute("""
+            SELECT id, nome FROM empresas 
+            WHERE ativo = true AND tipo_operacao = 'SERVICO'
+        """)
         empresas = cursor.fetchall()
         
         for empresa in empresas:
@@ -254,29 +213,16 @@ def verificar_servicos_sem_faturamento():
             empresa_nome = empresa[1]
             
             # Buscar manutenções finalizadas sem faturamento
-            if Config.IS_POSTGRES:
-                cursor.execute("""
-                    SELECT m.id, m.tipo, m.data_realizada, v.placa, m.valor_total_servicos
-                    FROM manutencoes m
-                    LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE m.empresa_id = %s
-                    AND m.status = 'FINALIZADO'
-                    AND m.financeiro_lancado_em IS NULL
-                    ORDER BY m.data_realizada DESC
-                    LIMIT 50
-                """, (empresa_id,))
-            else:
-                cursor.execute("""
-                    SELECT m.id, m.tipo, m.data_realizada, v.placa, m.valor_total_servicos
-                    FROM manutencoes m
-                    LEFT JOIN veiculos v ON m.veiculo_id = v.id
-                    WHERE m.empresa_id = ?
-                    AND m.status = 'FINALIZADO'
-                    AND m.financeiro_lancado_em IS NULL
-                    ORDER BY m.data_realizada DESC
-                    LIMIT 50
-                """, (empresa_id,))
-            
+            cursor.execute("""
+                SELECT m.id, m.tipo, m.data_realizada, v.placa, m.valor_total_servicos
+                FROM manutencoes m
+                LEFT JOIN veiculos v ON m.veiculo_id = v.id
+                WHERE m.empresa_id = %s
+                AND m.status = 'FINALIZADO'
+                AND m.financeiro_lancado_em IS NULL
+                ORDER BY m.data_realizada DESC
+                LIMIT 50
+            """, (empresa_id,))
             servicos_pendentes = cursor.fetchall()
             
             if not servicos_pendentes:
@@ -345,19 +291,11 @@ def verificar_limites_proximos():
     
     try:
         # Buscar empresas ativas com limites definidos
-        if Config.IS_POSTGRES:
-            cursor.execute("""
-                SELECT id, nome, plano, limite_clientes, limite_veiculos, limite_usuarios
-                FROM empresas 
-                WHERE ativo = true
-            """)
-        else:
-            cursor.execute("""
-                SELECT id, nome, plano, limite_clientes, limite_veiculos, limite_usuarios
-                FROM empresas 
-                WHERE ativo = 1
-            """)
-        
+        cursor.execute("""
+            SELECT id, nome, plano, limite_clientes, limite_veiculos, limite_usuarios
+            FROM empresas 
+            WHERE ativo = true
+        """)
         empresas = cursor.fetchall()
         
         for empresa in empresas:
@@ -372,17 +310,10 @@ def verificar_limites_proximos():
             
             # Verificar clientes
             if limite_clientes:
-                if Config.IS_POSTGRES:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM clientes 
-                        WHERE empresa_id = %s AND ativo = true
-                    """, (empresa_id,))
-                else:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM clientes 
-                        WHERE empresa_id = ? AND ativo = 1
-                    """, (empresa_id,))
-                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM clientes 
+                    WHERE empresa_id = %s AND ativo = true
+                """, (empresa_id,))
                 total_clientes = cursor.fetchone()[0]
                 percentual = (total_clientes / limite_clientes) * 100
                 
@@ -391,17 +322,10 @@ def verificar_limites_proximos():
             
             # Verificar veículos
             if limite_veiculos:
-                if Config.IS_POSTGRES:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM veiculos 
-                        WHERE empresa_id = %s AND ativo = true
-                    """, (empresa_id,))
-                else:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM veiculos 
-                        WHERE empresa_id = ? AND ativo = 1
-                    """, (empresa_id,))
-                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM veiculos 
+                    WHERE empresa_id = %s AND ativo = true
+                """, (empresa_id,))
                 total_veiculos = cursor.fetchone()[0]
                 percentual = (total_veiculos / limite_veiculos) * 100
                 
@@ -410,17 +334,10 @@ def verificar_limites_proximos():
             
             # Verificar usuários
             if limite_usuarios:
-                if Config.IS_POSTGRES:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM usuarios 
-                        WHERE empresa_id = %s AND ativo = true
-                    """, (empresa_id,))
-                else:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM usuarios 
-                        WHERE empresa_id = ? AND ativo = 1
-                    """, (empresa_id,))
-                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM usuarios 
+                    WHERE empresa_id = %s AND ativo = true
+                """, (empresa_id,))
                 total_usuarios = cursor.fetchone()[0]
                 percentual = (total_usuarios / limite_usuarios) * 100
                 
