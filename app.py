@@ -2218,8 +2218,8 @@ def detalhes_veiculo(veiculo_id):
                    (empresa_id,))
     tecnicos = cursor.fetchall()
     
-    cursor.execute(f"SELECT * FROM fornecedores WHERE empresa_id = {placeholder} AND (especialidade LIKE '%serviço%' OR especialidade LIKE '%Serviço%') ORDER BY nome", 
-                   (empresa_id,))
+    cursor.execute(f"SELECT * FROM fornecedores WHERE empresa_id = {placeholder} AND (LOWER(especialidade) LIKE {placeholder}) ORDER BY nome", 
+                   (empresa_id, '%serviço%'))
     fornecedores_servicos = cursor.fetchall()
     
     conn.close()

@@ -555,57 +555,6 @@ function carregarCategorias() {
         });
 }
 
-function renderizarCategorias() {
-    const container = document.getElementById('listaCategorias');
-    if (!container) return;
-    
-    if (categoriasData.length === 0) {
-        container.innerHTML = `
-            <div class="text-center py-4">
-                <p class="text-muted mb-3">Nenhuma categoria personalizada cadastrada.</p>
-                <button class="btn btn-primary" onclick="inicializarCategoriasPadrao()">
-                    <i class="fas fa-magic"></i> Inicializar Categorias Padrão
-                </button>
-            </div>
-        `;
-        return;
-    }
-    
-    // Agrupar por grupo
-    const grupos = {};
-    categoriasData.forEach(cat => {
-        if (!grupos[cat.grupo]) grupos[cat.grupo] = [];
-        grupos[cat.grupo].push(cat);
-    });
-    
-    let html = '';
-    for (const [grupo, cats] of Object.entries(grupos)) {
-        html += `<h6 class="text-muted mt-3">${grupo === 'Veículo' ? '🚗' : '🔧'} ${grupo}s</h6>`;
-        html += '<div class="list-group mb-2">';
-        cats.forEach(cat => {
-            html += `
-                <div class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <i class="fas ${cat.icone} text-${cat.cor} me-2"></i>
-                        <strong>${cat.nome}</strong>
-                    </div>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-warning" onclick="editarCategoria(${cat.id}, '${cat.nome}', '${cat.icone}', '${cat.cor}', '${cat.grupo}')">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn btn-outline-danger" onclick="excluirCategoria(${cat.id}, '${cat.nome}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-    
-    container.innerHTML = html;
-}
-
 function inicializarCategoriasPadrao() {
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     
@@ -618,67 +567,10 @@ function inicializarCategoriasPadrao() {
     })
     .then(r => r.json())
     .then(data => {
-        alert(data.message);
         if (data.success) {
             carregarCategorias();
-            location.reload();
         }
-    });
-}
-
-function salvarNovaCategoria() {
-    const nome = document.getElementById('cat-nome').value.trim();
-    const icone = document.getElementById('cat-icone').value;
-    const cor = document.getElementById('cat-cor').value;
-    const grupo = document.getElementById('cat-grupo').value;
-    
-    if (!nome) {
-        alert('Digite o nome da categoria!');
-        return;
-    }
-    
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    
-    fetch('/api/categorias-veiculos', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({ nome, icone, cor, grupo })
-    })
-    .then(r => r.json())
-    .then(data => {
         alert(data.message);
-        if (data.success) {
-            document.getElementById('cat-nome').value = '';
-            carregarCategorias();
-            location.reload();
-        }
-    });
-}
-
-function editarCategoria(id, nome, icone, cor, grupo) {
-    const novoNome = prompt('Nome da categoria:', nome);
-    if (!novoNome || novoNome === nome) return;
-    
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    
-    fetch(`/api/categorias-veiculos/${id}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({ nome: novoNome, icone, cor, grupo })
-    })
-    .then(r => r.json())
-    .then(data => {
-        alert(data.message);
-        if (data.success) {
-            carregarCategorias();
-            location.reload();
-        }
     });
 }
 
@@ -696,11 +588,10 @@ function excluirCategoria(id, nome) {
     })
     .then(r => r.json())
     .then(data => {
-        alert(data.message);
         if (data.success) {
             carregarCategorias();
-            location.reload();
         }
+        alert(data.message);
     });
 }
 
@@ -708,78 +599,322 @@ function excluirCategoria(id, nome) {
 document.getElementById('gerenciarCategoriasModal')?.addEventListener('show.bs.modal', carregarCategorias);
 </script>
 
-<!-- Modal Gerenciar Categorias -->
+<!-- Modal Gerenciar Categorias - Design Profissional -->
 <div class="modal fade" id="gerenciarCategoriasModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
-            <div class="modal-header bg-secondary text-white">
-                <h5 class="modal-title"><i class="fas fa-cog"></i> Gerenciar Categorias</h5>
+            <div class="modal-header" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-bottom: 3px solid #0f3460;">
+                <div class="d-flex align-items-center">
+                    <div class="rounded-circle bg-primary p-2 me-3">
+                        <i class="fas fa-layer-group text-white"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title text-white mb-0">Gerenciador de Categorias</h5>
+                        <small class="text-light opacity-75">Personalize os tipos de veículos e equipamentos</small>
+                    </div>
+                </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <!-- Formulário para nova categoria -->
-                <div class="card mb-3">
-                    <div class="card-header bg-light">
-                        <i class="fas fa-plus"></i> Nova Categoria
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-2">
-                            <div class="col-md-4">
-                                <input type="text" class="form-control" id="cat-nome" placeholder="Nome da categoria">
-                            </div>
-                            <div class="col-md-2">
-                                <select class="form-select" id="cat-grupo">
-                                    <option value="Veículo">🚗 Veículo</option>
-                                    <option value="Equipamento">🔧 Equipamento</option>
-                                </select>
-                            </div>
-                            <div class="col-md-2">
-                                <select class="form-select" id="cat-icone">
-                                    <option value="fa-truck">🚛 Caminhão</option>
-                                    <option value="fa-car">🚗 Carro</option>
-                                    <option value="fa-motorcycle">🏍️ Moto</option>
-                                    <option value="fa-shuttle-van">🚐 Van</option>
-                                    <option value="fa-cogs">⚙️ Máquina</option>
-                                    <option value="fa-tools">🔧 Ferramenta</option>
-                                    <option value="fa-tractor">🚜 Trator</option>
-                                    <option value="fa-bolt">⚡ Elétrico</option>
-                                    <option value="fa-water">💧 Hidráulico</option>
-                                    <option value="fa-cube">📦 Outro</option>
-                                </select>
-                            </div>
-                            <div class="col-md-2">
-                                <select class="form-select" id="cat-cor">
-                                    <option value="primary">🔵 Azul</option>
-                                    <option value="success">🟢 Verde</option>
-                                    <option value="warning">🟡 Amarelo</option>
-                                    <option value="danger">🔴 Vermelho</option>
-                                    <option value="info">🔷 Ciano</option>
-                                    <option value="secondary">⚫ Cinza</option>
-                                    <option value="dark">⬛ Escuro</option>
-                                </select>
-                            </div>
-                            <div class="col-md-2">
-                                <button class="btn btn-primary w-100" onclick="salvarNovaCategoria()">
-                                    <i class="fas fa-save"></i> Salvar
+            <div class="modal-body p-0">
+                <div class="row g-0">
+                    <!-- Painel Esquerdo - Lista de Categorias -->
+                    <div class="col-md-7 border-end" style="background: #f8f9fa;">
+                        <!-- Tabs -->
+                        <ul class="nav nav-tabs nav-fill border-bottom-0" id="categoriaTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active py-3" id="veiculos-tab" data-bs-toggle="tab" data-bs-target="#veiculos-panel" type="button">
+                                    <i class="fas fa-car me-2"></i>Veículos
+                                    <span class="badge bg-primary ms-2" id="count-veiculos">0</span>
                                 </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link py-3" id="equipamentos-tab" data-bs-toggle="tab" data-bs-target="#equipamentos-panel" type="button">
+                                    <i class="fas fa-tools me-2"></i>Equipamentos
+                                    <span class="badge bg-success ms-2" id="count-equipamentos">0</span>
+                                </button>
+                            </li>
+                        </ul>
+                        
+                        <div class="tab-content p-3" style="max-height: 400px; overflow-y: auto;">
+                            <div class="tab-pane fade show active" id="veiculos-panel" role="tabpanel">
+                                <div id="lista-veiculos-categorias">
+                                    <!-- Preenchido via JS -->
+                                </div>
                             </div>
+                            <div class="tab-pane fade" id="equipamentos-panel" role="tabpanel">
+                                <div id="lista-equipamentos-categorias">
+                                    <!-- Preenchido via JS -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Botão Inicializar -->
+                        <div class="p-3 border-top bg-white" id="btn-inicializar-container" style="display: none;">
+                            <button class="btn btn-outline-primary w-100" onclick="inicializarCategoriasPadrao()">
+                                <i class="fas fa-magic me-2"></i>Carregar Categorias Padrão
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Painel Direito - Adicionar Nova -->
+                    <div class="col-md-5" style="background: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);">
+                        <div class="p-4">
+                            <h6 class="text-primary mb-4">
+                                <i class="fas fa-plus-circle me-2"></i>Nova Categoria
+                            </h6>
+                            
+                            <!-- Preview -->
+                            <div class="text-center mb-4 p-4 rounded-3" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                <div class="rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" 
+                                     id="preview-icone-container"
+                                     style="width: 80px; height: 80px; background: rgba(255,255,255,0.2);">
+                                    <i class="fas fa-cube fa-2x text-white" id="preview-icone"></i>
+                                </div>
+                                <h5 class="text-white mb-0" id="preview-nome">Nova Categoria</h5>
+                                <span class="badge bg-light text-dark mt-2" id="preview-grupo">Veículo</span>
+                            </div>
+                            
+                            <!-- Form -->
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">
+                                    <i class="fas fa-tag text-muted me-1"></i>Nome
+                                </label>
+                                <input type="text" class="form-control form-control-lg" id="cat-nome" 
+                                       placeholder="Ex: Retroescavadeira" oninput="atualizarPreview()">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">
+                                    <i class="fas fa-folder text-muted me-1"></i>Grupo
+                                </label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" name="cat-grupo-radio" id="grupo-veiculo" value="Veículo" checked onchange="atualizarPreview()">
+                                    <label class="btn btn-outline-primary" for="grupo-veiculo">
+                                        <i class="fas fa-car me-1"></i>Veículo
+                                    </label>
+                                    <input type="radio" class="btn-check" name="cat-grupo-radio" id="grupo-equipamento" value="Equipamento" onchange="atualizarPreview()">
+                                    <label class="btn btn-outline-success" for="grupo-equipamento">
+                                        <i class="fas fa-tools me-1"></i>Equipamento
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">
+                                    <i class="fas fa-icons text-muted me-1"></i>Ícone
+                                </label>
+                                <div class="row g-2" id="icones-grid">
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn active" data-icone="fa-truck" onclick="selecionarIcone(this)"><i class="fas fa-truck"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-car" onclick="selecionarIcone(this)"><i class="fas fa-car"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-motorcycle" onclick="selecionarIcone(this)"><i class="fas fa-motorcycle"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-shuttle-van" onclick="selecionarIcone(this)"><i class="fas fa-shuttle-van"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-tractor" onclick="selecionarIcone(this)"><i class="fas fa-tractor"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-cogs" onclick="selecionarIcone(this)"><i class="fas fa-cogs"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-tools" onclick="selecionarIcone(this)"><i class="fas fa-tools"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-wrench" onclick="selecionarIcone(this)"><i class="fas fa-wrench"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-bolt" onclick="selecionarIcone(this)"><i class="fas fa-bolt"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-water" onclick="selecionarIcone(this)"><i class="fas fa-water"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-hammer" onclick="selecionarIcone(this)"><i class="fas fa-hammer"></i></button></div>
+                                    <div class="col-3"><button type="button" class="btn btn-outline-secondary w-100 icone-btn" data-icone="fa-cube" onclick="selecionarIcone(this)"><i class="fas fa-cube"></i></button></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label class="form-label fw-semibold">
+                                    <i class="fas fa-palette text-muted me-1"></i>Cor
+                                </label>
+                                <div class="d-flex gap-2 flex-wrap" id="cores-grid">
+                                    <button type="button" class="btn rounded-circle cor-btn active" data-cor="primary" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#0d6efd;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="success" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#198754;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="info" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#0dcaf0;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="warning" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#ffc107;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="danger" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#dc3545;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="secondary" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#6c757d;border:3px solid transparent;"></button>
+                                    <button type="button" class="btn rounded-circle cor-btn" data-cor="dark" onclick="selecionarCor(this)" style="width:40px;height:40px;background:#212529;border:3px solid transparent;"></button>
+                                </div>
+                            </div>
+                            
+                            <button class="btn btn-primary btn-lg w-100" onclick="salvarNovaCategoria()">
+                                <i class="fas fa-plus-circle me-2"></i>Adicionar Categoria
+                            </button>
                         </div>
                     </div>
                 </div>
-                
-                <!-- Lista de categorias existentes -->
-                <h6><i class="fas fa-list"></i> Categorias Cadastradas</h6>
-                <div id="listaCategorias">
-                    <div class="text-center py-3">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        Carregando...
-                    </div>
-                </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            <div class="modal-footer bg-light">
+                <small class="text-muted me-auto">
+                    <i class="fas fa-info-circle me-1"></i>
+                    As categorias serão exibidas nos formulários de cadastro
+                </small>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>Fechar
+                </button>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Variáveis de estado
+let iconeSelecionado = 'fa-truck';
+let corSelecionada = 'primary';
+
+function selecionarIcone(btn) {
+    document.querySelectorAll('.icone-btn').forEach(b => b.classList.remove('active', 'btn-primary'));
+    document.querySelectorAll('.icone-btn').forEach(b => b.classList.add('btn-outline-secondary'));
+    btn.classList.remove('btn-outline-secondary');
+    btn.classList.add('active', 'btn-primary');
+    iconeSelecionado = btn.dataset.icone;
+    atualizarPreview();
+}
+
+function selecionarCor(btn) {
+    document.querySelectorAll('.cor-btn').forEach(b => b.style.border = '3px solid transparent');
+    btn.style.border = '3px solid #000';
+    corSelecionada = btn.dataset.cor;
+    atualizarPreview();
+}
+
+function atualizarPreview() {
+    const nome = document.getElementById('cat-nome').value || 'Nova Categoria';
+    const grupo = document.querySelector('input[name="cat-grupo-radio"]:checked')?.value || 'Veículo';
+    
+    document.getElementById('preview-nome').textContent = nome;
+    document.getElementById('preview-grupo').textContent = grupo;
+    document.getElementById('preview-icone').className = `fas ${iconeSelecionado} fa-2x text-white`;
+    
+    // Atualizar cor do container
+    const gradientes = {
+        'primary': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        'success': 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+        'info': 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)',
+        'warning': 'linear-gradient(135deg, #f2994a 0%, #f2c94c 100%)',
+        'danger': 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
+        'secondary': 'linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%)',
+        'dark': 'linear-gradient(135deg, #232526 0%, #414345 100%)'
+    };
+    document.querySelector('.p-4.rounded-3').style.background = gradientes[corSelecionada] || gradientes.primary;
+}
+
+function renderizarCategorias() {
+    const veiculosContainer = document.getElementById('lista-veiculos-categorias');
+    const equipamentosContainer = document.getElementById('lista-equipamentos-categorias');
+    
+    if (!veiculosContainer || !equipamentosContainer) return;
+    
+    const veiculos = categoriasData.filter(c => c.grupo === 'Veículo');
+    const equipamentos = categoriasData.filter(c => c.grupo === 'Equipamento');
+    
+    // Atualizar contadores
+    document.getElementById('count-veiculos').textContent = veiculos.length;
+    document.getElementById('count-equipamentos').textContent = equipamentos.length;
+    
+    // Mostrar botão inicializar se não tiver categorias
+    document.getElementById('btn-inicializar-container').style.display = 
+        categoriasData.length === 0 ? 'block' : 'none';
+    
+    // Renderizar veículos
+    if (veiculos.length === 0) {
+        veiculosContainer.innerHTML = '<p class="text-muted text-center py-4">Nenhuma categoria de veículo</p>';
+    } else {
+        veiculosContainer.innerHTML = veiculos.map(cat => gerarCardCategoria(cat)).join('');
+    }
+    
+    // Renderizar equipamentos
+    if (equipamentos.length === 0) {
+        equipamentosContainer.innerHTML = '<p class="text-muted text-center py-4">Nenhuma categoria de equipamento</p>';
+    } else {
+        equipamentosContainer.innerHTML = equipamentos.map(cat => gerarCardCategoria(cat)).join('');
+    }
+}
+
+function gerarCardCategoria(cat) {
+    return `
+        <div class="card mb-2 shadow-sm categoria-card" data-id="${cat.id}">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-${cat.cor} d-flex align-items-center justify-content-center me-3" 
+                             style="width: 45px; height: 45px;">
+                            <i class="fas ${cat.icone} text-white"></i>
+                        </div>
+                        <div>
+                            <h6 class="mb-0">${cat.nome}</h6>
+                            <small class="text-muted">${cat.grupo}</small>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-primary" onclick="abrirEditarCategoria(${cat.id})" title="Editar">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="excluirCategoria(${cat.id}, '${cat.nome}')" title="Excluir">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function abrirEditarCategoria(id) {
+    const cat = categoriasData.find(c => c.id === id);
+    if (!cat) return;
+    
+    const novoNome = prompt('Nome da categoria:', cat.nome);
+    if (novoNome && novoNome !== cat.nome) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        
+        fetch(`/api/categorias-veiculos/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ ...cat, nome: novoNome })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                carregarCategorias();
+            }
+            alert(data.message);
+        });
+    }
+}
+
+function salvarNovaCategoria() {
+    const nome = document.getElementById('cat-nome').value.trim();
+    const grupo = document.querySelector('input[name="cat-grupo-radio"]:checked')?.value || 'Veículo';
+    
+    if (!nome) {
+        alert('Digite o nome da categoria!');
+        return;
+    }
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    fetch('/api/categorias-veiculos', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ 
+            nome, 
+            icone: iconeSelecionado, 
+            cor: corSelecionada, 
+            grupo 
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('cat-nome').value = '';
+            carregarCategorias();
+        }
+        alert(data.message);
+    });
+}
+</script>
 {% endblock %}
