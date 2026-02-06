@@ -1810,6 +1810,7 @@ def veiculos():
     empresa_id = get_empresa_id()
     veiculos_lista = []
     clientes_lista = []
+    categorias_lista = []
     
     try:
         if Config.IS_POSTGRES:
@@ -1835,10 +1836,19 @@ def veiculos():
             if is_servico():
                 cursor.execute('''
                     SELECT id, nome FROM clientes 
-                    WHERE empresa_id = %s AND status = 'ATIVO'
+                    WHERE empresa_id = %s AND UPPER(status) = 'ATIVO'
                     ORDER BY nome
                 ''', (empresa_id,))
                 clientes_lista = cursor.fetchall()
+            
+            # Buscar categorias personalizadas
+            cursor.execute('''
+                SELECT id, nome, icone, cor, grupo, ordem 
+                FROM categorias_veiculos 
+                WHERE empresa_id = %s AND ativo = true
+                ORDER BY grupo, ordem, nome
+            ''', (empresa_id,))
+            categorias_lista = cursor.fetchall()
             
             cursor.close()
             conn.close()
@@ -1862,10 +1872,19 @@ def veiculos():
             if is_servico():
                 cursor.execute('''
                     SELECT id, nome FROM clientes 
-                    WHERE empresa_id = ? AND status = 'ATIVO'
+                    WHERE empresa_id = ? AND UPPER(status) = 'ATIVO'
                     ORDER BY nome
                 ''', (empresa_id,))
                 clientes_lista = [dict(row) for row in cursor.fetchall()]
+            
+            # Buscar categorias
+            cursor.execute('''
+                SELECT id, nome, icone, cor, grupo, ordem 
+                FROM categorias_veiculos 
+                WHERE empresa_id = ? AND ativo = 1
+                ORDER BY grupo, ordem, nome
+            ''', (empresa_id,))
+            categorias_lista = [dict(row) for row in cursor.fetchall()]
             
             conn.close()
             
@@ -1874,7 +1893,237 @@ def veiculos():
         traceback.print_exc()
         flash('Erro ao carregar lista de veículos.', 'danger')
     
-    return render_template('veiculos.html', veiculos=veiculos_lista, clientes=clientes_lista)
+    return render_template('veiculos.html', veiculos=veiculos_lista, clientes=clientes_lista, categorias=categorias_lista)
+
+
+# =============================================
+# GERENCIAMENTO DE CATEGORIAS DE VEÍCULOS/EQUIPAMENTOS
+# =============================================
+
+@app.route('/api/categorias-veiculos', methods=['GET'])
+@login_required
+def listar_categorias_veiculos():
+    """Listar categorias de veículos/equipamentos da empresa"""
+    from empresa_helpers import get_empresa_id
+    
+    try:
+        empresa_id = get_empresa_id()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if Config.IS_POSTGRES:
+            placeholder = '%s'
+        else:
+            placeholder = '?'
+        
+        cursor.execute(f'''
+            SELECT id, nome, icone, cor, grupo, ativo, ordem
+            FROM categorias_veiculos
+            WHERE empresa_id = {placeholder}
+            ORDER BY grupo, ordem, nome
+        ''', (empresa_id,))
+        
+        categorias = []
+        for row in cursor.fetchall():
+            categorias.append({
+                'id': row[0],
+                'nome': row[1],
+                'icone': row[2],
+                'cor': row[3],
+                'grupo': row[4],
+                'ativo': row[5],
+                'ordem': row[6]
+            })
+        
+        conn.close()
+        return jsonify({'success': True, 'categorias': categorias})
+        
+    except Exception as e:
+        print(f"Erro ao listar categorias: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/categorias-veiculos', methods=['POST'])
+@login_required
+def criar_categoria_veiculo():
+    """Criar nova categoria de veículo/equipamento"""
+    from empresa_helpers import get_empresa_id
+    
+    data = request.json
+    empresa_id = get_empresa_id()
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if Config.IS_POSTGRES:
+            cursor.execute('''
+                INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (empresa_id, data['nome'], data.get('icone', 'fa-cube'), 
+                  data.get('cor', 'secondary'), data.get('grupo', 'Equipamento'),
+                  data.get('ordem', 0)))
+            categoria_id = cursor.fetchone()[0]
+        else:
+            cursor.execute('''
+                INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (empresa_id, data['nome'], data.get('icone', 'fa-cube'), 
+                  data.get('cor', 'secondary'), data.get('grupo', 'Equipamento'),
+                  data.get('ordem', 0)))
+            categoria_id = cursor.lastrowid
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'id': categoria_id, 'message': 'Categoria criada com sucesso!'})
+        
+    except Exception as e:
+        print(f"Erro ao criar categoria: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/categorias-veiculos/<int:categoria_id>', methods=['PUT'])
+@login_required
+def atualizar_categoria_veiculo(categoria_id):
+    """Atualizar categoria de veículo/equipamento"""
+    from empresa_helpers import get_empresa_id
+    
+    data = request.json
+    empresa_id = get_empresa_id()
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if Config.IS_POSTGRES:
+            cursor.execute('''
+                UPDATE categorias_veiculos 
+                SET nome = %s, icone = %s, cor = %s, grupo = %s, ordem = %s
+                WHERE id = %s AND empresa_id = %s
+            ''', (data['nome'], data.get('icone', 'fa-cube'), data.get('cor', 'secondary'),
+                  data.get('grupo', 'Equipamento'), data.get('ordem', 0), categoria_id, empresa_id))
+        else:
+            cursor.execute('''
+                UPDATE categorias_veiculos 
+                SET nome = ?, icone = ?, cor = ?, grupo = ?, ordem = ?
+                WHERE id = ? AND empresa_id = ?
+            ''', (data['nome'], data.get('icone', 'fa-cube'), data.get('cor', 'secondary'),
+                  data.get('grupo', 'Equipamento'), data.get('ordem', 0), categoria_id, empresa_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Categoria atualizada!'})
+        
+    except Exception as e:
+        print(f"Erro ao atualizar categoria: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/categorias-veiculos/<int:categoria_id>', methods=['DELETE'])
+@login_required
+def excluir_categoria_veiculo(categoria_id):
+    """Excluir categoria de veículo/equipamento"""
+    from empresa_helpers import get_empresa_id
+    
+    empresa_id = get_empresa_id()
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if Config.IS_POSTGRES:
+            cursor.execute('''
+                DELETE FROM categorias_veiculos 
+                WHERE id = %s AND empresa_id = %s
+            ''', (categoria_id, empresa_id))
+        else:
+            cursor.execute('''
+                DELETE FROM categorias_veiculos 
+                WHERE id = ? AND empresa_id = ?
+            ''', (categoria_id, empresa_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Categoria excluída!'})
+        
+    except Exception as e:
+        print(f"Erro ao excluir categoria: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/categorias-veiculos/inicializar', methods=['POST'])
+@login_required
+def inicializar_categorias_padrao():
+    """Inicializar categorias padrão para a empresa"""
+    from empresa_helpers import get_empresa_id, is_servico
+    
+    empresa_id = get_empresa_id()
+    
+    # Categorias padrão
+    categorias_padrao = [
+        # Veículos
+        {'nome': 'Caminhão', 'icone': 'fa-truck', 'cor': 'primary', 'grupo': 'Veículo', 'ordem': 1},
+        {'nome': 'Van', 'icone': 'fa-shuttle-van', 'cor': 'info', 'grupo': 'Veículo', 'ordem': 2},
+        {'nome': 'Pickup', 'icone': 'fa-car', 'cor': 'secondary', 'grupo': 'Veículo', 'ordem': 3},
+        {'nome': 'Carro', 'icone': 'fa-car', 'cor': 'secondary', 'grupo': 'Veículo', 'ordem': 4},
+        {'nome': 'Moto', 'icone': 'fa-motorcycle', 'cor': 'dark', 'grupo': 'Veículo', 'ordem': 5},
+    ]
+    
+    # Equipamentos apenas para modo SERVIÇO
+    if is_servico():
+        categorias_padrao.extend([
+            {'nome': 'Máquina', 'icone': 'fa-cogs', 'cor': 'warning', 'grupo': 'Equipamento', 'ordem': 10},
+            {'nome': 'Implemento Agrícola', 'icone': 'fa-tractor', 'cor': 'success', 'grupo': 'Equipamento', 'ordem': 11},
+            {'nome': 'Equipamento', 'icone': 'fa-tools', 'cor': 'success', 'grupo': 'Equipamento', 'ordem': 12},
+            {'nome': 'Compressor', 'icone': 'fa-wind', 'cor': 'info', 'grupo': 'Equipamento', 'ordem': 13},
+            {'nome': 'Gerador', 'icone': 'fa-bolt', 'cor': 'warning', 'grupo': 'Equipamento', 'ordem': 14},
+            {'nome': 'Bomba Hidráulica', 'icone': 'fa-water', 'cor': 'primary', 'grupo': 'Equipamento', 'ordem': 15},
+            {'nome': 'Prensa', 'icone': 'fa-hammer', 'cor': 'danger', 'grupo': 'Equipamento', 'ordem': 16},
+            {'nome': 'Empilhadeira', 'icone': 'fa-dolly', 'cor': 'warning', 'grupo': 'Equipamento', 'ordem': 17},
+            {'nome': 'Guincho/Munck', 'icone': 'fa-truck-pickup', 'cor': 'danger', 'grupo': 'Equipamento', 'ordem': 18},
+        ])
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verificar se já existem categorias
+        if Config.IS_POSTGRES:
+            cursor.execute('SELECT COUNT(*) FROM categorias_veiculos WHERE empresa_id = %s', (empresa_id,))
+        else:
+            cursor.execute('SELECT COUNT(*) FROM categorias_veiculos WHERE empresa_id = ?', (empresa_id,))
+        
+        count = cursor.fetchone()[0]
+        if count > 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Categorias já foram inicializadas.'})
+        
+        # Inserir categorias padrão
+        for cat in categorias_padrao:
+            if Config.IS_POSTGRES:
+                cursor.execute('''
+                    INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', (empresa_id, cat['nome'], cat['icone'], cat['cor'], cat['grupo'], cat['ordem']))
+            else:
+                cursor.execute('''
+                    INSERT INTO categorias_veiculos (empresa_id, nome, icone, cor, grupo, ordem)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (empresa_id, cat['nome'], cat['icone'], cat['cor'], cat['grupo'], cat['ordem']))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': f'{len(categorias_padrao)} categorias criadas!'})
+        
+    except Exception as e:
+        print(f"Erro ao inicializar categorias: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/veiculos', methods=['GET'])
 @login_required

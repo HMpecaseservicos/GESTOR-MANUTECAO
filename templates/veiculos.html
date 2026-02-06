@@ -15,6 +15,9 @@
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
             <i class="fas fa-plus"></i> {% if is_servico %}Novo Veículo/Equipamento{% else %}Novo Veículo{% endif %}
         </button>
+        <button class="btn btn-outline-secondary ms-2" data-bs-toggle="modal" data-bs-target="#gerenciarCategoriasModal">
+            <i class="fas fa-cog"></i> Categorias
+        </button>
     </div>
     <div class="col-md-6">
         <div class="input-group">
@@ -150,6 +153,20 @@
                             <label class="form-label">Tipo/Categoria *</label>
                             <select class="form-select" name="tipo" id="tipo" required onchange="ajustarCampoQuilometragem('novo')">
                                 <option value="">Selecione o tipo</option>
+                                {% if categorias %}
+                                    {% set grupos = [] %}
+                                    {% for cat in categorias %}
+                                        {% if cat.grupo not in grupos %}
+                                            {% if grupos %}
+                                </optgroup>
+                                            {% endif %}
+                                <optgroup label="{{ '🚗' if cat.grupo == 'Veículo' else '🔧' }} {{ cat.grupo }}s">
+                                            {% set _ = grupos.append(cat.grupo) %}
+                                        {% endif %}
+                                    <option value="{{ cat.nome }}"><i class="fas {{ cat.icone }}"></i> {{ cat.nome }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% else %}
                                 <optgroup label="🚗 Veículos">
                                     <option value="Caminhão">🚛 Caminhão</option>
                                     <option value="Van">🚐 Van</option>
@@ -174,6 +191,7 @@
                                 <optgroup label="🔧 Máquinas">
                                     <option value="Máquina">🏗️ Máquina</option>
                                 </optgroup>
+                                {% endif %}
                                 {% endif %}
                             </select>
                         </div>
@@ -522,5 +540,246 @@ function excluirVeiculo(id, descricao) {
         });
     }
 }
+
+// ===== GERENCIAMENTO DE CATEGORIAS =====
+let categoriasData = [];
+
+function carregarCategorias() {
+    fetch('/api/categorias-veiculos')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                categoriasData = data.categorias;
+                renderizarCategorias();
+            }
+        });
+}
+
+function renderizarCategorias() {
+    const container = document.getElementById('listaCategorias');
+    if (!container) return;
+    
+    if (categoriasData.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <p class="text-muted mb-3">Nenhuma categoria personalizada cadastrada.</p>
+                <button class="btn btn-primary" onclick="inicializarCategoriasPadrao()">
+                    <i class="fas fa-magic"></i> Inicializar Categorias Padrão
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    // Agrupar por grupo
+    const grupos = {};
+    categoriasData.forEach(cat => {
+        if (!grupos[cat.grupo]) grupos[cat.grupo] = [];
+        grupos[cat.grupo].push(cat);
+    });
+    
+    let html = '';
+    for (const [grupo, cats] of Object.entries(grupos)) {
+        html += `<h6 class="text-muted mt-3">${grupo === 'Veículo' ? '🚗' : '🔧'} ${grupo}s</h6>`;
+        html += '<div class="list-group mb-2">';
+        cats.forEach(cat => {
+            html += `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="fas ${cat.icone} text-${cat.cor} me-2"></i>
+                        <strong>${cat.nome}</strong>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-warning" onclick="editarCategoria(${cat.id}, '${cat.nome}', '${cat.icone}', '${cat.cor}', '${cat.grupo}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="excluirCategoria(${cat.id}, '${cat.nome}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function inicializarCategoriasPadrao() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    fetch('/api/categorias-veiculos/inicializar', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message);
+        if (data.success) {
+            carregarCategorias();
+            location.reload();
+        }
+    });
+}
+
+function salvarNovaCategoria() {
+    const nome = document.getElementById('cat-nome').value.trim();
+    const icone = document.getElementById('cat-icone').value;
+    const cor = document.getElementById('cat-cor').value;
+    const grupo = document.getElementById('cat-grupo').value;
+    
+    if (!nome) {
+        alert('Digite o nome da categoria!');
+        return;
+    }
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    fetch('/api/categorias-veiculos', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ nome, icone, cor, grupo })
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message);
+        if (data.success) {
+            document.getElementById('cat-nome').value = '';
+            carregarCategorias();
+            location.reload();
+        }
+    });
+}
+
+function editarCategoria(id, nome, icone, cor, grupo) {
+    const novoNome = prompt('Nome da categoria:', nome);
+    if (!novoNome || novoNome === nome) return;
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    fetch(`/api/categorias-veiculos/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ nome: novoNome, icone, cor, grupo })
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message);
+        if (data.success) {
+            carregarCategorias();
+            location.reload();
+        }
+    });
+}
+
+function excluirCategoria(id, nome) {
+    if (!confirm(`Excluir categoria "${nome}"?`)) return;
+    
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    fetch(`/api/categorias-veiculos/${id}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message);
+        if (data.success) {
+            carregarCategorias();
+            location.reload();
+        }
+    });
+}
+
+// Carregar categorias ao abrir modal
+document.getElementById('gerenciarCategoriasModal')?.addEventListener('show.bs.modal', carregarCategorias);
 </script>
+
+<!-- Modal Gerenciar Categorias -->
+<div class="modal fade" id="gerenciarCategoriasModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title"><i class="fas fa-cog"></i> Gerenciar Categorias</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Formulário para nova categoria -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <i class="fas fa-plus"></i> Nova Categoria
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <input type="text" class="form-control" id="cat-nome" placeholder="Nome da categoria">
+                            </div>
+                            <div class="col-md-2">
+                                <select class="form-select" id="cat-grupo">
+                                    <option value="Veículo">🚗 Veículo</option>
+                                    <option value="Equipamento">🔧 Equipamento</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <select class="form-select" id="cat-icone">
+                                    <option value="fa-truck">🚛 Caminhão</option>
+                                    <option value="fa-car">🚗 Carro</option>
+                                    <option value="fa-motorcycle">🏍️ Moto</option>
+                                    <option value="fa-shuttle-van">🚐 Van</option>
+                                    <option value="fa-cogs">⚙️ Máquina</option>
+                                    <option value="fa-tools">🔧 Ferramenta</option>
+                                    <option value="fa-tractor">🚜 Trator</option>
+                                    <option value="fa-bolt">⚡ Elétrico</option>
+                                    <option value="fa-water">💧 Hidráulico</option>
+                                    <option value="fa-cube">📦 Outro</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <select class="form-select" id="cat-cor">
+                                    <option value="primary">🔵 Azul</option>
+                                    <option value="success">🟢 Verde</option>
+                                    <option value="warning">🟡 Amarelo</option>
+                                    <option value="danger">🔴 Vermelho</option>
+                                    <option value="info">🔷 Ciano</option>
+                                    <option value="secondary">⚫ Cinza</option>
+                                    <option value="dark">⬛ Escuro</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary w-100" onclick="salvarNovaCategoria()">
+                                    <i class="fas fa-save"></i> Salvar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Lista de categorias existentes -->
+                <h6><i class="fas fa-list"></i> Categorias Cadastradas</h6>
+                <div id="listaCategorias">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        Carregando...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
