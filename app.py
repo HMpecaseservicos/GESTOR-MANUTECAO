@@ -1907,8 +1907,8 @@ def criar_veiculo():
         
         cursor.execute('''
             INSERT INTO veiculos (empresa_id, tipo, marca, modelo, placa, ano, quilometragem, 
-                                  proxima_manutencao, status, cliente_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                  proxima_manutencao, status, cliente_id, unidade_medida)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (
             empresa_id,
@@ -1920,7 +1920,8 @@ def criar_veiculo():
             data.get('quilometragem', 0),
             data.get('proxima_manutencao') or None,
             'Operacional',
-            cliente_id
+            cliente_id,
+            data.get('unidade_medida', 'km')
         ))
         
         veiculo_id = cursor.fetchone()[0]
@@ -2003,7 +2004,7 @@ def editar_veiculo(veiculo_id):
         cursor.execute('''
             UPDATE veiculos 
             SET tipo=%s, marca=%s, modelo=%s, placa=%s, ano=%s, quilometragem=%s, 
-                proxima_manutencao=%s, cliente_id=%s, updated_at=CURRENT_TIMESTAMP
+                proxima_manutencao=%s, cliente_id=%s, unidade_medida=%s, updated_at=CURRENT_TIMESTAMP
             WHERE id=%s AND empresa_id=%s
         ''', (
             data.get('tipo'),
@@ -2014,6 +2015,7 @@ def editar_veiculo(veiculo_id):
             data.get('quilometragem', 0),
             data.get('proxima_manutencao') or None,
             cliente_id,
+            data.get('unidade_medida', 'km'),
             veiculo_id,
             empresa_id
         ))
@@ -2068,6 +2070,7 @@ def obter_veiculo(veiculo_id):
                     'placa': veiculo['placa'],
                     'ano': veiculo['ano'],
                     'quilometragem': veiculo['quilometragem'],
+                    'unidade_medida': veiculo.get('unidade_medida', 'km'),
                     'proxima_manutencao': str(veiculo['proxima_manutencao']) if veiculo['proxima_manutencao'] else None,
                     'status': veiculo['status'],
                     'cliente_id': veiculo['cliente_id'],

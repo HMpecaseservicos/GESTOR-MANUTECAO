@@ -144,6 +144,7 @@ function salvarVeiculo() {
         placa: data.placa,
         ano: parseInt(data.ano) || null,
         quilometragem: parseInt(data.quilometragem) || 0,
+        unidade_medida: data.unidade_medida || 'km',
         proxima_manutencao: data.proxima_manutencao || null,
         cliente_id: data.cliente_id || null
     };

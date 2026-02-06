@@ -253,11 +253,15 @@
                             <input type="number" class="form-control" name="ano" min="1990" max="2030">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label" id="label-quilometragem-novo">Quilometragem</label>
+                            <label class="form-label" id="label-quilometragem-novo">Quilometragem / Horas</label>
                             <div class="input-group">
                                 <input type="number" class="form-control" name="quilometragem" id="input-quilometragem-novo" min="0" placeholder="0">
-                                <span class="input-group-text" id="unidade-quilometragem-novo">km</span>
+                                <select class="form-select" id="unidade-quilometragem-novo" name="unidade_medida" style="max-width: 80px;">
+                                    <option value="km">km</option>
+                                    <option value="hr">hr</option>
+                                </select>
                             </div>
+                            <small class="text-muted">Use "hr" para máquinas/equipamentos</small>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -367,11 +371,15 @@
                             <input type="number" class="form-control" id="edit-ano" min="1990" max="2030">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label" id="label-quilometragem-edit">Quilometragem</label>
+                            <label class="form-label" id="label-quilometragem-edit">Quilometragem / Horas</label>
                             <div class="input-group">
                                 <input type="number" class="form-control" id="edit-quilometragem" min="0" placeholder="0">
-                                <span class="input-group-text" id="unidade-quilometragem-edit">km</span>
+                                <select class="form-select" id="edit-unidade-medida" style="max-width: 80px;">
+                                    <option value="km">km</option>
+                                    <option value="hr">hr</option>
+                                </select>
                             </div>
+                            <small class="text-muted">Use "hr" para máquinas/equipamentos</small>
                         </div>
                     </div>
                     <div class="mb-3">

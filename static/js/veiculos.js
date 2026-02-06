@@ -158,12 +158,16 @@
                     document.getElementById('edit-quilometragem').value = veiculo.quilometragem || '';
                     document.getElementById('edit-proxima-manutencao').value = veiculo.proxima_manutencao || '';
                     
+                    // Carregar unidade de medida
+                    const unidadeSelect = document.getElementById('edit-unidade-medida');
+                    if (unidadeSelect) {
+                        unidadeSelect.value = veiculo.unidade_medida || 'km';
+                    }
+                    
                     const clienteSelect = document.getElementById('edit-cliente-id');
                     if (clienteSelect) {
                         clienteSelect.value = veiculo.cliente_id || '';
                     }
-
-                    ajustarCampoQuilometragem('edit');
                     
                     const modal = new bootstrap.Modal(document.getElementById('editarVeiculoModal'));
                     modal.show();
@@ -193,6 +197,7 @@
             placa: document.getElementById('edit-placa').value,
             ano: parseInt(document.getElementById('edit-ano').value) || null,
             quilometragem: parseInt(document.getElementById('edit-quilometragem').value) || 0,
+            unidade_medida: document.getElementById('edit-unidade-medida')?.value || 'km',
             proxima_manutencao: document.getElementById('edit-proxima-manutencao').value || null,
             cliente_id: clienteId || null
         };
@@ -255,21 +260,17 @@
 
     function ajustarCampoQuilometragem(modalType) {
         const tipoSelect = document.getElementById(modalType === 'novo' ? 'tipo' : 'edit-tipo');
-        const label = document.getElementById(`label-quilometragem-${modalType}`);
-        const input = document.getElementById(modalType === 'novo' ? 'input-quilometragem-novo' : 'edit-quilometragem');
-        const unidade = document.getElementById(`unidade-quilometragem-${modalType}`);
+        const unidadeSelect = document.getElementById(modalType === 'novo' ? 'unidade-quilometragem-novo' : 'edit-unidade-medida');
         
-        if (tipoSelect && label && input && unidade) {
+        if (tipoSelect && unidadeSelect) {
             const tipoSelecionado = tipoSelect.value.toLowerCase();
             
-            if (tipoSelecionado.includes('máquina') || tipoSelecionado.includes('equipamento') || 
-                tipoSelecionado.includes('gerador') || tipoSelecionado.includes('compressor')) {
-                label.textContent = 'Horas de Trabalho';
-                unidade.textContent = 'h';
-            } else {
-                label.textContent = 'Quilometragem';
-                unidade.textContent = 'km';
-            }
+            // Tipos que usam horas em vez de km
+            const tiposHoras = ['máquina', 'maquina', 'equipamento', 'gerador', 'compressor', 
+                                'prensa', 'bomba', 'empilhadeira', 'guincho', 'implemento', 'ferramenta'];
+            
+            const usaHoras = tiposHoras.some(t => tipoSelecionado.includes(t));
+            unidadeSelect.value = usaHoras ? 'hr' : 'km';
         }
     }
 
