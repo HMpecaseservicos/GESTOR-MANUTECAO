@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Veículos{% endblock %}
+{% block title %}{% if is_servico %}Veículos e Equipamentos{% else %}Veículos{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h1 class="display-6">Gestão de Veículos</h1>
-        <p class="text-muted">{% if is_servico %}Veículos dos seus clientes{% else %}Controle completo da sua frota{% endif %}</p>
+        <h1 class="display-6">{% if is_servico %}Gestão de Veículos e Equipamentos{% else %}Gestão de Veículos{% endif %}</h1>
+        <p class="text-muted">{% if is_servico %}Veículos e equipamentos dos seus clientes{% else %}Controle completo da sua frota{% endif %}</p>
     </div>
 </div>
 
 <div class="row mb-3">
     <div class="col-md-6">
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
-            <i class="fas fa-plus"></i> Novo Veículo
+            <i class="fas fa-plus"></i> {% if is_servico %}Novo Veículo/Equipamento{% else %}Novo Veículo{% endif %}
         </button>
     </div>
     <div class="col-md-6">
@@ -51,7 +51,28 @@
                     {% for veiculo in veiculos %}
                     <tr>
                         <td>
-                            <span class="badge bg-secondary">{{ veiculo.tipo }}</span>
+                            {% set tipo_lower = veiculo.tipo|lower if veiculo.tipo else '' %}
+                            {% if tipo_lower in ['caminhão', 'caminhao'] %}
+                            <span class="badge bg-primary"><i class="fas fa-truck"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['van'] %}
+                            <span class="badge bg-info"><i class="fas fa-shuttle-van"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['pickup', 'carro'] %}
+                            <span class="badge bg-secondary"><i class="fas fa-car"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['moto'] %}
+                            <span class="badge bg-dark"><i class="fas fa-motorcycle"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['máquina', 'maquina'] %}
+                            <span class="badge bg-warning text-dark"><i class="fas fa-cogs"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['equipamento', 'ferramenta', 'compressor', 'gerador', 'bomba', 'prensa'] %}
+                            <span class="badge bg-success"><i class="fas fa-tools"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['implemento'] %}
+                            <span class="badge bg-success"><i class="fas fa-tractor"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['empilhadeira'] %}
+                            <span class="badge bg-warning text-dark"><i class="fas fa-dolly"></i> {{ veiculo.tipo }}</span>
+                            {% elif tipo_lower in ['guincho'] %}
+                            <span class="badge bg-danger"><i class="fas fa-truck-pickup"></i> {{ veiculo.tipo }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary"><i class="fas fa-cube"></i> {{ veiculo.tipo or 'Outro' }}</span>
+                            {% endif %}
                         </td>
                         <td>
                             <strong>{{ veiculo.marca }}</strong><br>
@@ -114,40 +135,62 @@
     </div>
 </div>
 
-<!-- Modal Novo Veículo -->
+<!-- Modal Novo Veículo/Equipamento -->
 <div class="modal fade" id="novoVeiculoModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-plus"></i> Novo Veículo</h5>
+                <h5 class="modal-title"><i class="fas fa-plus"></i> {% if is_servico %}Novo Veículo/Equipamento{% else %}Novo Veículo{% endif %}</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="novoVeiculoForm">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Tipo</label>
+                            <label class="form-label">Tipo/Categoria *</label>
                             <select class="form-select" name="tipo" id="tipo" required onchange="ajustarCampoQuilometragem('novo')">
                                 <option value="">Selecione o tipo</option>
-                                <option value="Caminhão">Caminhão</option>
-                                <option value="Máquina">Máquina</option>
-                                <option value="Van">Van</option>
-                                <option value="Pickup">Pickup</option>
+                                <optgroup label="🚗 Veículos">
+                                    <option value="Caminhão">🚛 Caminhão</option>
+                                    <option value="Van">🚐 Van</option>
+                                    <option value="Pickup">🛻 Pickup</option>
+                                    <option value="Carro">🚗 Carro</option>
+                                    <option value="Moto">🏍️ Moto</option>
+                                </optgroup>
+                                {% if is_servico %}
+                                <optgroup label="🔧 Equipamentos">
+                                    <option value="Equipamento">⚙️ Equipamento</option>
+                                    <option value="Máquina">🏗️ Máquina</option>
+                                    <option value="Implemento">🔩 Implemento Agrícola</option>
+                                    <option value="Ferramenta">🛠️ Ferramenta</option>
+                                    <option value="Compressor">💨 Compressor</option>
+                                    <option value="Gerador">⚡ Gerador</option>
+                                    <option value="Bomba">💧 Bomba Hidráulica</option>
+                                    <option value="Prensa">🔨 Prensa</option>
+                                    <option value="Empilhadeira">📦 Empilhadeira</option>
+                                    <option value="Guincho">🏗️ Guincho/Munck</option>
+                                </optgroup>
+                                {% else %}
+                                <optgroup label="🔧 Máquinas">
+                                    <option value="Máquina">🏗️ Máquina</option>
+                                </optgroup>
+                                {% endif %}
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Marca</label>
-                            <input type="text" class="form-control" name="marca" required>
+                            <label class="form-label">Marca/Fabricante *</label>
+                            <input type="text" class="form-control" name="marca" required placeholder="Ex: Volvo, Caterpillar, Tramontina...">
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Modelo</label>
-                            <input type="text" class="form-control" name="modelo" required>
+                            <label class="form-label">Modelo/Descrição *</label>
+                            <input type="text" class="form-control" name="modelo" required placeholder="Ex: FH 460, Prensa Hidráulica 10T...">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Placa</label>
-                            <input type="text" class="form-control" name="placa" required>
+                            <label class="form-label">Placa/Identificação *</label>
+                            <input type="text" class="form-control" name="placa" required placeholder="Ex: ABC1234 ou EQUIP-001">
+                            <small class="text-muted">Use código interno para equipamentos sem placa</small>
                         </div>
                     </div>
                     <div class="row">
@@ -191,12 +234,12 @@
     </div>
 </div>
 
-<!-- Modal Editar Veículo -->
+<!-- Modal Editar Veículo/Equipamento -->
 <div class="modal fade" id="editarVeiculoModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning">
-                <h5 class="modal-title"><i class="fas fa-edit"></i> Editar Veículo</h5>
+                <h5 class="modal-title"><i class="fas fa-edit"></i> {% if is_servico %}Editar Veículo/Equipamento{% else %}Editar Veículo{% endif %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -204,27 +247,48 @@
                     <input type="hidden" id="edit-veiculo-id">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Tipo</label>
+                            <label class="form-label">Tipo/Categoria</label>
                             <select class="form-select" id="edit-tipo" required onchange="ajustarCampoQuilometragem('edit')">
                                 <option value="">Selecione o tipo</option>
-                                <option value="Caminhão">Caminhão</option>
-                                <option value="Máquina">Máquina</option>
-                                <option value="Van">Van</option>
-                                <option value="Pickup">Pickup</option>
+                                <optgroup label="🚗 Veículos">
+                                    <option value="Caminhão">🚛 Caminhão</option>
+                                    <option value="Van">🚐 Van</option>
+                                    <option value="Pickup">🛻 Pickup</option>
+                                    <option value="Carro">🚗 Carro</option>
+                                    <option value="Moto">🏍️ Moto</option>
+                                </optgroup>
+                                {% if is_servico %}
+                                <optgroup label="🔧 Equipamentos">
+                                    <option value="Equipamento">⚙️ Equipamento</option>
+                                    <option value="Máquina">🏗️ Máquina</option>
+                                    <option value="Implemento">🔩 Implemento Agrícola</option>
+                                    <option value="Ferramenta">🛠️ Ferramenta</option>
+                                    <option value="Compressor">💨 Compressor</option>
+                                    <option value="Gerador">⚡ Gerador</option>
+                                    <option value="Bomba">💧 Bomba Hidráulica</option>
+                                    <option value="Prensa">🔨 Prensa</option>
+                                    <option value="Empilhadeira">📦 Empilhadeira</option>
+                                    <option value="Guincho">🏗️ Guincho/Munck</option>
+                                </optgroup>
+                                {% else %}
+                                <optgroup label="🔧 Máquinas">
+                                    <option value="Máquina">🏗️ Máquina</option>
+                                </optgroup>
+                                {% endif %}
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Marca</label>
+                            <label class="form-label">Marca/Fabricante</label>
                             <input type="text" class="form-control" id="edit-marca" required>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Modelo</label>
+                            <label class="form-label">Modelo/Descrição</label>
                             <input type="text" class="form-control" id="edit-modelo" required>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Placa</label>
+                            <label class="form-label">Placa/Identificação</label>
                             <input type="text" class="form-control" id="edit-placa" required>
                         </div>
                     </div>

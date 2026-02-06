@@ -205,13 +205,15 @@ function carregarVeiculosCliente(clienteId, prefix) {
     // Filtrar veículos por cliente
     let temVeiculoDoCliente = false;
     todasOpcoes.forEach(opt => {
-        if (opt.value === '') {
+        // Sempre mostrar: opção vazia, opção "outro" (cadastrar novo)
+        if (opt.value === '' || opt.value === 'outro') {
             opt.style.display = '';
         } else {
             const clienteDoVeiculo = opt.getAttribute('data-cliente');
-            if (clienteDoVeiculo == clienteId || !clienteDoVeiculo) {
+            // Mostrar se: é do cliente selecionado
+            if (clienteDoVeiculo && clienteDoVeiculo == clienteId) {
                 opt.style.display = '';
-                if (clienteDoVeiculo == clienteId) temVeiculoDoCliente = true;
+                temVeiculoDoCliente = true;
             } else {
                 opt.style.display = 'none';
             }
