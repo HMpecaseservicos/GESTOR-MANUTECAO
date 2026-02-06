@@ -2515,16 +2515,35 @@ def criar_manutencao():
     
     # Veiculo pode ser opcional no modo SERVICO
     veiculo_id = data.get('veiculo_id')
-    if veiculo_id == '' or veiculo_id == 'null' or veiculo_id is None:
-        veiculo_id = None
-    else:
-        veiculo_id = int(veiculo_id)
+    equipamento_cadastrado = False
     
     try:
         if Config.IS_POSTGRES:
             import psycopg2
             conn = psycopg2.connect(Config.DATABASE_URL)
             cursor = conn.cursor()
+            
+            # Verificar se precisa cadastrar novo equipamento
+            if veiculo_id == 'outro' and is_servico():
+                # Cadastrar novo equipamento
+                equipamento_placa = data.get('equipamento_placa', '').strip()
+                equipamento_modelo = data.get('equipamento_modelo', '').strip()
+                equipamento_tipo = data.get('equipamento_tipo', 'Equipamento')
+                
+                if equipamento_placa and equipamento_modelo:
+                    cursor.execute('''
+                        INSERT INTO veiculos (empresa_id, cliente_id, placa, modelo, tipo, status)
+                        VALUES (%s, %s, %s, %s, %s, 'Ativo')
+                        RETURNING id
+                    ''', (empresa_id, cliente_id, equipamento_placa, equipamento_modelo, equipamento_tipo))
+                    veiculo_id = cursor.fetchone()[0]
+                    equipamento_cadastrado = True
+                else:
+                    veiculo_id = None
+            elif veiculo_id == '' or veiculo_id == 'null' or veiculo_id is None:
+                veiculo_id = None
+            else:
+                veiculo_id = int(veiculo_id)
             
             # Inserir manutenção (inclui empresa_id e cliente_id para isolamento de dados)
             cursor.execute('''

@@ -241,6 +241,13 @@ function agendarManutencao() {
             showAlert('Por favor, preencha todos os campos obrigatórios (Tipo, Descrição, Data).', 'warning');
             return;
         }
+        // Se selecionou "outro", validar campos de equipamento
+        if (data.veiculo_id === 'outro') {
+            if (!data.equipamento_placa || !data.equipamento_modelo) {
+                showAlert('Por favor, preencha a identificação e tipo do equipamento.', 'warning');
+                return;
+            }
+        }
     } else {
         // Modo FROTA: veículo obrigatório
         if (!data.veiculo_id || !data.tipo || !data.data_agendada) {
