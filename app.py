@@ -2483,7 +2483,7 @@ def manutencao():
     fornecedores_servicos = cursor.fetchall()
     
     # Buscar clientes (FILTRADO POR EMPRESA) - para vincular à OS
-    cursor.execute(f"SELECT id, nome, telefone FROM clientes WHERE empresa_id = {placeholder} AND status = 'Ativo' ORDER BY nome", (empresa_id,))
+    cursor.execute(f"SELECT id, nome, telefone FROM clientes WHERE empresa_id = {placeholder} AND UPPER(status) = 'ATIVO' ORDER BY nome", (empresa_id,))
     clientes = cursor.fetchall()
     
     conn.close()
