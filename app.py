@@ -4534,21 +4534,24 @@ def buscar_tecnico(tecnico_id):
         empresa_id = get_empresa_id()
         
         conn = psycopg2.connect(Config.DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tecnicos WHERE id=%s AND empresa_id=%s", (tecnico_id, empresa_id))
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, nome, cpf, telefone, email, especialidade, data_admissao, status 
+            FROM tecnicos WHERE id=%s AND empresa_id=%s
+        """, (tecnico_id, empresa_id))
         tecnico = cursor.fetchone()
         conn.close()
         
         if tecnico:
             return jsonify({
-                'id': tecnico[0],
-                'nome': tecnico[1],
-                'cpf': tecnico[2],
-                'telefone': tecnico[3],
-                'email': tecnico[4],
-                'especialidade': tecnico[5],
-                'data_admissao': tecnico[6],
-                'status': tecnico[7]
+                'id': tecnico['id'],
+                'nome': tecnico['nome'],
+                'cpf': tecnico['cpf'],
+                'telefone': tecnico['telefone'],
+                'email': tecnico['email'],
+                'especialidade': tecnico['especialidade'],
+                'data_admissao': str(tecnico['data_admissao']) if tecnico['data_admissao'] else None,
+                'status': tecnico['status']
             })
         else:
             return jsonify({'success': False, 'message': 'Técnico não encontrado'})
@@ -4569,7 +4572,7 @@ def historico_tecnico(tecnico_id):
         # Busca manutenções realizadas pelo técnico (filtrado por empresa)
         cursor.execute("""
             SELECT COALESCE(m.data_realizada, m.data_agendada) as data, 
-                   v.placa, v.modelo, m.tipo, m.status
+                   v.placa, v.modelo, m.tipo, m.status, m.custo
             FROM manutencoes m
             LEFT JOIN veiculos v ON m.veiculo_id = v.id
             WHERE m.tecnico = (SELECT nome FROM tecnicos WHERE id = %s AND empresa_id = %s)
@@ -4583,10 +4586,11 @@ def historico_tecnico(tecnico_id):
         historico = []
         for m in manutencoes:
             historico.append({
-                'data': m[0] if m[0] else 'Não informado',
+                'data': str(m[0]) if m[0] else None,
                 'veiculo': f"{m[1]} - {m[2]}" if m[1] else 'Não informado',
                 'tipo': m[3],
-                'status': m[4]
+                'status': m[4],
+                'custo': float(m[5]) if m[5] else None
             })
         
         return jsonify(historico)

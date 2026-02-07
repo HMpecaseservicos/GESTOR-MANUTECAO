@@ -41,55 +41,67 @@
 <!-- Cards de Técnicos -->
 <div class="row" id="listaTecnicos">
     {% for tecnico in tecnicos %}
-    <div class="col-md-6 col-lg-4 mb-4 tecnico-card" data-nome="{{ tecnico[1]|lower }}" data-status="{{ tecnico[7] }}">
-        <div class="card h-100">
-            <div class="card-header {% if tecnico[7] == 'Ativo' %}bg-success{% elif tecnico[7] == 'Férias' %}bg-warning{% else %}bg-secondary{% endif %} text-white">
+    <div class="col-md-6 col-lg-4 mb-4 tecnico-card" data-nome="{{ tecnico.nome|lower }}" data-status="{{ tecnico.status }}">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header {% if tecnico.status == 'Ativo' %}bg-success{% elif tecnico.status == 'Férias' %}bg-warning{% else %}bg-secondary{% endif %} text-white">
                 <h6 class="mb-0">
-                    <i class="fas fa-user-cog"></i> {{ tecnico[1] }}
-                    <span class="badge bg-light text-dark float-end">{{ tecnico[7] }}</span>
+                    <i class="fas fa-user-cog"></i> {{ tecnico.nome }}
+                    <span class="badge bg-light text-dark float-end">{{ tecnico.status }}</span>
                 </h6>
             </div>
             <div class="card-body">
                 <div class="mb-2">
-                    <strong><i class="fas fa-id-card"></i> CPF:</strong><br>
-                    <span class="text-muted">{{ tecnico[2] or 'Não informado' }}</span>
+                    <strong><i class="fas fa-id-card text-primary"></i> CPF:</strong><br>
+                    <span class="text-muted">{{ tecnico.cpf or 'Não informado' }}</span>
                 </div>
                 
                 <div class="mb-2">
-                    <strong><i class="fas fa-phone"></i> Telefone:</strong><br>
-                    <span class="text-muted">{{ tecnico[3] or 'Não informado' }}</span>
+                    <strong><i class="fas fa-phone text-success"></i> Telefone:</strong><br>
+                    <span class="text-muted">{{ tecnico.telefone or 'Não informado' }}</span>
                 </div>
                 
                 <div class="mb-2">
-                    <strong><i class="fas fa-envelope"></i> Email:</strong><br>
-                    <span class="text-muted">{{ tecnico[4] or 'Não informado' }}</span>
+                    <strong><i class="fas fa-envelope text-info"></i> Email:</strong><br>
+                    <span class="text-muted">{{ tecnico.email or 'Não informado' }}</span>
                 </div>
                 
                 <div class="mb-2">
-                    <strong><i class="fas fa-wrench"></i> Especialidade:</strong><br>
-                    <span class="badge bg-primary">{{ tecnico[5] or 'Geral' }}</span>
+                    <strong><i class="fas fa-wrench text-warning"></i> Especialidade:</strong><br>
+                    <span class="badge bg-primary">{{ tecnico.especialidade or 'Geral' }}</span>
                 </div>
                 
                 <div class="mb-2">
-                    <strong><i class="fas fa-calendar"></i> Data Admissão:</strong><br>
-                    <span class="text-muted">{{ tecnico[6] or 'Não informada' }}</span>
+                    <strong><i class="fas fa-calendar text-secondary"></i> Data Admissão:</strong><br>
+                    <span class="text-muted">{{ tecnico.data_admissao or 'Não informada' }}</span>
                 </div>
             </div>
-            <div class="card-footer">
+            <div class="card-footer bg-transparent">
                 <div class="btn-group w-100" role="group">
-                    <button type="button" class="btn btn-sm btn-outline-primary btn-detalhes" data-id="{{ tecnico[0] }}" title="Ver Detalhes">
+                    <button type="button" class="btn btn-sm btn-outline-primary btn-detalhes" data-id="{{ tecnico.id }}" title="Ver Detalhes">
                         <i class="fas fa-eye"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-success btn-whatsapp" data-tel="{{ tecnico[3] or '' }}" title="WhatsApp">
+                    <button type="button" class="btn btn-sm btn-outline-success btn-whatsapp" data-tel="{{ tecnico.telefone or '' }}" title="WhatsApp">
                         <i class="fab fa-whatsapp"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-warning btn-editar" data-id="{{ tecnico[0] }}" title="Editar">
+                    <button type="button" class="btn btn-sm btn-outline-warning btn-editar" data-id="{{ tecnico.id }}" title="Editar">
                         <i class="fas fa-edit"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-danger btn-excluir" data-id="{{ tecnico[0] }}" data-nome="{{ tecnico[1] }}" title="Excluir">
+                    <button type="button" class="btn btn-sm btn-outline-danger btn-excluir" data-id="{{ tecnico.id }}" data-nome="{{ tecnico.nome }}" title="Excluir">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-user-cog fa-3x text-muted mb-3"></i>
+                <p class="text-muted mb-2">Nenhum técnico cadastrado ainda.</p>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoTecnicoModal">
+                    <i class="fas fa-plus"></i> Cadastrar Primeiro Técnico
+                </button>
             </div>
         </div>
     </div>
@@ -99,7 +111,7 @@
 <!-- Estatísticas -->
 <div class="row mt-4">
     <div class="col-md-3">
-        <div class="card text-white bg-success">
+        <div class="card text-white bg-success shadow-sm">
             <div class="card-body text-center">
                 <i class="fas fa-users fa-2x mb-2"></i>
                 <h5>Total de Técnicos</h5>
@@ -108,14 +120,14 @@
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card text-white bg-primary">
+        <div class="card text-white bg-primary shadow-sm">
             <div class="card-body text-center">
                 <i class="fas fa-user-check fa-2x mb-2"></i>
                 <h5>Ativos</h5>
                 <h3>
                     {% set ns = namespace(count=0) %}
                     {% for tecnico in tecnicos %}
-                        {% if tecnico[7] == 'Ativo' %}
+                        {% if tecnico.status == 'Ativo' %}
                             {% set ns.count = ns.count + 1 %}
                         {% endif %}
                     {% endfor %}
@@ -125,14 +137,14 @@
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card text-white bg-warning">
+        <div class="card text-white bg-warning shadow-sm">
             <div class="card-body text-center">
                 <i class="fas fa-umbrella-beach fa-2x mb-2"></i>
                 <h5>De Férias</h5>
                 <h3>
                     {% set ns = namespace(count=0) %}
                     {% for tecnico in tecnicos %}
-                        {% if tecnico[7] == 'Férias' %}
+                        {% if tecnico.status == 'Férias' %}
                             {% set ns.count = ns.count + 1 %}
                         {% endif %}
                     {% endfor %}
@@ -142,14 +154,14 @@
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card text-white bg-secondary">
+        <div class="card text-white bg-secondary shadow-sm">
             <div class="card-body text-center">
                 <i class="fas fa-user-times fa-2x mb-2"></i>
                 <h5>Inativos</h5>
                 <h3>
                     {% set ns = namespace(count=0) %}
                     {% for tecnico in tecnicos %}
-                        {% if tecnico[7] == 'Inativo' %}
+                        {% if tecnico.status == 'Inativo' %}
                             {% set ns.count = ns.count + 1 %}
                         {% endif %}
                     {% endfor %}
@@ -578,7 +590,7 @@ function verDetalhesTecnico(id) {
             // Configurar botão WhatsApp
             const btnWhatsApp = document.getElementById('btn-whatsapp-modal');
             if (tecnico.telefone) {
-                btnWhatsApp.onclick = () => abrirWhatsApp(tecnico.telefone, tecnico.nome);
+                btnWhatsApp.onclick = () => contatarWhatsApp(tecnico.telefone);
                 btnWhatsApp.style.display = 'inline-block';
             } else {
                 btnWhatsApp.style.display = 'none';
@@ -738,8 +750,6 @@ function filtrarTecnicos() {
         selectElement.style.backgroundColor = '';
         selectElement.style.fontWeight = '';
     }
-    
-    console.log(`Filtro aplicado: "${filtroStatus}" - ${contadorVisiveis} técnicos exibidos`);
 }
 
 // Limpar todos os filtros
