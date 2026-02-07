@@ -77,99 +77,95 @@
     </div>
 </div>
 
-<!-- Tabela de Clientes -->
-<div class="card shadow-sm">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0" id="tabelaClientes">
-                <thead class="table-light">
-                    <tr>
-                        <th>Nome</th>
-                        <th>Documento</th>
-                        <th>Telefone</th>
-                        <th>Email</th>
-                        <th>Cidade/UF</th>
-                        <th>Status</th>
-                        <th class="text-center">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for cliente in clientes %}
-                    <tr class="cliente-row" data-status="{{ cliente.status }}" data-nome="{{ cliente.nome|lower }}">
-                        <td>
-                            <strong>{{ cliente.nome }}</strong>
-                        </td>
-                        <td>
-                            <span class="badge bg-light text-dark">
-                                {{ cliente.tipo_documento or '' }} {{ cliente.documento or 'Não informado' }}
-                            </span>
-                        </td>
-                        <td>
-                            {% if cliente.telefone %}
-                            <a href="https://wa.me/55{{ cliente.telefone|replace('(', '')|replace(')', '')|replace('-', '')|replace(' ', '') }}" 
-                               target="_blank" class="text-success text-decoration-none">
-                                <i class="fab fa-whatsapp"></i> {{ cliente.telefone }}
-                            </a>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if cliente.email %}
-                            <a href="mailto:{{ cliente.email }}" class="text-decoration-none">
-                                {{ cliente.email }}
-                            </a>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if cliente.cidade %}
-                            {{ cliente.cidade }}{% if cliente.estado %}/{{ cliente.estado }}{% endif %}
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if cliente.status == 'ATIVO' %}
-                            <span class="badge bg-success">Ativo</span>
-                            {% else %}
-                            <span class="badge bg-secondary">Inativo</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-primary btn-detalhes" data-id="{{ cliente.id }}" title="Detalhes">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-outline-warning btn-editar" data-id="{{ cliente.id }}" title="Editar">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="btn btn-outline-{{ 'danger' if cliente.status == 'ATIVO' else 'success' }} btn-toggle-status" 
-                                        data-id="{{ cliente.id }}" 
-                                        data-status="{{ cliente.status }}"
-                                        data-nome="{{ cliente.nome }}"
-                                        title="{{ 'Inativar' if cliente.status == 'ATIVO' else 'Ativar' }}">
-                                    <i class="fas fa-{{ 'ban' if cliente.status == 'ATIVO' else 'check' }}"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
+<!-- Lista de Clientes em Cards -->
+<div class="row" id="listaClientes">
+    {% for cliente in clientes %}
+    <div class="col-md-6 col-lg-4 mb-4 cliente-card" data-status="{{ cliente.status }}" data-nome="{{ cliente.nome|lower }}">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header {{ 'bg-success' if cliente.status == 'ATIVO' else 'bg-secondary' }} text-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 text-truncate" style="max-width: 200px;">
+                    <i class="fas fa-user-tie"></i> {{ cliente.nome }}
+                </h6>
+                <span class="badge bg-{{ 'light text-success' if cliente.status == 'ATIVO' else 'light text-secondary' }}">
+                    {{ 'Ativo' if cliente.status == 'ATIVO' else 'Inativo' }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong><i class="fas fa-id-card text-primary"></i> Documento:</strong><br>
+                    <span class="text-muted">
+                        {% if cliente.documento %}
+                        <span class="badge bg-light text-dark">{{ cliente.tipo_documento or '' }} {{ cliente.documento }}</span>
+                        {% else %}
+                        Não informado
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-phone text-success"></i> Telefone:</strong><br>
+                    {% if cliente.telefone %}
+                    <a href="https://wa.me/55{{ cliente.telefone|replace('(', '')|replace(')', '')|replace('-', '')|replace(' ', '') }}" 
+                       target="_blank" class="text-success text-decoration-none">
+                        <i class="fab fa-whatsapp"></i> {{ cliente.telefone }}
+                    </a>
                     {% else %}
-                    <tr>
-                        <td colspan="7" class="text-center py-5">
-                            <i class="fas fa-user-tie fa-3x text-muted mb-3"></i>
-                            <p class="text-muted mb-0">Nenhum cliente cadastrado ainda.</p>
-                            <button class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#novoClienteModal">
-                                <i class="fas fa-plus"></i> Cadastrar Primeiro Cliente
-                            </button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                    <span class="text-muted">Não informado</span>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-envelope text-info"></i> Email:</strong><br>
+                    {% if cliente.email %}
+                    <a href="mailto:{{ cliente.email }}" class="text-decoration-none text-muted">{{ cliente.email }}</a>
+                    {% else %}
+                    <span class="text-muted">Não informado</span>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-2">
+                    <strong><i class="fas fa-map-marker-alt text-danger"></i> Localização:</strong><br>
+                    <span class="text-muted">
+                        {% if cliente.cidade %}
+                        {{ cliente.cidade }}{% if cliente.estado %}/{{ cliente.estado }}{% endif %}
+                        {% else %}
+                        Não informado
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent">
+                <div class="btn-group w-100" role="group">
+                    <button class="btn btn-sm btn-outline-primary btn-detalhes" data-id="{{ cliente.id }}" title="Detalhes">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning btn-editar" data-id="{{ cliente.id }}" title="Editar">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-{{ 'danger' if cliente.status == 'ATIVO' else 'success' }} btn-toggle-status" 
+                            data-id="{{ cliente.id }}" 
+                            data-status="{{ cliente.status }}"
+                            data-nome="{{ cliente.nome }}"
+                            title="{{ 'Inativar' if cliente.status == 'ATIVO' else 'Ativar' }}">
+                        <i class="fas fa-{{ 'ban' if cliente.status == 'ATIVO' else 'check' }}"></i>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
+    {% else %}
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-user-tie fa-3x text-muted mb-3"></i>
+                <p class="text-muted mb-0">Nenhum cliente cadastrado ainda.</p>
+                <button class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#novoClienteModal">
+                    <i class="fas fa-plus"></i> Cadastrar Primeiro Cliente
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
 <!-- Modal Novo/Editar Cliente -->
@@ -489,19 +485,19 @@ document.querySelectorAll('.btn-toggle-status').forEach(btn => {
     });
 });
 
-// Filtrar clientes na tabela
+// Filtrar clientes nos cards
 function filtrarClientes() {
     const searchTerm = document.getElementById('searchClientes').value.toLowerCase();
     const statusFiltro = document.getElementById('filtroStatus').value;
     
-    document.querySelectorAll('.cliente-row').forEach(row => {
-        const nome = row.getAttribute('data-nome');
-        const status = row.getAttribute('data-status');
+    document.querySelectorAll('.cliente-card').forEach(card => {
+        const nome = card.getAttribute('data-nome');
+        const status = card.getAttribute('data-status');
         
         const matchNome = nome.includes(searchTerm);
         const matchStatus = !statusFiltro || status === statusFiltro;
         
-        row.style.display = (matchNome && matchStatus) ? '' : 'none';
+        card.style.display = (matchNome && matchStatus) ? '' : 'none';
     });
 }
 
