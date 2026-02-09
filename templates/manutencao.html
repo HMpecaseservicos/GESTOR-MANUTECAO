@@ -1253,8 +1253,7 @@ function carregarPecasUtilizadas() {
             }
             
             let totalGeral = 0;
-            let html = '<div class="table-responsive"><table class="table table-sm table-striped">';
-            html += '<thead><tr><th>Peça</th><th>Código</th><th>Qtd</th><th>Preço Unit.</th><th>Subtotal</th></tr></thead><tbody>';
+            let html = '<div class="row">';
             
             pecas.forEach(peca => {
                 // A API retorna objetos com propriedades nomeadas
@@ -1265,16 +1264,35 @@ function carregarPecasUtilizadas() {
                 const subtotal = peca.subtotal || (parseFloat(quantidade) * parseFloat(precoUnitario));
                 totalGeral += parseFloat(subtotal);
                 
-                html += `<tr>
-                    <td><strong>${nome}</strong></td>
-                    <td><small>${codigo}</small></td>
-                    <td>${quantidade}</td>
-                    <td>${formatarMoedaBR(parseFloat(precoUnitario))}</td>
-                    <td>${formatarMoedaBR(parseFloat(subtotal))}</td>
-                </tr>`;
+                html += `
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-header bg-success text-white">
+                            <h6 class="mb-0"><i class="fas fa-cog"></i> ${nome}</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <strong><i class="fas fa-barcode text-secondary"></i> Código:</strong><br>
+                                <span class="badge bg-secondary">${codigo}</span>
+                            </div>
+                            <div class="mb-2">
+                                <strong><i class="fas fa-boxes text-info"></i> Quantidade:</strong><br>
+                                <span class="badge bg-info">${quantidade}</span>
+                            </div>
+                            <div class="mb-2">
+                                <strong><i class="fas fa-tag text-warning"></i> Preço Unitário:</strong><br>
+                                <span class="text-warning"><strong>${formatarMoedaBR(parseFloat(precoUnitario))}</strong></span>
+                            </div>
+                            <div class="mb-2">
+                                <strong><i class="fas fa-calculator text-success"></i> Subtotal:</strong><br>
+                                <span class="text-success"><strong>${formatarMoedaBR(parseFloat(subtotal))}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
             });
             
-            html += '</tbody></table></div>';
+            html += '</div>';
             container.innerHTML = html;
             document.getElementById('total-pecas').textContent = `Total: ${formatarMoedaBR(totalGeral)}`;
         })
@@ -1322,8 +1340,7 @@ function exibirPecasEdicao(pecas) {
         return;
     }
     
-    let html = '<table class="table table-sm table-hover">';
-    html += '<thead><tr><th>Peça</th><th>Código</th><th>Qtd</th><th>Preço Unit.</th><th>Subtotal</th><th>Ações</th></tr></thead><tbody>';
+    let html = '<div class="row">';
     
     pecas.forEach(peca => {
         // peca agora é um objeto com propriedades nomeadas
@@ -1334,21 +1351,40 @@ function exibirPecasEdicao(pecas) {
         const codigo = peca.codigo || peca[7];
         const id = peca.id || peca[0];
         
-        html += `<tr>
-            <td><strong>${nome}</strong></td>
-            <td><small>${codigo}</small></td>
-            <td>${quantidade}</td>
-            <td>${formatarMoedaBR(parseFloat(precoUnitario))}</td>
-            <td>${formatarMoedaBR(subtotal)}</td>
-            <td>
-                <button class="btn btn-sm btn-outline-danger" onclick="removerPecaEdicao(${id})" title="Remover">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
-        </tr>`;
+        html += `
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h6 class="mb-0"><i class="fas fa-cog"></i> ${nome}</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <strong><i class="fas fa-barcode text-secondary"></i> Código:</strong><br>
+                        <span class="badge bg-secondary">${codigo}</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong><i class="fas fa-boxes text-info"></i> Quantidade:</strong><br>
+                        <span class="badge bg-info">${quantidade}</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong><i class="fas fa-tag text-warning"></i> Preço Unitário:</strong><br>
+                        <span class="text-warning"><strong>${formatarMoedaBR(parseFloat(precoUnitario))}</strong></span>
+                    </div>
+                    <div class="mb-2">
+                        <strong><i class="fas fa-calculator text-success"></i> Subtotal:</strong><br>
+                        <span class="text-success"><strong>${formatarMoedaBR(subtotal)}</strong></span>
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <button class="btn btn-sm btn-outline-danger w-100" onclick="removerPecaEdicao(${id})" title="Remover Peça">
+                        <i class="fas fa-trash"></i> Remover
+                    </button>
+                </div>
+            </div>
+        </div>`;
     });
     
-    html += '</tbody></table>';
+    html += '</div>';
     container.innerHTML = html;
 }
 
