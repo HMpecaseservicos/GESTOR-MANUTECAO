@@ -1409,9 +1409,14 @@ function atualizarTotaisEdicao(pecas) {
     
     const custoMaoObraInput = document.getElementById('edit-custo');
     const custoMaoObra = custoMaoObraInput ? (parseFloat(custoMaoObraInput.value) || 0) : 0;
-    const custoTotal = totalPecas + custoMaoObra;
+    const totalServicosEl = document.getElementById('edit-total-servicos');
+    let totalServicos = 0;
+    if (totalServicosEl) {
+        totalServicos = parseFloat(totalServicosEl.textContent.replace('R$', '').replace('.', '').replace(',', '.').trim()) || 0;
+    }
+    const custoTotal = totalPecas + custoMaoObra + totalServicos;
     
-    console.log('Total Peças:', totalPecas, 'Custo Mão de Obra:', custoMaoObra, 'Custo Total:', custoTotal);
+    console.log('Total Peças:', totalPecas, 'Custo Mão de Obra:', custoMaoObra, 'Total Serviços:', totalServicos, 'Custo Total:', custoTotal);
     
     document.getElementById('edit-total-pecas').textContent = formatarMoedaBR(totalPecas);
     document.getElementById('edit-custo-total').textContent = formatarMoedaBR(custoTotal);
