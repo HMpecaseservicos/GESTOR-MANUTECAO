@@ -2158,7 +2158,8 @@ def manutencao():
             COALESCE(v.placa, 'S/Veículo') as placa, 
             COALESCE(v.modelo, '') as modelo, 
             COALESCE(t.telefone, f.telefone) as telefone,
-            c.nome as cliente_nome
+            c.nome as cliente_nome,
+            COALESCE(v.tipo, '') as veiculo_tipo
         FROM manutencoes m 
         LEFT JOIN veiculos v ON m.veiculo_id = v.id 
         LEFT JOIN clientes c ON m.cliente_id = c.id

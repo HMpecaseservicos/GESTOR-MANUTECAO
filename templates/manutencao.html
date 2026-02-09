@@ -105,14 +105,16 @@
                     {% if is_servico and manutencao[16] %}
                     <div class="mb-2">
                         <strong><i class="fas fa-user text-primary"></i> Cliente:</strong><br>
-                        <span class="text-muted">{{ manutencao[16] }}</span>
+                        <span class="badge bg-info">{{ manutencao[16] }}</span>
                     </div>
                     {% endif %}
                     
                     {% if manutencao[13] != 'S/Veículo' %}
+                    {% set veiculo_tipo = manutencao[17]|lower if manutencao[17] else '' %}
+                    {% set label_tipo = 'Veículo' if veiculo_tipo in ['caminhão', 'caminhao', 'van', 'carro', 'pickup', 'moto'] else 'Equipamento' %}
                     <div class="mb-2">
-                        <strong><i class="fas fa-car text-secondary"></i> {% if is_servico %}Equip.{% else %}Veículo{% endif %}:</strong><br>
-                        <span class="text-muted">{{ manutencao[13] }} - {{ manutencao[14] }}</span>
+                        <strong><i class="fas fa-car text-secondary"></i> {{ label_tipo }}:</strong><br>
+                        <span class="badge bg-info">{{ manutencao[13] }} - {{ manutencao[14] }}</span>
                     </div>
                     {% endif %}
                     
