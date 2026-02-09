@@ -57,27 +57,14 @@
         <h5 class="mb-0"><i class="fas fa-list"></i> Lista de Ativos</h5>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0" id="tabelaVeiculos">
-                <thead class="table-light">
-                    <tr>
-                        <th>Tipo</th>
-                        <th>Marca/Modelo</th>
-                        <th>Placa</th>
-                        {% if is_servico %}<th>Cliente</th>{% endif %}
-                        <th>Ano</th>
-                        <th>Quilometragem</th>
-                        <th>Próxima Manutenção</th>
-                        <th>Status</th>
-                        <th>Manutenções</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for veiculo in veiculos %}
-                    <tr data-status="{{ veiculo.status }}" data-tipo="{{ veiculo.tipo }}" data-cliente="{{ veiculo.cliente_id or '' }}">
-                        <td>
-                            {% set tipo_lower = veiculo.tipo|lower if veiculo.tipo else '' %}
+        <div class="row p-3" id="listaVeiculos">
+            {% for veiculo in veiculos %}
+            {% set tipo_lower = veiculo.tipo|lower if veiculo.tipo else '' %}
+            {% set unidade = 'hr' if veiculo.unidade_medida == 'hr' else 'km' %}
+            <div class="col-md-6 col-lg-4 mb-4 veiculo-card" data-status="{{ veiculo.status }}" data-tipo="{{ veiculo.tipo }}" data-cliente="{{ veiculo.cliente_id or '' }}">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
                             {% if tipo_lower in ['caminhão', 'caminhao'] %}
                             <span class="badge bg-primary"><i class="fas fa-truck"></i> {{ veiculo.tipo }}</span>
                             {% elif tipo_lower in ['van'] %}
@@ -99,35 +86,8 @@
                             {% else %}
                             <span class="badge bg-secondary"><i class="fas fa-cube"></i> {{ veiculo.tipo or 'Outro' }}</span>
                             {% endif %}
-                        </td>
-                        <td>
-                            <strong>{{ veiculo.marca }}</strong><br>
-                            <small class="text-muted">{{ veiculo.modelo }}</small>
-                        </td>
-                        <td>
-                            <strong class="text-primary">{{ veiculo.placa }}</strong>
-                        </td>
-                        {% if is_servico %}
-                        <td>
-                            {% if veiculo.cliente_nome %}
-                            <span class="badge bg-info">{{ veiculo.cliente_nome }}</span>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        {% endif %}
-                        <td>{{ veiculo.ano }}</td>
-                        <td>
-                            <span class="badge bg-info">{{ "{:,}".format(veiculo.quilometragem|default(0, true)) }} km</span>
-                        </td>
-                        <td>
-                            {% if veiculo.proxima_manutencao %}
-                                <small class="text-warning">{{ veiculo.proxima_manutencao }}</small>
-                            {% else %}
-                                <small class="text-muted">Não agendada</small>
-                            {% endif %}
-                        </td>
-                        <td>
+                        </div>
+                        <div>
                             {% if veiculo.status == 'Operacional' %}
                                 <span class="badge bg-success">{{ veiculo.status }}</span>
                             {% elif veiculo.status == 'Manutenção' %}
@@ -135,41 +95,77 @@
                             {% else %}
                                 <span class="badge bg-danger">{{ veiculo.status }}</span>
                             {% endif %}
-                        </td>
-                        <td>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <strong><i class="fas fa-industry text-primary"></i> Marca/Modelo:</strong><br>
+                            <span class="text-muted">{{ veiculo.marca }} {{ veiculo.modelo }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong><i class="fas fa-id-card text-info"></i> Placa/Ident.:</strong><br>
+                            <span class="text-primary">{{ veiculo.placa }}</span>
+                        </div>
+                        {% if is_servico %}
+                        <div class="mb-2">
+                            <strong><i class="fas fa-user text-success"></i> Cliente:</strong><br>
+                            {% if veiculo.cliente_nome %}
+                            <span class="badge bg-info">{{ veiculo.cliente_nome }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <div class="mb-2">
+                            <strong><i class="fas fa-calendar text-secondary"></i> Ano:</strong><br>
+                            <span class="text-muted">{{ veiculo.ano or '-' }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong><i class="fas fa-tachometer-alt text-warning"></i> Medicao:</strong><br>
+                            <span class="badge bg-info">{{ "{:,}".format(veiculo.quilometragem|default(0, true)) }} {{ unidade }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong><i class="fas fa-calendar-check text-warning"></i> Proxima Manutencao:</strong><br>
+                            {% if veiculo.proxima_manutencao %}
+                                <span class="text-warning">{{ veiculo.proxima_manutencao }}</span>
+                            {% else %}
+                                <span class="text-muted">Nao agendada</span>
+                            {% endif %}
+                        </div>
+                        <div class="mb-2">
+                            <strong><i class="fas fa-wrench text-primary"></i> Manutencoes:</strong><br>
                             <span class="badge bg-primary">{{ veiculo.total_manutencoes|default(0) }}</span>
-                        </td>
-                        <td>
-                            <div class="btn-group" role="group">
-                                <a href="{{ url_for('detalhes_veiculo', veiculo_id=veiculo.id) }}" 
-                                   class="btn btn-sm btn-outline-primary" title="Ver Detalhes">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarVeiculo({{ veiculo.id }})">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="excluirVeiculo({{ veiculo.id }}, '{{ veiculo.marca }} {{ veiculo.modelo }} - {{ veiculo.placa }}')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% if not veiculos %}
-                    <tr id="row-empty">
-                        <td colspan="{{ 10 if is_servico else 9 }}" class="text-center py-5">
-                            <div class="text-muted">
-                                <i class="fas fa-truck fa-3x mb-3 opacity-50"></i>
-                                <p class="mb-2">Nenhum ativo cadastrado ainda</p>
-                                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
-                                    <i class="fas fa-plus"></i> Cadastrar primeiro ativo
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <div class="btn-group w-100" role="group">
+                            <a href="{{ url_for('detalhes_veiculo', veiculo_id=veiculo.id) }}" 
+                               class="btn btn-sm btn-outline-primary" title="Ver Detalhes">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                            <button class="btn btn-sm btn-outline-warning" title="Editar" onclick="editarVeiculo({{ veiculo.id }})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="excluirVeiculo({{ veiculo.id }}, '{{ veiculo.marca }} {{ veiculo.modelo }} - {{ veiculo.placa }}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-12" id="row-empty">
+                <div class="card shadow-sm">
+                    <div class="card-body text-center py-5">
+                        <i class="fas fa-truck fa-3x mb-3 opacity-50"></i>
+                        <p class="text-muted mb-2">Nenhum ativo cadastrado ainda</p>
+                        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#novoVeiculoModal">
+                            <i class="fas fa-plus"></i> Cadastrar primeiro ativo
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
 </div>

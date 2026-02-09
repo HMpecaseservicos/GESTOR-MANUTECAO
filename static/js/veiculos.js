@@ -69,14 +69,14 @@
         const tipoFiltro = document.getElementById('filterTipo')?.value || '';
         const clienteFiltro = document.getElementById('filterCliente')?.value || '';
 
-        const tableRows = document.querySelectorAll('#tabelaVeiculos tbody tr:not(#row-empty)');
+        const cards = document.querySelectorAll('.veiculo-card');
         let visiveis = 0;
 
-        tableRows.forEach(row => {
-            const texto = row.textContent.toLowerCase();
-            const status = row.getAttribute('data-status') || '';
-            const tipo = row.getAttribute('data-tipo') || '';
-            const clienteId = row.getAttribute('data-cliente') || '';
+        cards.forEach(card => {
+            const texto = card.textContent.toLowerCase();
+            const status = card.getAttribute('data-status') || '';
+            const tipo = card.getAttribute('data-tipo') || '';
+            const clienteId = card.getAttribute('data-cliente') || '';
 
             const matchTexto = !searchTerm || texto.includes(searchTerm);
             const matchStatus = !statusFiltro || status === statusFiltro;
@@ -84,14 +84,14 @@
             const matchCliente = !clienteFiltro || clienteId === clienteFiltro;
 
             if (matchTexto && matchStatus && matchTipo && matchCliente) {
-                row.style.display = '';
+                card.style.display = '';
                 visiveis++;
             } else {
-                row.style.display = 'none';
+                card.style.display = 'none';
             }
         });
 
-        atualizarContadorFiltros(visiveis, tableRows.length);
+        atualizarContadorFiltros(visiveis, cards.length);
     }
 
     function atualizarContadorFiltros(visiveis, total) {

@@ -259,6 +259,12 @@
                                     </button>
                                     {% endif %}
                                 {% endif %}
+                                {% if manutencao[7] in ['CANCELADO', 'Cancelada'] %}
+                                <button class="btn btn-sm btn-outline-danger" title="Excluir"
+                                        onclick="excluirManutencao('{{ manutencao[0] }}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -1711,6 +1717,35 @@ function limparFiltrosManutencao() {
     document.getElementById('searchManutencoes').value = '';
     document.getElementById('filtroStatus').value = '';
     filtrarManutencoes();
+}
+
+// Excluir manutencao cancelada
+function excluirManutencao(id) {
+    if (!confirm('Deseja excluir definitivamente esta manutencao cancelada?')) {
+        return;
+    }
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+    fetch(`/manutencao/delete/${id}`, {
+        method: 'DELETE',
+        headers: {
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'Manutencao excluida com sucesso!');
+            location.reload();
+        } else {
+            alert(data.message || 'Erro ao excluir manutencao.');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        alert('Erro ao excluir manutencao: ' + error.message);
+    });
 }
 
 // Iniciar manutenção via WhatsApp
