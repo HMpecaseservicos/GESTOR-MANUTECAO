@@ -496,6 +496,29 @@ body {
     transform: translateX(3px);
 }
 
+/* ===== ESPECÍFICO PARA VEÍCULOS ===== */
+.veiculo-card .card {
+    border-left: 4px solid #6c757d;
+    transition: all 0.3s ease;
+}
+
+.veiculo-card[data-status="Operacional"] .card {
+    border-left-color: #198754;
+}
+
+.veiculo-card[data-status="Manutenção"] .card {
+    border-left-color: #ffc107;
+}
+
+.veiculo-card[data-status="Parado"] .card {
+    border-left-color: #dc3545;
+}
+
+.veiculo-card:hover .card {
+    transform: translateX(3px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+}
+
 /* ===== DARK MODE SUPPORT ===== */
 @media (prefers-color-scheme: dark) {
     body {
