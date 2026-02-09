@@ -48,70 +48,26 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-header bg-primary text-white">
-        <h5 class="mb-0"><i class="fas fa-wrench"></i> Lista de Manutenções</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>ID</th>
-                        {% if is_servico %}
-                        <th>Cliente</th>
-                        <th>Veículo/Equip.</th>
-                        {% else %}
-                        <th>Veículo</th>
-                        {% endif %}
-                        <th>Tipo</th>
-                        <th>Descrição</th>
-                        <th>Data Agendada</th>
-                        <th>Data Realizada</th>
-                        <th>{% if is_servico %}Valor{% else %}Custo{% endif %}</th>
-                        <th>Status</th>
-                        <th>Técnico</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead> 
-                <tbody>
-                    {% for manutencao in manutencoes %}
-                    <tr class="manutencao-row" 
-                        data-veiculo="{{ manutencao[13]|lower }} {{ manutencao[14]|lower }}" 
-                        data-descricao="{{ manutencao[3]|lower }}"
-                        data-status="{{ manutencao[7] }}"
-                        data-id="{{ manutencao[0] }}"
-                        data-placa="{{ manutencao[13] }}"
-                        data-modelo="{{ manutencao[14] }}"
-                        data-tipo="{{ manutencao[2] }}"
-                        data-data="{{ manutencao[4] }}"
-                        data-tecnico="{{ manutencao[8] if manutencao[8] else 'Não definido' }}"
-                        data-telefone="{{ manutencao[15] if manutencao[15] else '' }}"
-                        data-cliente="{{ manutencao[16] if manutencao[16] else '' }}">
-                        <td><strong>#{{ manutencao[0] }}</strong></td>
-                        {% if is_servico %}
-                        <td>
-                            {% if manutencao[16] %}
-                            <strong class="text-success"><i class="fas fa-user"></i> {{ manutencao[16] }}</strong>
-                            {% else %}
-                            <small class="text-muted"><i class="fas fa-user-slash"></i> Sem cliente</small>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if manutencao[13] != 'S/Veículo' %}
-                            <small class="text-primary">{{ manutencao[13] }}</small><br>
-                            <small class="text-muted">{{ manutencao[14] }}</small>
-                            {% else %}
-                            <small class="text-muted">-</small>
-                            {% endif %}
-                        </td>
-                        {% else %}
-                        <td>
-                            <strong class="text-primary">{{ manutencao[13] }}</strong><br>
-                            <small class="text-muted">{{ manutencao[14] }}</small>
-                        </td>
-                        {% endif %}
-                        <td>
+<div class="row" id="listaManutencoes">
+    {% if manutencoes %}
+        {% for manutencao in manutencoes %}
+        <div class="col-md-6 col-lg-4 mb-4 manutencao-card" 
+             data-veiculo="{{ manutencao[13]|lower }} {{ manutencao[14]|lower }}" 
+             data-descricao="{{ manutencao[3]|lower }}"
+             data-status="{{ manutencao[7] }}"
+             data-id="{{ manutencao[0] }}"
+             data-placa="{{ manutencao[13] }}"
+             data-modelo="{{ manutencao[14] }}"
+             data-tipo="{{ manutencao[2] }}"
+             data-data="{{ manutencao[4] }}"
+             data-tecnico="{{ manutencao[8] if manutencao[8] else 'Não definido' }}"
+             data-telefone="{{ manutencao[15] if manutencao[15] else '' }}"
+             data-cliente="{{ manutencao[16] if manutencao[16] else '' }}">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1"><i class="fas fa-wrench"></i> #{{ manutencao[0] }}</h6>
                             {% if manutencao[2] == 'Preventiva' %}
                                 <span class="badge bg-info">{{ manutencao[2] }}</span>
                             {% elif manutencao[2] == 'Corretiva' %}
@@ -119,32 +75,10 @@
                             {% else %}
                                 <span class="badge bg-secondary">{{ manutencao[2] }}</span>
                             {% endif %}
-                        </td>
-                        <td>
-                            <span title="{{ manutencao[3] }}">
-                                {{ manutencao[3][:30] }}{% if manutencao[3]|length > 30 %}...{% endif %}
-                            </span>
-                        </td>
-                        <td>
-                            <small class="text-primary">{{ manutencao[4] }}</small>
-                        </td>
-                        <td>
-                            {% if manutencao[5] %}
-                                <small class="text-success">{{ manutencao[5] }}</small>
-                            {% else %}
-                                <small class="text-muted">-</small>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if manutencao[6] %}
-                                <span class="text-success">{{ manutencao[6]|moeda_br }}</span>
-                            {% else %}
-                                <small class="text-muted">-</small>
-                            {% endif %}
-                        </td>
-                        <td>
+                        </div>
+                        <div>
                             {% if manutencao[7] == 'Agendada' %}
-                                <span class="badge bg-warning">{{ manutencao[7] }}</span>
+                                <span class="badge bg-warning text-dark">{{ manutencao[7] }}</span>
                             {% elif manutencao[7] == 'Em Andamento' %}
                                 <span class="badge bg-info">{{ manutencao[7] }}</span>
                             {% elif manutencao[7] == 'Concluída' %}
@@ -152,11 +86,11 @@
                             {% elif manutencao[7] == 'RASCUNHO' %}
                                 <span class="badge bg-secondary">📝 Rascunho</span>
                             {% elif manutencao[7] == 'ORCAMENTO' %}
-                                <span class="badge bg-primary">📋 Orçamento</span>
+                                <span class="badge bg-info">📋 Orçamento</span>
                             {% elif manutencao[7] == 'APROVADO' %}
                                 <span class="badge bg-success">✅ Aprovado</span>
                             {% elif manutencao[7] == 'EM_EXECUCAO' %}
-                                <span class="badge bg-info">⚙️ Em Execução</span>
+                                <span class="badge bg-info">⚙️ Execução</span>
                             {% elif manutencao[7] == 'FINALIZADO' %}
                                 <span class="badge bg-dark">🏁 Finalizado</span>
                             {% elif manutencao[7] == 'CANCELADO' %}
@@ -164,115 +98,173 @@
                             {% else %}
                                 <span class="badge bg-danger">{{ manutencao[7] }}</span>
                             {% endif %}
-                        </td>
-                        <td>
-                            {% if manutencao[8] %}
-                                <small>{{ manutencao[8] }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if is_servico and manutencao[16] %}
+                    <div class="mb-2">
+                        <strong><i class="fas fa-user text-primary"></i> Cliente:</strong><br>
+                        <span class="text-muted">{{ manutencao[16] }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if manutencao[13] != 'S/Veículo' %}
+                    <div class="mb-2">
+                        <strong><i class="fas fa-car text-secondary"></i> {% if is_servico %}Equip.{% else %}Veículo{% endif %}:</strong><br>
+                        <span class="text-muted">{{ manutencao[13] }} - {{ manutencao[14] }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mb-2">
+                        <strong><i class="fas fa-clipboard text-info"></i> Descrição:</strong><br>
+                        <small class="text-muted" title="{{ manutencao[3] }}">
+                            {{ manutencao[3][:50] }}{% if manutencao[3]|length > 50 %}...{% endif %}
+                        </small>
+                    </div>
+                    
+                    <div class="row text-center mb-2">
+                        <div class="col-6">
+                            <small class="text-muted">Agendada</small><br>
+                            <small class="text-primary"><strong>{{ manutencao[4] }}</strong></small>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Realizada</small><br>
+                            {% if manutencao[5] %}
+                                <small class="text-success"><strong>{{ manutencao[5] }}</strong></small>
                             {% else %}
-                                <small class="text-muted">Não definido</small>
+                                <small class="text-muted">-</small>
                             {% endif %}
-                        </td>
-                        <td>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-outline-primary" title="Ver Detalhes"
-                                        onclick="verDetalhesManutencao('{{ manutencao[0] }}')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-warning" title="Editar"
-                                        onclick="editarManutencao('{{ manutencao[0] }}')">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                {% if is_servico %}
-                                    {# Ações para modo SERVICO #}
-                                    {% if manutencao[7] == 'RASCUNHO' %}
-                                    {# Botão WhatsApp para enviar análise ao técnico #}
-                                    {% if manutencao[8] and manutencao[15] %}
-                                    <button class="btn btn-sm btn-outline-success" 
-                                            title="Enviar para Técnico Analisar via WhatsApp"
-                                            onclick="enviarParaTecnicoAnalisar(this)">
-                                        <i class="fab fa-whatsapp"></i>
-                                    </button>
-                                    {% endif %}
-                                    <button class="btn btn-sm btn-outline-primary" title="Gerar Orçamento"
-                                            onclick="gerarOrcamento('{{ manutencao[0] }}')">
-                                        <i class="fas fa-file-invoice-dollar"></i>
-                                    </button>
-                                    {% elif manutencao[7] == 'ORCAMENTO' %}
-                                    {# Botão WhatsApp para enviar orçamento ao cliente #}
-                                    <button class="btn btn-sm btn-success" 
-                                            title="Enviar Orçamento ao Cliente via WhatsApp"
-                                            onclick="enviarOrcamentoCliente('{{ manutencao[0] }}')">
-                                        <i class="fab fa-whatsapp"></i> Cliente
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success" title="Aprovar Orçamento"
-                                            onclick="aprovarOrcamento('{{ manutencao[0] }}')">
-                                        <i class="fas fa-check-circle"></i> Aprovar
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info" title="PDF Orçamento"
-                                            onclick="baixarOrcamentoPDF('{{ manutencao[0] }}')">
-                                        <i class="fas fa-file-pdf"></i>
-                                    </button>
-                                    {% elif manutencao[7] == 'APROVADO' %}
-                                    {# Botão WhatsApp para notificar técnico sobre execução #}
-                                    {% if manutencao[8] and manutencao[15] %}
-                                    <button class="btn btn-sm btn-success" 
-                                            title="Notificar Técnico para Iniciar Execução"
-                                            onclick="notificarTecnicoExecucao(this)">
-                                        <i class="fab fa-whatsapp"></i>
-                                    </button>
-                                    {% endif %}
-                                    <button class="btn btn-sm btn-outline-info" title="Iniciar Execução"
-                                            onclick="iniciarExecucao('{{ manutencao[0] }}')">
-                                        <i class="fas fa-play"></i> Iniciar
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
-                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
-                                        <i class="fas fa-file-alt"></i> OS
-                                    </button>
-                                    {% elif manutencao[7] == 'EM_EXECUCAO' %}
-                                    <button class="btn btn-sm btn-outline-success" title="Finalizar"
-                                            onclick="finalizarServico('{{ manutencao[0] }}')">
-                                        <i class="fas fa-flag-checkered"></i> Finalizar
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
-                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
-                                        <i class="fas fa-file-alt"></i> OS
-                                    </button>
-                                    {% elif manutencao[7] == 'FINALIZADO' %}
-                                    <button class="btn btn-sm btn-outline-secondary" title="PDF Ordem de Serviço"
-                                            onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
-                                        <i class="fas fa-file-alt"></i> OS
-                                    </button>
-                                    {% endif %}
-                                {% else %}
-                                    {# Ações para modo FROTA #}
-                                    {% if manutencao[7] == 'Agendada' %}
-                                    <button class="btn btn-sm btn-outline-success iniciar-whatsapp" 
-                                            title="Iniciar e Notificar via WhatsApp"
-                                            onclick="iniciarViaWhatsApp(this)">
-                                        <i class="fab fa-whatsapp"></i> Iniciar
-                                    </button>
-                                    {% elif manutencao[7] == 'Em Andamento' %}
-                                    <button class="btn btn-sm btn-outline-success" title="Finalizar"
-                                            onclick="finalizarManutencao('{{ manutencao[0] }}')">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                    {% endif %}
-                                {% endif %}
-                                {% if manutencao[7] in ['CANCELADO', 'Cancelada'] %}
-                                <button class="btn btn-sm btn-outline-danger" title="Excluir"
-                                        onclick="excluirManutencao('{{ manutencao[0] }}')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                                {% endif %}
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <small class="text-muted">{% if is_servico %}Valor{% else %}Custo{% endif %}</small><br>
+                            {% if manutencao[6] %}
+                                <small class="text-success"><strong>{{ manutencao[6]|moeda_br }}</strong></small>
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Técnico</small><br>
+                            {% if manutencao[8] %}
+                                <small class="text-muted"><strong>{{ manutencao[8][:12] }}{% if manutencao[8]|length > 12 %}...{% endif %}</strong></small>
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer p-2">
+                    <div class="btn-group w-100 flex-wrap gap-1" role="group">
+                        <button class="btn btn-sm btn-outline-primary" title="Ver Detalhes"
+                                onclick="verDetalhesManutencao('{{ manutencao[0] }}')">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" title="Editar"
+                                onclick="editarManutencao('{{ manutencao[0] }}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        {% if is_servico %}
+                            {# Ações para modo SERVICO #}
+                            {% if manutencao[7] == 'RASCUNHO' %}
+                            {# Botão WhatsApp para enviar análise ao técnico #}
+                            {% if manutencao[8] and manutencao[15] %}
+                            <button class="btn btn-sm btn-outline-success" 
+                                    title="Enviar para Técnico Analisar"
+                                    onclick="enviarParaTecnicoAnalisar(this)">
+                                <i class="fab fa-whatsapp"></i>
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-sm btn-outline-primary" title="Gerar Orçamento"
+                                    onclick="gerarOrcamento('{{ manutencao[0] }}')">
+                                <i class="fas fa-file-invoice-dollar"></i>
+                            </button>
+                            {% elif manutencao[7] == 'ORCAMENTO' %}
+                            {# Botão WhatsApp para enviar orçamento ao cliente #}
+                            <button class="btn btn-sm btn-success" 
+                                    title="Enviar Orçamento via WhatsApp"
+                                    onclick="enviarOrcamentoCliente('{{ manutencao[0] }}')">
+                                <i class="fab fa-whatsapp"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" title="Aprovar"
+                                    onclick="aprovarOrcamento('{{ manutencao[0] }}')">
+                                <i class="fas fa-check-circle"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-info" title="PDF"
+                                    onclick="baixarOrcamentoPDF('{{ manutencao[0] }}')">
+                                <i class="fas fa-file-pdf"></i>
+                            </button>
+                            {% elif manutencao[7] == 'APROVADO' %}
+                            {# Botão WhatsApp para notificar técnico sobre execução #}
+                            {% if manutencao[8] and manutencao[15] %}
+                            <button class="btn btn-sm btn-success" 
+                                    title="Notificar Técnico"
+                                    onclick="notificarTecnicoExecucao(this)">
+                                <i class="fab fa-whatsapp"></i>
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-sm btn-outline-info" title="Iniciar"
+                                    onclick="iniciarExecucao('{{ manutencao[0] }}')">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" title="OS PDF"
+                                    onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                <i class="fas fa-file-alt"></i>
+                            </button>
+                            {% elif manutencao[7] == 'EM_EXECUCAO' %}
+                            <button class="btn btn-sm btn-outline-success" title="Finalizar"
+                                    onclick="finalizarServico('{{ manutencao[0] }}')">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" title="OS PDF"
+                                    onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                <i class="fas fa-file-alt"></i>
+                            </button>
+                            {% elif manutencao[7] == 'FINALIZADO' %}
+                            <button class="btn btn-sm btn-outline-secondary" title="OS PDF"
+                                    onclick="baixarOrdemServicoPDF('{{ manutencao[0] }}')">
+                                <i class="fas fa-file-alt"></i>
+                            </button>
+                            {% endif %}
+                        {% else %}
+                            {# Ações para modo FROTA #}
+                            {% if manutencao[7] == 'Agendada' %}
+                            <button class="btn btn-sm btn-outline-success iniciar-whatsapp" 
+                                    title="Iniciar e Notificar"
+                                    onclick="iniciarViaWhatsApp(this)">
+                                <i class="fab fa-whatsapp"></i>
+                            </button>
+                            {% elif manutencao[7] == 'Em Andamento' %}
+                            <button class="btn btn-sm btn-outline-success" title="Finalizar"
+                                    onclick="finalizarManutencao('{{ manutencao[0] }}')">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            {% endif %}
+                        {% endif %}
+                        {% if manutencao[7] in ['CANCELADO', 'Cancelada'] %}
+                        <button class="btn btn-sm btn-outline-danger" title="Excluir"
+                                onclick="excluirManutencao('{{ manutencao[0] }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="col-12">
+        <div class="alert alert-info text-center">
+            <i class="fas fa-info-circle"></i> Nenhuma manutenção registrada. 
+            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#novaManutencaoModal">
+                Crie a primeira!
+            </button>
         </div>
     </div>
+    {% endif %}
 </div>
 
 <!-- Modal Nova Manutenção -->
@@ -1679,23 +1671,23 @@ document.addEventListener('DOMContentLoaded', function() {
 function filtrarManutencoes() {
     const searchText = document.getElementById('searchManutencoes').value.toLowerCase();
     const filtroStatus = document.getElementById('filtroStatus').value;
-    const rows = document.querySelectorAll('.manutencao-row');
+    const cards = document.querySelectorAll('.manutencao-card');
     
     let contadorVisiveis = 0;
     
-    rows.forEach(row => {
-        const veiculo = row.getAttribute('data-veiculo');
-        const descricao = row.getAttribute('data-descricao');
-        const status = row.getAttribute('data-status');
+    cards.forEach(card => {
+        const veiculo = card.getAttribute('data-veiculo');
+        const descricao = card.getAttribute('data-descricao');
+        const status = card.getAttribute('data-status');
         
         const matchSearch = veiculo.includes(searchText) || descricao.includes(searchText);
         const matchStatus = !filtroStatus || status === filtroStatus;
         
         if (matchSearch && matchStatus) {
-            row.style.display = '';
+            card.style.display = '';
             contadorVisiveis++;
         } else {
-            row.style.display = 'none';
+            card.style.display = 'none';
         }
     });
     
